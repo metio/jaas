@@ -1,0 +1,5 @@
+GET http://localhost:8080/jsonnet/examples/snippets/example.jsonnet
+
+###
+
+GET http://localhost:8080/jsonnet/example1?key=value&key=other&name=external
