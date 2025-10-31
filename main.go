@@ -1,3 +1,8 @@
+/*
+ * SPDX-FileCopyrightText: The jaas Authors
+ * SPDX-License-Identifier: 0BSD
+ */
+
 package main
 
 import (
@@ -5,13 +10,14 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
-	"metio.wtf/jaas/internal/handler"
 	"net/http"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/metio/jaas/internal/handler"
 )
 
 type stringArray []string
