@@ -92,6 +92,7 @@ func main() {
 
 	healthHandler := handler.HealthHandler()
 	managementMux := http.NewServeMux()
+	managementMux.HandleFunc("/start", healthHandler)
 	managementMux.HandleFunc("/ready", healthHandler)
 	managementMux.HandleFunc("/live", healthHandler)
 	slog.DebugContext(ctx, "Management handlers configured")
