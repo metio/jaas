@@ -30,7 +30,7 @@ jobs:
         run: echo "count=$(git rev-list --count ${{ steps.last_release.outputs.tag }}..HEAD -- go.mod main.go internal)" >> $GITHUB_OUTPUT
       - id: release
         name: Create Release Version
-        if: steps.commits.outputs.count > 0
+        if: steps.commits.outputs.count > 0 || steps.last_release.outputs.tag == ''
         run: echo "version=$(date +'%Y.%-m.%-d')" >> $GITHUB_OUTPUT
   build:
     name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
@@ -54,22 +54,22 @@ jobs:
     steps:
       - id: checkout
         name: Clone Git Repository
-        if: needs.prepare.outputs.commit_count > 0
+        if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
         uses: actions/checkout@v5
       - id: versioning
         name: Modify release version
-        if: needs.prepare.outputs.commit_count > 0
+        if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
         run: sed -i -e 's/var jaasVersion = .*/var jaasVersion = "${{ steps.release.outputs.version }}"/' main.go
       - id: setup_go
         name: Set up Go
         uses: actions/setup-go@v6
-        if: needs.prepare.outputs.commit_count > 0
+        if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
         with:
           go-version-file: go.mod
           cache: true
       - id: build
         name: Build Project
-        if: needs.prepare.outputs.commit_count > 0
+        if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
         run: >
           go build
           -o ${{ github.event.repository.name }}_v${{ needs.prepare.outputs.release_version }}
@@ -81,7 +81,7 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
       - id: tar
         name: Create tar.gz Archive
-        if: needs.prepare.outputs.commit_count > 0
+        if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
         run: >
           tar
           --create
@@ -92,7 +92,7 @@ jobs:
           README.md
       - id: upload
         name: Upload Artifact
-        if: needs.prepare.outputs.commit_count > 0
+        if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
         uses: actions/upload-artifact@v5
         with:
           name: ${{ github.event.repository.name }}-${{ matrix.goos }}-${{ matrix.goarch }}
@@ -106,13 +106,13 @@ jobs:
     steps:
       - id: checkout
         name: Clone Git Repository
-        if: needs.prepare.outputs.commit_count > 0
+        if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
       - id: download
         name: Download Artifacts
-        if: needs.prepare.outputs.commit_count > 0
+        if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
         uses: actions/download-artifact@v6
         with:
           path: dist
@@ -120,7 +120,7 @@ jobs:
           merge-multiple: true
       - id: checksums
         name: Calculate Checksums
-        if: needs.prepare.outputs.commit_count > 0
+        if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
         run: >
           cd dist &&
           sha256sum
@@ -134,13 +134,13 @@ jobs:
       - id: import_gpg
         name: Import GPG key
         uses: crazy-max/ghaction-import-gpg@v6
-        if: needs.prepare.outputs.commit_count > 0
+        if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
         with:
           gpg_private_key: ${{ secrets.GPG_SECRET_KEY_BASE64 }}
           passphrase: ${{ secrets.GPG_SECRET_KEY_PASSWORD }}
       - id: sign_checksums
         name: Sign Checksums
-        if: needs.prepare.outputs.commit_count > 0
+        if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
         run: >
           gpg
           --batch
@@ -150,7 +150,7 @@ jobs:
           dist/${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_SHA256SUMS
       - id: create_release
         name: Create Release
-        if: needs.prepare.outputs.commit_count > 0
+        if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.prepare.outputs.release_version }}
@@ -181,33 +181,33 @@ jobs:
     steps:
       - id: checkout
         name: Clone Git Repository
-        if: needs.prepare.outputs.commit_count > 0
+        if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
         uses: actions/checkout@v5
       - id: versioning
         name: Modify release version
-        if: needs.prepare.outputs.commit_count > 0
+        if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
         run: sed -i -e 's/var jaasVersion = .*/var jaasVersion = "${{ steps.release.outputs.version }}"/' main.go
       - id: cosign-install
-        if: needs.prepare.outputs.commit_count > 0
+        if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
         name: Install Cosign
         uses: sigstore/cosign-installer@v3
       - id: buildx
-        if: needs.prepare.outputs.commit_count > 0
+        if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
         name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
       - id: dockerhub_login
-        if: needs.prepare.outputs.commit_count > 0
+        if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
         name: Login to Dockerhub
         uses: docker/login-action@v3
         with:
           username: ${{ vars.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
       - id: timestamp
-        if: needs.prepare.outputs.commit_count > 0
+        if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
         name: Create Timestamp
         run: echo "date=$(date --rfc-3339=seconds)" >> $GITHUB_OUTPUT
       - id: publish
-        if: needs.prepare.outputs.commit_count > 0
+        if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
         name: Publish Image
         uses: docker/build-push-action@v6
         with:
@@ -233,7 +233,7 @@ jobs:
           sbom: true
           provenance: true
       - id: sign
-        if: needs.prepare.outputs.commit_count > 0
+        if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
         name: Sign Image
         run: |
           cosign sign \
@@ -244,7 +244,7 @@ jobs:
             docker.io/metio/jaas@${{ steps.publish.outputs.digest }}
       - id: documentation
         name: Docker Hub Description
-        if: needs.prepare.outputs.commit_count > 0
+        if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
         uses: peter-evans/dockerhub-description@v5
         with:
           username: ${{ vars.DOCKER_USERNAME }}
@@ -259,7 +259,7 @@ jobs:
     steps:
       - id: mail
         name: Send Mail
-        if: needs.prepare.outputs.commit_count > 0
+        if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
         uses: dawidd6/action-send-mail@v6
         with:
           server_address: ${{ secrets.MAIL_SERVER }}
@@ -272,7 +272,7 @@ jobs:
           from: ${{ secrets.MAIL_SENDER }}
       - id: matrix
         name: Send Matrix Message
-        if: needs.prepare.outputs.commit_count > 0
+        if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
         uses: s3krit/matrix-message-action@v0.0.3
         with:
           room_id: ${{ secrets.MATRIX_ROOM_ID }}
