@@ -118,6 +118,7 @@ func main() {
 			os.Exit(1)
 		}
 	}()
+	slog.DebugContext(ctx, "Jsonnet server started")
 
 	go func() {
 		err := managementServer.ListenAndServe()
@@ -129,6 +130,7 @@ func main() {
 			os.Exit(1)
 		}
 	}()
+	slog.DebugContext(ctx, "Management server started")
 
 	defer func() {
 		if err := jsonnetServer.Shutdown(ctx); err != nil {
