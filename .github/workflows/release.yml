@@ -251,7 +251,7 @@ jobs:
           password: ${{ secrets.DOCKER_PASSWORD }}
           repository: metio/jaas
           short-description: ${{ github.event.repository.description }}
-          readme-filepath: ./README.dockerhub.md
+          readme-filepath: ./README.md
   announcement:
     name: Announcement
     needs: [prepare, build, github, dockerhub]
