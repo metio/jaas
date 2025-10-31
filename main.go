@@ -7,6 +7,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -107,11 +108,25 @@ func main() {
 	signal.Notify(sigs, syscall.SIGINT)
 
 	go func() {
-		jsonnetServer.ListenAndServe()
+		err := jsonnetServer.ListenAndServe()
+		if errors.Is(err, http.ErrServerClosed) {
+			slog.DebugContext(ctx, "Server closed")
+			os.Exit(0)
+		} else if err != nil {
+			slog.ErrorContext(ctx, "Error while serving", slog.Any("error", err))
+			os.Exit(1)
+		}
 	}()
 
 	go func() {
-		managementServer.ListenAndServe()
+		err := managementServer.ListenAndServe()
+		if errors.Is(err, http.ErrServerClosed) {
+			slog.DebugContext(ctx, "Server closed")
+			os.Exit(0)
+		} else if err != nil {
+			slog.ErrorContext(ctx, "Error while serving", slog.Any("error", err))
+			os.Exit(1)
+		}
 	}()
 
 	defer func() {
