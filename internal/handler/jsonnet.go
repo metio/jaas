@@ -1,14 +1,20 @@
+/*
+ * SPDX-FileCopyrightText: The jaas Authors
+ * SPDX-License-Identifier: 0BSD
+ */
+
 package handler
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/google/go-jsonnet"
 	"log/slog"
 	"net/http"
 	"os"
 	"slices"
+
+	"github.com/google/go-jsonnet"
 )
 
 func JsonnetHandler(ctx context.Context, snippets []string, snippetDirectories []string, libraryPaths []string) http.HandlerFunc {

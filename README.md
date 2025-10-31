@@ -1,3 +1,8 @@
+<!--
+SPDX-FileCopyrightText: The jaas Authors
+SPDX-License-Identifier: 0BSD
+ -->
+
 # Jsonnet-as-a-Service (JaaS)
 
 JaaS is a webservice that evaluates Jsonnet snippets on the fly.

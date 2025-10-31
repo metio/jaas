@@ -1,0 +1,281 @@
+# SPDX-FileCopyrightText: The jaas Authors
+# SPDX-License-Identifier: 0BSD
+
+name: Automated Release
+on:
+  schedule:
+    - cron: 47 7 * * MON
+  workflow_dispatch:
+jobs:
+  prepare:
+    name: Prepare Release
+    runs-on: ubuntu-latest
+    outputs:
+      commit_count: ${{ steps.commits.outputs.count }}
+      release_version: ${{ steps.release.outputs.version }}
+      previous_version: ${{ steps.last_release.outputs.tag }}
+    steps:
+      - id: checkout
+        name: Clone Git Repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - id: last_release
+        name: Fetch last release info
+        run: echo "tag=$(gh release view --json tagName --jq '.tagName')" >> $GITHUB_OUTPUT
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - id: commits
+        name: Count Commits
+        run: echo "count=$(git rev-list --count ${{ steps.last_release.outputs.tag }}..HEAD -- go.mod main.go internal)" >> $GITHUB_OUTPUT
+      - id: release
+        name: Create Release Version
+        if: steps.commits.outputs.count > 0
+        run: echo "version=$(date +'%Y.%-m.%-d')" >> $GITHUB_OUTPUT
+  build:
+    name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+    needs: prepare
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
+    steps:
+      - id: checkout
+        name: Clone Git Repository
+        if: needs.prepare.outputs.commit_count > 0
+        uses: actions/checkout@v5
+      - id: versioning
+        name: Modify release version
+        if: needs.prepare.outputs.commit_count > 0
+        run: sed -i -e 's/var jaasVersion = .*/var jaasVersion = "${{ steps.release.outputs.version }}"/' main.go
+      - id: setup_go
+        name: Set up Go
+        uses: actions/setup-go@v6
+        if: needs.prepare.outputs.commit_count > 0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - id: build
+        name: Build Project
+        if: needs.prepare.outputs.commit_count > 0
+        run: >
+          go build
+          -o ${{ github.event.repository.name }}_v${{ needs.prepare.outputs.release_version }}
+          -trimpath
+          -ldflags="-s -w -X main.version=${{ needs.prepare.outputs.release_version }} -X main.commit=${{ github.sha }}"
+        env:
+          CGO_ENABLED: 0
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+      - id: tar
+        name: Create tar.gz Archive
+        if: needs.prepare.outputs.commit_count > 0
+        run: >
+          tar
+          --create
+          --gzip
+          --file ${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_${{ matrix.goos }}_${{ matrix.goarch }}.tar.gz
+          ${{ github.event.repository.name }}_v${{ needs.prepare.outputs.release_version }}
+          LICENSE
+          README.md
+      - id: upload
+        name: Upload Artifact
+        if: needs.prepare.outputs.commit_count > 0
+        uses: actions/upload-artifact@v5
+        with:
+          name: ${{ github.event.repository.name }}-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: ${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_${{ matrix.goos }}_${{ matrix.goarch }}.tar.gz
+  github:
+    name: GitHub Release
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - id: checkout
+        name: Clone Git Repository
+        if: needs.prepare.outputs.commit_count > 0
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - id: download
+        name: Download Artifacts
+        if: needs.prepare.outputs.commit_count > 0
+        uses: actions/download-artifact@v6
+        with:
+          path: dist
+          pattern: ${{ github.event.repository.name }}-*
+          merge-multiple: true
+      - id: checksums
+        name: Calculate Checksums
+        if: needs.prepare.outputs.commit_count > 0
+        run: >
+          cd dist &&
+          sha256sum
+          ${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_linux_amd64.tar.gz
+          ${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_linux_arm.tar.gz
+          ${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_linux_arm64.tar.gz
+          ${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_darwin_amd64.tar.gz
+          ${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_darwin_arm64.tar.gz
+          ${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_windows_amd64.tar.gz
+          > ${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_SHA256SUMS
+      - id: import_gpg
+        name: Import GPG key
+        uses: crazy-max/ghaction-import-gpg@v6
+        if: needs.prepare.outputs.commit_count > 0
+        with:
+          gpg_private_key: ${{ secrets.GPG_SECRET_KEY_BASE64 }}
+          passphrase: ${{ secrets.GPG_SECRET_KEY_PASSWORD }}
+      - id: sign_checksums
+        name: Sign Checksums
+        if: needs.prepare.outputs.commit_count > 0
+        run: >
+          gpg
+          --batch
+          --local-user ${{ steps.import_gpg.outputs.fingerprint }}
+          --output dist/${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_SHA256SUMS.sig
+          --detach-sign
+          dist/${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_SHA256SUMS
+      - id: create_release
+        name: Create Release
+        if: needs.prepare.outputs.commit_count > 0
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prepare.outputs.release_version }}
+          name: ${{ needs.prepare.outputs.release_version }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          draft: false
+          prerelease: false
+          body: |
+            ## Usage
+            
+            Pull latest container from `docker.io/metio/jaas:${{ needs.prepare.outputs.release_version }}`. Check the [migration guide](https://github.com/metio/jaas/blob/main/MIGRATIONS.md) for any required actions on your part.
+          generate_release_notes: true
+          files: |
+            dist/${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_linux_amd64.tar.gz
+            dist/${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_linux_arm.tar.gz
+            dist/${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_linux_arm64.tar.gz
+            dist/${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_darwin_amd64.tar.gz
+            dist/${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_darwin_arm64.tar.gz
+            dist/${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_windows_amd64.tar.gz
+            dist/${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_SHA256SUMS
+            dist/${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_SHA256SUMS.sig
+  dockerhub:
+    name: Dockerhub Release
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    steps:
+      - id: checkout
+        name: Clone Git Repository
+        if: needs.prepare.outputs.commit_count > 0
+        uses: actions/checkout@v5
+      - id: versioning
+        name: Modify release version
+        if: needs.prepare.outputs.commit_count > 0
+        run: sed -i -e 's/var jaasVersion = .*/var jaasVersion = "${{ steps.release.outputs.version }}"/' main.go
+      - id: cosign-install
+        if: needs.prepare.outputs.commit_count > 0
+        name: Install Cosign
+        uses: sigstore/cosign-installer@v3
+      - id: buildx
+        if: needs.prepare.outputs.commit_count > 0
+        name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - id: dockerhub_login
+        if: needs.prepare.outputs.commit_count > 0
+        name: Login to Dockerhub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ vars.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+      - id: timestamp
+        if: needs.prepare.outputs.commit_count > 0
+        name: Create Timestamp
+        run: echo "date=$(date --rfc-3339=seconds)" >> $GITHUB_OUTPUT
+      - id: publish
+        if: needs.prepare.outputs.commit_count > 0
+        name: Publish Image
+        uses: docker/build-push-action@v6
+        with:
+          builder: ${{ steps.buildx.outputs.name }}
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: |
+            docker.io/metio/jaas:latest
+            docker.io/metio/jaas:${{ needs.prepare.outputs.release_version }}
+          labels: |
+            org.opencontainers.image.title=jaas
+            org.opencontainers.image.licenses=0BSD
+            org.opencontainers.image.vendor=metio
+            org.opencontainers.image.url=https://github.com/${{ github.repository }}
+            org.opencontainers.image.documentation=https://github.com/${{ github.repository }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.version=${{ needs.prepare.outputs.release_version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.created=${{ steps.timestamp.outputs.date }}
+          cache-from: type=registry,ref=metio/jaas:buildcache
+          cache-to: type=registry,ref=metio/jaas:buildcache,mode=max
+          sbom: true
+          provenance: true
+      - id: sign
+        if: needs.prepare.outputs.commit_count > 0
+        name: Sign Image
+        run: |
+          cosign sign \
+            --yes \
+            --annotations "repo=${{ github.repository }}" \
+            --annotations "workflow=${{ github.workflow }}" \
+            --annotations "ref=${{ github.sha }}" \
+            docker.io/metio/jaas@${{ steps.publish.outputs.digest }}
+      - id: documentation
+        name: Docker Hub Description
+        if: needs.prepare.outputs.commit_count > 0
+        uses: peter-evans/dockerhub-description@v5
+        with:
+          username: ${{ vars.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+          repository: metio/jaas
+          short-description: ${{ github.event.repository.description }}
+          readme-filepath: ./README.dockerhub.md
+  announcement:
+    name: Announcement
+    needs: [prepare, build, github, dockerhub]
+    runs-on: ubuntu-latest
+    steps:
+      - id: mail
+        name: Send Mail
+        if: needs.prepare.outputs.commit_count > 0
+        uses: dawidd6/action-send-mail@v6
+        with:
+          server_address: ${{ secrets.MAIL_SERVER }}
+          server_port: ${{ secrets.MAIL_PORT }}
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.MAIL_PASSWORD }}
+          subject: ${{ github.event.repository.name }} version ${{ needs.prepare.outputs.release_version }} published
+          body: See https://github.com/metio/${{ github.event.repository.name }}/releases/tag/${{ needs.prepare.outputs.release_version }} for details.
+          to: ${{ secrets.MAIL_RECIPIENT }}
+          from: ${{ secrets.MAIL_SENDER }}
+      - id: matrix
+        name: Send Matrix Message
+        if: needs.prepare.outputs.commit_count > 0
+        uses: s3krit/matrix-message-action@v0.0.3
+        with:
+          room_id: ${{ secrets.MATRIX_ROOM_ID }}
+          access_token: ${{ secrets.MATRIX_ACCESS_TOKEN }}
+          message: ${{ github.event.repository.name }} version [${{ needs.prepare.outputs.release_version }}](https://github.com/metio/${{ github.event.repository.name }}/releases/tag/${{ needs.prepare.outputs.release_version }}) published
+          server: ${{ secrets.MATRIX_SERVER }}

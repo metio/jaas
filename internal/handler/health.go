@@ -1,3 +1,8 @@
+/*
+ * SPDX-FileCopyrightText: The jaas Authors
+ * SPDX-License-Identifier: 0BSD
+ */
+
 package handler
 
 import "net/http"
