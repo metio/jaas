@@ -16,6 +16,9 @@ func HealthHandler() http.HandlerFunc {
 
 		writer.WriteHeader(http.StatusOK)
 		writer.Header().Set("Content-Type", "application/json")
-		writer.Write([]byte(`{"status": "ok"}`))
+		_, err := writer.Write([]byte(`{"status": "ok"}`))
+		if err != nil {
+			return
+		}
 	}
 }
