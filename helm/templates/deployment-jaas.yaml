@@ -1,0 +1,203 @@
+# SPDX-FileCopyrightText: The jaas Authors
+# SPDX-License-Identifier: 0BSD
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jaas
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/component: jaas
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+    app.kubernetes.io/part-of: {{ .Chart.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
+    {{ with .Values.deployment.additionalLabels }}
+    {{ .  | nindent 4 }}
+    {{ end }}
+spec:
+  revisionHistoryLimit: {{ .Values.deployment.revisionHistoryLimit }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .Chart.Name }}
+      app.kubernetes.io/component: jaas
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/part-of: {{ .Chart.Name }}
+      app.kubernetes.io/managed-by: {{ .Release.Service }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ .Chart.Name }}
+        app.kubernetes.io/component: jaas
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+        app.kubernetes.io/part-of: {{ .Chart.Name }}
+        app.kubernetes.io/managed-by: {{ .Release.Service }}
+        helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
+        {{ with .Values.pod.additionalLabels }}
+        {{ .  | nindent 8 }}
+        {{ end }}
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: {{ .Chart.Name }}
+                    app.kubernetes.io/component: jaas
+                    app.kubernetes.io/part-of: {{ .Chart.Name }}
+                    app.kubernetes.io/managed-by: {{ .Release.Service }}
+                  matchExpressions:
+                    - key: app.kubernetes.io/instance
+                      operator: NotIn
+                      values:
+                        - {{ .Release.Name }}
+                topologyKey: kubernetes.io/hostname
+              weight: 100
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ .Chart.Name }}
+              app.kubernetes.io/component: jaas
+              app.kubernetes.io/instance: {{ .Release.Name }}
+              app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+              app.kubernetes.io/part-of: {{ .Chart.Name }}
+              app.kubernetes.io/managed-by: {{ .Release.Service }}
+              helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
+      automountServiceAccountToken: false
+      containers:
+        - name: jaas
+          image: "{{ .Values.image.registry }}/{{ .Values.image.repository }}:{{ .Chart.AppVersion }}"
+          args:
+            - -listen-address
+            - 0.0.0.0
+            - -port
+            - {{ .Values.ports.http }}
+            - -management-listen-address
+            - 0.0.0.0
+            - -management-port
+            - {{ .Values.ports.management }}
+            - -log-level
+            - {{ .Values.arguments.logLevel }}
+            - -snippet-directory
+            - {{ $.Values.paths.snippets }}
+          {{ if .Values.libraries.grafonnet.enabled }}
+            - -library-path
+            - {{ .Values.paths.libraries }}/grafonnet
+          {{ end }}
+          {{ if .Values.libraries.docsonnet.enabled }}
+            - -library-path
+            - {{ .Values.paths.libraries }}/docsonnet
+          {{ end }}
+          {{ if .Values.libraries.xtd.enabled }}
+            - -library-path
+            - {{ .Values.paths.libraries }}/xtd
+          {{ end }}
+          {{ range $name, $image := .Values.additionalLibraries }}
+            - -library-path
+            - {{ $.Values.paths.libraries }}/{{ $name }}
+          {{ end }}
+          volumeMounts:
+          {{ if .Values.libraries.grafonnet.enabled }}
+            - name: library-grafonnet
+              mountPath: {{ .Values.paths.libraries }}/grafonnet
+              readOnly: true
+          {{ end }}
+          {{ if .Values.libraries.docsonnet.enabled }}
+            - name: library-docsonnet
+              mountPath: {{ .Values.paths.libraries }}/docsonnet
+              readOnly: true
+          {{ end }}
+          {{ if .Values.libraries.xtd.enabled }}
+            - name: library-xtd
+              mountPath: {{ .Values.paths.libraries }}/xtd
+              readOnly: true
+          {{ end }}
+          {{ range $name, $image := .Values.additionalLibraries }}
+            - name: library-{{ $name | replace "_" "-" }}
+              mountPath: {{ $.Values.paths.libraries }}/{{ $name }}
+              readOnly: true
+          {{ end }}
+          {{ range $name, $image := .Values.snippets }}
+            - name: snippet-{{ $name | replace "_" "-" }}
+              mountPath: {{ $.Values.paths.snippets }}/{{ $name }}
+              readOnly: true
+          {{ end }}
+          ports:
+            - containerPort: {{ .Values.ports.http }}
+              name: http
+              protocol: TCP
+            - containerPort: {{ .Values.ports.management }}
+              name: management
+              protocol: TCP
+          startupProbe:
+            periodSeconds: 1
+            failureThreshold: 60
+            httpGet:
+              path: /start
+              port: management
+          readinessProbe:
+            initialDelaySeconds: 0
+            httpGet:
+              path: /ready
+              port: management
+          livenessProbe:
+            initialDelaySeconds: 0
+            httpGet:
+              path: /live
+              port: management
+          resources:
+            requests:
+              cpu: 30m
+              memory: 64Mi
+            limits:
+              cpu: 30m
+              memory: 64Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsGroup: 12345
+            runAsUser: 12345
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+      volumes:
+        {{ if .Values.libraries.grafonnet.enabled }}
+        - name: library-grafonnet
+          image:
+            reference: "{{ .Values.libraries.grafonnet.registry }}/{{ .Values.libraries.grafonnet.repository }}:{{ .Values.libraries.grafonnet.version }}"
+            pullPolicy: IfNotPresent
+        {{ end }}
+        {{ if .Values.libraries.docsonnet.enabled }}
+        - name: library-docsonnet
+          image:
+            reference: "{{ .Values.libraries.docsonnet.registry }}/{{ .Values.libraries.docsonnet.repository }}:{{ .Values.libraries.docsonnet.version }}"
+            pullPolicy: IfNotPresent
+        {{ end }}
+        {{ if .Values.libraries.xtd.enabled }}
+        - name: library-xtd
+          image:
+            reference: "{{ .Values.libraries.xtd.registry }}/{{ .Values.libraries.xtd.repository }}:{{ .Values.libraries.xtd.version }}"
+            pullPolicy: IfNotPresent
+        {{ end }}
+        {{ range $name, $image := .Values.additionalLibraries }}
+        - name: library-{{ $name | replace "_" "-" }}
+          image:
+            reference: {{ $image }}
+            pullPolicy: IfNotPresent
+        {{ end }}
+        {{ range $name, $image := .Values.snippets }}
+        - name: snippet-{{ $name | replace "_" "-" }}
+          image:
+            reference: {{ $image }}
+            pullPolicy: IfNotPresent
+        {{ end }}

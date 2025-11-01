@@ -1,0 +1,56 @@
+# SPDX-FileCopyrightText: The jaas Authors
+# SPDX-License-Identifier: 0BSD
+
+ports:
+  http: 8080
+  management: 8081
+
+image:
+  registry: docker.io
+  repository: metio/jaas
+
+replicas:
+  min: 1
+  max: 1
+
+arguments:
+  logLevel: info
+  writeTimeout: 10s
+  readTimeout: 10s
+  managementWriteTimeout: 10s
+  managementReadTimeout: 10s
+  jsonnetEndpointPath: jsonnet
+
+deployment:
+  revisionHistoryLimit: 1
+  additionalLabels: {}
+
+pod:
+  additionalLabels: {}
+
+paths:
+  snippets: /srv/snippets
+  libraries: /srv/libraries
+
+snippets:
+#  something: docker.io/metio/something:latest
+
+libraries:
+  grafonnet:
+    enabled: true
+    registry: docker.io
+    repository: metio/joi-grafana-grafonnet
+    version: v11.4.0
+  docsonnet:
+    enabled: true
+    registry: docker.io
+    repository: metio/joi-jsonnet-libs-docsonnet
+    version: latest
+  xtd:
+    enabled: true
+    registry: docker.io
+    repository: metio/joi-jsonnet-libs-xtd
+    version: latest
+
+additionalLibraries:
+#  something: docker.io/metio/something:latest
