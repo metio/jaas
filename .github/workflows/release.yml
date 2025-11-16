@@ -267,7 +267,7 @@ jobs:
         name: Publish Helm Chart
         run: |
           helm package ./helm --version ${{ needs.prepare.outputs.release_version }} --app-version ${{ needs.prepare.outputs.release_version }}
-          helm push jaas-${{ needs.prepare.outputs.release_version }}.tgz oci://ghcr.io/metio/jaas
+          helm push jaas-${{ needs.prepare.outputs.release_version }}.tgz oci://ghcr.io/metio
   announcement:
     name: Announcement
     needs: [prepare, build, github, container]
