@@ -46,6 +46,8 @@ In case you have split your dashboard definition into multiple files, adjust as 
 Writing your own Jsonnet library is supported as well, you just need to make sure that you recreate the same folder structure that is used by [jsonnet-bundler](https://github.com/jsonnet-bundler/jsonnet-bundler/) in non-legacy mode, e.g., if your library is in a repository at https://git.example.com/my/jsonnet/library and all your Jsonnet files are in a `src/something` subdirectory of that repository, your `Dockerfile` for your Jsonnet library should look like this:
 
 ```dockerfile
+FROM scratch
+
 # The fully qualified path is the URL of your repository + the (optional) subfolder of your Jsonnet files
 COPY src/something /git.example.com/my/jsonnet/library/src/something
 ```
