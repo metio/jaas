@@ -154,13 +154,13 @@ spec:
               port: management
           resources:
             requests:
-              cpu: 30m
-              memory: 64Mi
-              ephemeral-storage: 10Mi
+              cpu: {{ .Values.resources.cpu }}
+              memory: {{ .Values.resources.memory }}
+              ephemeral-storage: {{ .Values.resources.ephemeralStorage }}
             limits:
-              cpu: 30m
-              memory: 64Mi
-              ephemeral-storage: 10Mi
+              cpu: {{ .Values.resources.cpu }}
+              memory: {{ .Values.resources.memory }}
+              ephemeral-storage: {{ .Values.resources.ephemeralStorage }}
           securityContext:
             runAsNonRoot: true
             runAsGroup: 12345
