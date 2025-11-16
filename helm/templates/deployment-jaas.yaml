@@ -15,7 +15,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ .Release.Service }}
     helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
     {{ with .Values.deployment.additionalLabels }}
-    {{ .  | nindent 4 }}
+    {{ toYaml . | nindent 4 }}
     {{ end }}
 spec:
   revisionHistoryLimit: {{ .Values.deployment.revisionHistoryLimit }}
@@ -37,7 +37,7 @@ spec:
         app.kubernetes.io/managed-by: {{ .Release.Service }}
         helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
         {{ with .Values.pod.additionalLabels }}
-        {{ .  | nindent 8 }}
+        {{ toYaml . | nindent 8 }}
         {{ end }}
     spec:
       affinity:
