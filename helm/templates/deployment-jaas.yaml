@@ -156,9 +156,11 @@ spec:
             requests:
               cpu: 30m
               memory: 64Mi
+              ephemeral-storage: 10Mi
             limits:
               cpu: 30m
               memory: 64Mi
+              ephemeral-storage: 10Mi
           securityContext:
             runAsNonRoot: true
             runAsGroup: 12345
