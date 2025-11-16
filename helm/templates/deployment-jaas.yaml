@@ -75,33 +75,23 @@ spec:
         - name: jaas
           image: "{{ .Values.image.registry }}/{{ .Values.image.repository }}:{{ .Chart.AppVersion }}"
           args:
-            - -listen-address
-            - 0.0.0.0
-            - -port
-            - {{ .Values.ports.http }}
-            - -management-listen-address
-            - 0.0.0.0
-            - -management-port
-            - {{ .Values.ports.management }}
-            - -log-level
-            - {{ .Values.arguments.logLevel }}
-            - -snippet-directory
-            - {{ $.Values.paths.snippets }}
+            - -listen-address=0.0.0.0
+            - -port={{ .Values.ports.http }}
+            - -management-listen-address=0.0.0.0
+            - -management-port={{ .Values.ports.management }}
+            - -log-level={{ .Values.arguments.logLevel }}
+            - -snippet-directory={{ $.Values.paths.snippets }}
           {{ if .Values.libraries.grafonnet.enabled }}
-            - -library-path
-            - {{ .Values.paths.libraries }}/grafonnet
+            - -library-path={{ .Values.paths.libraries }}/grafonnet
           {{ end }}
           {{ if .Values.libraries.docsonnet.enabled }}
-            - -library-path
-            - {{ .Values.paths.libraries }}/docsonnet
+            - -library-path={{ .Values.paths.libraries }}/docsonnet
           {{ end }}
           {{ if .Values.libraries.xtd.enabled }}
-            - -library-path
-            - {{ .Values.paths.libraries }}/xtd
+            - -library-path={{ .Values.paths.libraries }}/xtd
           {{ end }}
           {{ range $name, $image := .Values.additionalLibraries }}
-            - -library-path
-            - {{ $.Values.paths.libraries }}/{{ $name }}
+            - -library-path={{ $.Values.paths.libraries }}/{{ $name }}
           {{ end }}
           volumeMounts:
           {{ if .Values.libraries.grafonnet.enabled }}
