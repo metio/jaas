@@ -2,22 +2,28 @@
 # SPDX-License-Identifier: 0BSD
 
 ports:
+  # Used by the /jsonnet endpoint
   http: 8080
+  # Used by startup, readiness, and liveness probes
   management: 8081
 
+# Overwrite these in case you want to use an internal registry mirror
 image:
   registry: docker.io
   repository: metio/jaas
 
+# It is safe to increase the number of replicas
 replicas:
   min: 1
   max: 1
 
+# Smallest possible values here, increase if you have more resources to spare
 resources:
   memory: 64Mi
   cpu: 32m
   ephemeralStorage: 10Mi
 
+# These arguments map directly to their corresponding CLI flag
 arguments:
   logLevel: info
   writeTimeout: 10s
@@ -26,20 +32,28 @@ arguments:
   managementReadTimeout: 10s
   jsonnetEndpointPath: jsonnet
 
+# Fine tune the Deployment resource
 deployment:
   revisionHistoryLimit: 1
   additionalLabels: {}
 
+# Fine tune the managed Pod resources
 pod:
   additionalLabels: {}
 
+# Modify the paths used, use this in case you run a custom image
 paths:
   snippets: /srv/snippets
   libraries: /srv/libraries
 
+# IMPORTANT!
+# Add snippet directories here. The key is the name of the directory and the value is an OCI volume that will be
+# mounted beneath .Values.paths.snippets, e.g., the commented example below would result in all files from
+# 'docker.io/metio/something:latest' to be mounted at '/srv/snippets/something/' (using the default configuration)
 snippets:
 #  something: docker.io/metio/something:latest
 
+# Enable/disable well-known jsonnet libraries
 libraries:
   grafonnet:
     enabled: true
@@ -57,5 +71,9 @@ libraries:
     repository: metio/joi-jsonnet-libs-xtd
     version: latest
 
+# IMPORTANT!
+# Add additional libraries here. The key is the name of the directory and the value is an OCI volume that will be
+## mounted beneath .Values.paths.libraries, e.g., the commented example below would result in all files from
+## 'docker.io/metio/something:latest' to be mounted at '/srv/libraries/something/' (using the default configuration)
 additionalLibraries:
 #  something: docker.io/metio/something:latest
