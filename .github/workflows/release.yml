@@ -232,7 +232,7 @@ jobs:
           cache-to: type=registry,ref=metio/jaas:buildcache,mode=max
           sbom: true
           provenance: true
-      - id: sign
+      - id: sign_image
         if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
         name: Sign Image
         run: |
@@ -242,14 +242,30 @@ jobs:
             --annotations "workflow=${{ github.workflow }}" \
             --annotations "ref=${{ github.sha }}" \
             docker.io/metio/jaas@${{ steps.publish.outputs.digest }}
-      - id: documentation
-        name: Docker Hub Description
+      - id: documentation_image
+        name: Docker Hub Description for Container Image
         if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
         uses: peter-evans/dockerhub-description@v5
         with:
           username: ${{ vars.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
           repository: metio/jaas
+          short-description: ${{ github.event.repository.description }}
+          readme-filepath: ./README.md
+      - id: helm
+        if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
+        name: Publish Helm Chart
+        run: |
+          helm package ./helm --version ${{ needs.prepare.outputs.release_version }} --app-version ${{ needs.prepare.outputs.release_version }}
+          helm push jaas-${{ needs.prepare.outputs.release_version }}.tgz oci://docker.io/metio/jaas-chart
+      - id: documentation_chart
+        name: Docker Hub Description for Helm Chart
+        if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
+        uses: peter-evans/dockerhub-description@v5
+        with:
+          username: ${{ vars.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+          repository: metio/jaas-chart
           short-description: ${{ github.event.repository.description }}
           readme-filepath: ./README.md
   announcement:
