@@ -172,12 +172,14 @@ jobs:
             dist/${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_windows_amd64.tar.gz
             dist/${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_SHA256SUMS
             dist/${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_SHA256SUMS.sig
-  dockerhub:
-    name: Dockerhub Release
+  container:
+    name: Container Release
     needs: [prepare, build]
     runs-on: ubuntu-latest
     permissions:
       id-token: write
+      contents: read
+      packages: write
     steps:
       - id: checkout
         name: Clone Git Repository
@@ -252,25 +254,23 @@ jobs:
           repository: metio/jaas
           short-description: ${{ github.event.repository.description }}
           readme-filepath: ./README.md
+      - id: ghcr_login
+        if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
+        name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - id: helm
         if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
         name: Publish Helm Chart
         run: |
           helm package ./helm --version ${{ needs.prepare.outputs.release_version }} --app-version ${{ needs.prepare.outputs.release_version }}
-          helm push jaas-${{ needs.prepare.outputs.release_version }}.tgz oci://docker.io/metio/jaas-chart
-      - id: documentation_chart
-        name: Docker Hub Description for Helm Chart
-        if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
-        uses: peter-evans/dockerhub-description@v5
-        with:
-          username: ${{ vars.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
-          repository: metio/jaas-chart
-          short-description: ${{ github.event.repository.description }}
-          readme-filepath: ./README.md
+          helm push jaas-${{ needs.prepare.outputs.release_version }}.tgz oci://ghcr.io/metio/jaas
   announcement:
     name: Announcement
-    needs: [prepare, build, github, dockerhub]
+    needs: [prepare, build, github, container]
     runs-on: ubuntu-latest
     steps:
       - id: mail
