@@ -52,6 +52,8 @@ FROM scratch
 COPY src/something /git.example.com/my/jsonnet/library/src/something
 ```
 
+If you follow this structure, you can use `jsonnet-bundler` locally to develop your dashboards and use them as-is from JaaS as well. In case you do not care about `jsonnet-bundler`, you are free to choose any structure you want.
+
 There is no restriction on file names for libraries since it's up to you to import them in your dashboards, e.g., the above example library could be imported like this, assuming that there is a file called `main.libsonnet` in `src/something`:
 
 ```jsonnet
