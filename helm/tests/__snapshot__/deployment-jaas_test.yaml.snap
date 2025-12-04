@@ -1,0 +1,48 @@
+matches its arguments snapshot:
+  1: |
+    - -listen-address=0.0.0.0
+    - -port=8080
+    - -management-listen-address=0.0.0.0
+    - -management-port=8081
+    - -log-level=info
+    - -snippet-directory=/srv/snippets
+    - -library-path=/srv/libraries/grafonnet
+    - -library-path=/srv/libraries/docsonnet
+    - -library-path=/srv/libraries/xtd
+matches its security context snapshot:
+  1: |
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+    readOnlyRootFilesystem: true
+    runAsGroup: 12345
+    runAsNonRoot: true
+    runAsUser: 12345
+    seccompProfile:
+      type: RuntimeDefault
+matches its volume mounts snapshot:
+  1: |
+    - mountPath: /srv/libraries/grafonnet
+      name: library-grafonnet
+      readOnly: true
+    - mountPath: /srv/libraries/docsonnet
+      name: library-docsonnet
+      readOnly: true
+    - mountPath: /srv/libraries/xtd
+      name: library-xtd
+      readOnly: true
+matches its volumes snapshot:
+  1: |
+    - image:
+        pullPolicy: IfNotPresent
+        reference: docker.io/metio/joi-grafana-grafonnet:v11.4.0
+      name: library-grafonnet
+    - image:
+        pullPolicy: IfNotPresent
+        reference: docker.io/metio/joi-jsonnet-libs-docsonnet:latest
+      name: library-docsonnet
+    - image:
+        pullPolicy: IfNotPresent
+        reference: docker.io/metio/joi-jsonnet-libs-xtd:latest
+      name: library-xtd
