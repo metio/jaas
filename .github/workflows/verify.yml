@@ -46,5 +46,6 @@ jobs:
         uses: d3adb5/helm-unittest-action@v2
         with:
           charts: helm
+          helm-version: v3.8.0
           install-mode: if-not-present
           github-token: ${{ secrets.GITHUB_TOKEN }}
