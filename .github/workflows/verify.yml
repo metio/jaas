@@ -41,3 +41,10 @@ jobs:
           push: false
           tags: |
             docker.io/metio/jaas:${{ github.sha }}
+      - id: helm_unittest
+        name: Test Helm Chart
+        uses: d3adb5/helm-unittest-action@v2
+        with:
+          charts: helm
+          install-mode: if-not-present
+          github-token: ${{ secrets.GITHUB_TOKEN }}

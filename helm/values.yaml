@@ -12,6 +12,9 @@ image:
   registry: docker.io
   repository: metio/jaas
 
+# Optional pull secrets in case you use a private mirror/image
+imagePullSecrets: []
+
 # It is safe to increase the number of replicas
 replicas:
   min: 1

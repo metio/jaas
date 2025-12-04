@@ -1,0 +1,57 @@
+suite: test jaas deployment
+templates:
+  - deployment-jaas.yaml
+tests:
+  - it: matches its volumes snapshot
+    documentSelector:
+      path: metadata.name
+      value: jaas
+    asserts:
+      - isKind:
+          of: Deployment
+      - matchSnapshot:
+          path: spec.template.spec.volumes
+  - it: matches its volume mounts snapshot
+    documentSelector:
+      path: metadata.name
+      value: jaas
+      skipEmptyTemplates: true
+    asserts:
+      - isKind:
+          of: Deployment
+      - matchSnapshot:
+          path: spec.template.spec.containers[0].volumeMounts
+  - it: matches its security context snapshot
+    documentSelector:
+      path: metadata.name
+      value: jaas
+      skipEmptyTemplates: true
+    asserts:
+      - isKind:
+          of: Deployment
+      - matchSnapshot:
+          path: spec.template.spec.containers[0].securityContext
+  - it: matches its arguments snapshot
+    documentSelector:
+      path: metadata.name
+      value: jaas
+      skipEmptyTemplates: true
+    asserts:
+      - isKind:
+          of: Deployment
+      - matchSnapshot:
+          path: spec.template.spec.containers[0].args
+  - it: supports private pull secrets
+    set:
+      imagePullSecrets:
+        - name: something
+    documentSelector:
+      path: metadata.name
+      value: jaas
+      skipEmptyTemplates: true
+    asserts:
+      - isKind:
+          of: Deployment
+      - equal:
+          path: spec.template.spec.imagePullSecrets[0].name
+          value: something
