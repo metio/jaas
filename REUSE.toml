@@ -16,7 +16,7 @@ SPDX-FileCopyrightText = "The jaas Authors"
 SPDX-License-Identifier = "0BSD"
 
 [[annotations]]
-path = "helm/tests/**"
+path = "helm/tests/__snapshot__/*.snap"
 precedence = "override"
 SPDX-FileCopyrightText = "The jaas Authors"
 SPDX-License-Identifier = "0BSD"

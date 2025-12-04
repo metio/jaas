@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: The jaas Authors
+# SPDX-License-Identifier: 0BSD
+
 suite: test jaas deployment
 templates:
   - deployment-jaas.yaml
