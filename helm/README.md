@@ -1,3 +1,8 @@
+<!--
+SPDX-FileCopyrightText: The jaas Authors
+SPDX-License-Identifier: 0BSD
+ -->
+
 # Jsonnet-as-a-Service (JaaS) Helm Chart
 
 This [Helm chart](https://helm.sh/) defines a minimal JaaS deployment with limited resource usage. See the [values.yaml](./values.yaml) for configuration options.
