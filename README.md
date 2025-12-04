@@ -9,9 +9,11 @@ JaaS is a webservice that evaluates Jsonnet snippets on the fly.
 
 ## Usage
 
+You can find pre-built binaries on our GitHub release page, a container image at `docker.io/metio/jaas:latest`, and a helm chart [here](./helm).
+
 JaaS is controlled through command line flags. The minimal way to run it is just:
 
-```bash
+```shell
 ./jaas
 ```
 
