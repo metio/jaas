@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"slices"
+	"strings"
 
 	"github.com/google/go-jsonnet"
 )
@@ -32,13 +33,26 @@ func JsonnetHandler(ctx context.Context, snippets []string, snippetDirectories [
 		vm := jsonnet.MakeVM()
 		vm.Importer(importer)
 
+		for _, env := range os.Environ() {
+			pair := strings.SplitN(env, "=", 2)
+			if strings.HasPrefix(pair[0], "JAAS_EXT_VAR_") {
+				key := strings.TrimPrefix(pair[0], "JAAS_EXT_VAR_")
+				value := ""
+				if len(pair) > 0 {
+					value = pair[1]
+				}
+				vm.ExtVar(key, value)
+				slog.DebugContext(ctx, "Set external variable", slog.String("key", key), slog.Any("value", value))
+			}
+		}
+
 		queryParams := request.URL.Query()
 		slog.DebugContext(ctx, "Extracted query parameters", slog.Any("queryParams", queryParams))
 		for key, value := range queryParams {
 			if len(value) == 0 {
-				vm.ExtVar(key, "")
+				vm.TLAVar(key, "")
 			} else if len(value) == 1 {
-				vm.ExtVar(key, value[0])
+				vm.TLAVar(key, value[0])
 			} else {
 				bytes, err := json.Marshal(value)
 				if err != nil {
@@ -46,7 +60,7 @@ func JsonnetHandler(ctx context.Context, snippets []string, snippetDirectories [
 					writer.WriteHeader(http.StatusBadRequest)
 					return
 				}
-				vm.ExtCode(key, string(bytes))
+				vm.TLACode(key, string(bytes))
 			}
 		}
 

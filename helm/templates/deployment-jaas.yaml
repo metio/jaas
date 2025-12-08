@@ -97,6 +97,20 @@ spec:
           {{ range $name, $image := .Values.additionalLibraries }}
             - -library-path={{ $.Values.paths.libraries }}/{{ $name }}
           {{ end }}
+          env:
+          {{ range $name, $value := .Values.externalVariables }}
+            - name: JAAS_EXT_VAR_{{ $name }}
+              value: $value
+          {{ end }}
+          envFrom:
+          {{ range $name := .Values.externalVariablesFrom.configMaps }}
+            - configMapRef:
+                name: {{ $name }}
+          {{ end }}
+          {{ range $name := .Values.externalVariablesFrom.secrets }}
+            - secretRef:
+                name: {{ $name }}
+          {{ end }}
           volumeMounts:
           {{ if .Values.libraries.grafonnet.enabled }}
             - name: library-grafonnet

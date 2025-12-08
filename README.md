@@ -65,7 +65,11 @@ local examplonet = import 'examplonet/main.libsonnet';
 
 ### External Variables
 
-You can specify external variables using URL query parameters like this:
+You can set the value for external variables by defining environment variables starting with the prefix `JAAS_EXT_VAR_`, e.g., `JAAS_EXT_VAR_your_external_var=something` will expose the external variable `your_external_var` and set it to the value `something`.
+
+### Top Level Arguments (TLA)
+
+You can specify top level arguments using URL query parameters like this:
 
 - `http://<IP>:<PORT>/jsonnet/snippet?var1=value1&var2=value2`: Set `var1` to `value1` and `var2` to `value2` for the snippet evaluation.
 - `http://<IP>:<PORT>/jsonnet/snippet?var1=value1&var2`: Set `var1` to `value1` and `var2` to an empty string for the snippet evaluation.

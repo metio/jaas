@@ -9,6 +9,14 @@ This [Helm chart](https://helm.sh/) defines a minimal JaaS deployment with limit
 
 The chart is published in OCI format and can be downloaded from `oci://ghcr.io/metio/jaas` using `helm`.
 
+Install it with:
+
+```shell
+helm install SOME_RELEASE oci://ghcr.io/metio/jaas --version SOME_VERSION
+```
+
+Replace `SOME_RELEASE` and `SOME_VERSION` with appropriate values for your environment. In general, we recommend to run the latest available version.
+
 ## Usage with grafana-operator
 
 JaaS is intended to be used together with the grafana-operator to manage Grafana dashboards using Jsonnet. However, it can evaluate any kind of Jsonnet, so using it for something else is fine too.
