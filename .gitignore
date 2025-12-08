@@ -2,3 +2,7 @@
 # SPDX-License-Identifier: 0BSD
 
 jb-test
+.bash_history
+jaas
+.cache
+.config

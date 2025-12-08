@@ -76,7 +76,21 @@ libraries:
 
 # IMPORTANT!
 # Add additional libraries here. The key is the name of the directory and the value is an OCI volume that will be
-## mounted beneath .Values.paths.libraries, e.g., the commented example below would result in all files from
-## 'docker.io/metio/something:latest' to be mounted at '/srv/libraries/something/' (using the default configuration)
+# mounted beneath .Values.paths.libraries, e.g., the commented example below would result in all files from
+# 'docker.io/metio/something:latest' to be mounted at '/srv/libraries/something/' (using the default configuration)
 additionalLibraries:
 #  something: docker.io/metio/something:latest
+
+# IMPORTANT!
+# Add external variables here. They will be added as JAAS_EXT_VAR_your_name and are available as your_name in your
+# Jsonnet snippets.
+externalVariables:
+#  something: some-value
+
+# IMPORTANT!
+# Add external variables loaded from ConfigMaps or Secrets here. Each array expects the name of either ConfigMaps or
+# Secrets. Only those values in ConfigMaps and Secrets that start with JAAS_EXT_VAR will be available as external
+# variable in your Jsonnet snippets.
+externalVariablesFrom:
+  configMaps: []
+  secrets: []

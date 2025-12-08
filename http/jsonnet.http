@@ -2,4 +2,16 @@ GET http://localhost:8080/jsonnet/examples/snippets/example.jsonnet
 
 ###
 
-GET http://localhost:8080/jsonnet/example1?key=value&key=other&name=external
+GET http://localhost:8080/jsonnet/example1
+
+###
+
+GET http://localhost:8080/jsonnet/tla-example?something=query-parameter&required=this
+
+###
+
+GET http://localhost:8080/jsonnet/tla-example?something=query-parameter&other=external&required=this
+
+###
+
+GET http://localhost:8080/jsonnet/tla-example?something=query-parameter&other=external&required=this&required=that
