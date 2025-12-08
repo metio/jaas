@@ -46,3 +46,15 @@ matches its volumes snapshot:
         pullPolicy: IfNotPresent
         reference: docker.io/metio/joi-jsonnet-libs-xtd:latest
       name: library-xtd
+supports additional env variables:
+  1: |
+    - name: JAAS_EXT_VAR_other
+      value: thing
+    - name: JAAS_EXT_VAR_some
+      value: value
+supports loading env variables from config maps and secrets:
+  1: |
+    - configMapRef:
+        name: some-config-map
+    - secretRef:
+        name: some-secret
