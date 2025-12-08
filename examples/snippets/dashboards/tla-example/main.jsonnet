@@ -5,6 +5,6 @@ function(something="value", other="more", required)
     person1: {
       welcome: 'Hello ' + something + '!',
       key: other,
-      required: required,
+      required: std.parseJson(required),
     },
   } + examplonet

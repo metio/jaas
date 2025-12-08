@@ -6,7 +6,7 @@ GET http://localhost:8080/jsonnet/example1
 
 ###
 
-GET http://localhost:8080/jsonnet/tla-example?something=query-parameter&required=this
+GET http://localhost:8080/jsonnet/tla-example?something=query-parameter&required=true
 
 ###
 
