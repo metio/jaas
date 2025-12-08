@@ -100,7 +100,7 @@ spec:
           env:
           {{ range $name, $value := .Values.externalVariables }}
             - name: JAAS_EXT_VAR_{{ $name }}
-              value: $value
+              value: {{ $value }}
           {{ end }}
           envFrom:
           {{ range $name := .Values.externalVariablesFrom.configMaps }}

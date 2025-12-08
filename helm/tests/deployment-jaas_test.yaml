@@ -58,3 +58,33 @@ tests:
       - equal:
           path: spec.template.spec.imagePullSecrets[0].name
           value: something
+  - it: supports additional env variables
+    set:
+      externalVariables:
+        some: value
+        other: thing
+    documentSelector:
+      path: metadata.name
+      value: jaas
+      skipEmptyTemplates: true
+    asserts:
+      - isKind:
+          of: Deployment
+      - matchSnapshot:
+          path: spec.template.spec.containers[0].env
+  - it: supports loading env variables from config maps and secrets
+    set:
+      externalVariablesFrom:
+        configMaps:
+          - some-config-map
+        secrets:
+          - some-secret
+    documentSelector:
+      path: metadata.name
+      value: jaas
+      skipEmptyTemplates: true
+    asserts:
+      - isKind:
+          of: Deployment
+      - matchSnapshot:
+          path: spec.template.spec.containers[0].envFrom
