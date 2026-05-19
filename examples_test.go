@@ -177,7 +177,7 @@ func TestExamples_RecursionDepth_GoldenAtSafeDepth(t *testing.T) {
 
 func TestExamples_RecursionDepth_FindsLimitAtDefaultMaxStack(t *testing.T) {
 	// Empirically discovers the deepest recursion the `recursion-depth`
-	// snippet can complete with jaas's default MaxStack=500. Logs the answer
+	// snippet can complete with our default MaxStack=500. Logs the answer
 	// to the test output so a `go test -v -run RecursionDepth_Finds` invocation
 	// prints the boundary. Sanity-asserts a generous range so the test fails
 	// only if go-jsonnet's stack accounting shifts dramatically.

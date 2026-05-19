@@ -60,6 +60,10 @@ func JsonnetHandler(cfg Config) http.HandlerFunc {
 		logger.DebugContext(ctx, "Resolved snippet", slog.String("snippet-name", snippetName), slog.String("file-name", fileName))
 
 		vm := jsonnet.MakeVM()
+		// go-jsonnet's FileImporter walks JPaths in reverse order: when the
+		// same library name is reachable under multiple -library-path entries
+		// the *rightmost* path wins. The README documents this; the suite
+		// `TestLibraryPathPrecedence_*` pins it directly against FileImporter.
 		vm.Importer(&jsonnet.FileImporter{JPaths: cfg.LibraryPaths})
 		if cfg.MaxStack > 0 {
 			vm.MaxStack = cfg.MaxStack
