@@ -776,10 +776,10 @@ func TestJsonnetHandler_MultipleExtVarsInSameSnippet(t *testing.T) {
 }
 
 func TestJsonnetHandler_ExtVarsLiftedAtConstruction(t *testing.T) {
-	// Confirms #9: the handler does not re-read os.Environ() per request.
-	// We set JAAS_EXT_VAR_late AFTER constructing the handler and expect the
-	// snippet's std.extVar("late") call to fail because the handler's ExtVars
-	// were captured at construction time (and don't include "late").
+	// The handler must not re-read os.Environ() per request — ExtVars are
+	// frozen at construction time. We set JAAS_EXT_VAR_late AFTER constructing
+	// the handler and expect the snippet's std.extVar("late") call to fail,
+	// because the handler's ExtVars were captured up front (without "late").
 	dir := t.TempDir()
 	writeExtVarSnippet(t, dir, "late", "late")
 
@@ -1709,7 +1709,7 @@ func TestJsonnetHandler_LibraryImport_ConcurrentWithExtVarsAndTLAs(t *testing.T)
 	wg.Wait()
 }
 
-// --- Logger injection (item #13) ---
+// --- Logger injection ---
 
 type capturedRecord struct {
 	level slog.Level
