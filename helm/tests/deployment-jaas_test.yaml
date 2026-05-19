@@ -335,6 +335,48 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].args
           content: -jsonnet-endpoint-path=eval
+  - it: passes the default arguments.evaluationTimeout via -evaluation-timeout
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: -evaluation-timeout=5s
+  - it: passes a custom arguments.evaluationTimeout via -evaluation-timeout
+    set:
+      arguments:
+        evaluationTimeout: 30s
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: -evaluation-timeout=30s
+  - it: passes the default arguments.maxStack via -max-stack
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: -max-stack=500
+  - it: passes a custom arguments.maxStack via -max-stack
+    set:
+      arguments:
+        maxStack: 2000
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: -max-stack=2000
+  - it: accepts disabling the evaluation timeout (0)
+    set:
+      arguments:
+        evaluationTimeout: 0s
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: -evaluation-timeout=0s
+  - it: accepts disabling the max-stack limit (0)
+    set:
+      arguments:
+        maxStack: 0
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: -max-stack=0
 
   # ------------------------------------------------------------------
   # Resources
