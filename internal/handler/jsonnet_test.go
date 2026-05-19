@@ -1108,6 +1108,174 @@ func TestJsonnetHandler_LibraryImport_RaceFreeUnderLoad(t *testing.T) {
 	wg.Wait()
 }
 
+// --- jsonnet.FileImporter precedence: pinning the dependency contract ----
+//
+// The README promises that "rightmost matching library will be used" when
+// the same library name lives under multiple -library-path entries. That
+// promise is load-bearing for operators who layer a "base libraries" path
+// with an "overrides" path. We implement it with a single line of glue
+// (`vm.Importer(&jsonnet.FileImporter{JPaths: cfg.LibraryPaths})`) plus
+// whatever iteration order go-jsonnet's FileImporter uses internally — so
+// the contract really sits in that dependency. The tests below pin
+// FileImporter's behavior directly, so a future go-jsonnet bump that flips
+// iteration direction fails here with an obvious diagnostic.
+//
+// Integration-level proof lives in
+// TestJsonnetHandler_LibraryImport_RightmostPathWins (below) and the e2e
+// golden test TestExamples_LibraryPrecedence_*.
+
+func TestLibraryPathPrecedence_TwoPathsBothHaveFile_RightmostWins(t *testing.T) {
+	libA := t.TempDir()
+	libB := t.TempDir()
+	writeLibrary(t, libA, "shared", `{ v: "from-A" }`)
+	writeLibrary(t, libB, "shared", `{ v: "from-B" }`)
+
+	imp := &jsonnet.FileImporter{JPaths: []string{libA, libB}}
+	_, foundAt, err := imp.Import("", "shared/main.libsonnet")
+	if err != nil {
+		t.Fatalf("import: %v", err)
+	}
+	if !strings.HasPrefix(foundAt, libB) {
+		t.Errorf("foundAt = %q, want it to start with %q (rightmost path)", foundAt, libB)
+	}
+}
+
+func TestLibraryPathPrecedence_ThreePathsAllHaveFile_RightmostWins(t *testing.T) {
+	libA := t.TempDir()
+	libB := t.TempDir()
+	libC := t.TempDir()
+	writeLibrary(t, libA, "shared", `{ v: "from-A" }`)
+	writeLibrary(t, libB, "shared", `{ v: "from-B" }`)
+	writeLibrary(t, libC, "shared", `{ v: "from-C" }`)
+
+	imp := &jsonnet.FileImporter{JPaths: []string{libA, libB, libC}}
+	_, foundAt, err := imp.Import("", "shared/main.libsonnet")
+	if err != nil {
+		t.Fatalf("import: %v", err)
+	}
+	if !strings.HasPrefix(foundAt, libC) {
+		t.Errorf("foundAt = %q, want it to start with %q (rightmost of three)", foundAt, libC)
+	}
+}
+
+func TestLibraryPathPrecedence_FallsBackThroughEmptyPaths(t *testing.T) {
+	// File exists only under libA (leftmost). Rightmost path is empty.
+	// The importer must fall back through libC, libB, and find it in libA.
+	libA := t.TempDir()
+	libB := t.TempDir()
+	libC := t.TempDir()
+	writeLibrary(t, libA, "only-in-a", `{ v: "from-A" }`)
+
+	imp := &jsonnet.FileImporter{JPaths: []string{libA, libB, libC}}
+	_, foundAt, err := imp.Import("", "only-in-a/main.libsonnet")
+	if err != nil {
+		t.Fatalf("import: %v", err)
+	}
+	if !strings.HasPrefix(foundAt, libA) {
+		t.Errorf("foundAt = %q, want it to start with %q (only A has the file)", foundAt, libA)
+	}
+}
+
+func TestLibraryPathPrecedence_FileOnlyInMiddlePath(t *testing.T) {
+	// File exists only under libB. Rightmost (libC) doesn't have it; importer
+	// must skip libC, find it in libB, never reach libA.
+	libA := t.TempDir()
+	libB := t.TempDir()
+	libC := t.TempDir()
+	writeLibrary(t, libB, "only-in-b", `{ v: "from-B" }`)
+
+	imp := &jsonnet.FileImporter{JPaths: []string{libA, libB, libC}}
+	_, foundAt, err := imp.Import("", "only-in-b/main.libsonnet")
+	if err != nil {
+		t.Fatalf("import: %v", err)
+	}
+	if !strings.HasPrefix(foundAt, libB) {
+		t.Errorf("foundAt = %q, want it to start with %q (middle has file)", foundAt, libB)
+	}
+}
+
+func TestLibraryPathPrecedence_TwoPathsHaveFileRightmostDoesNot(t *testing.T) {
+	// libA and libB both have the file; libC (rightmost) does not. Result
+	// must be libB — the *rightmost match*, not the rightmost path.
+	libA := t.TempDir()
+	libB := t.TempDir()
+	libC := t.TempDir()
+	writeLibrary(t, libA, "shared", `{ v: "from-A" }`)
+	writeLibrary(t, libB, "shared", `{ v: "from-B" }`)
+
+	imp := &jsonnet.FileImporter{JPaths: []string{libA, libB, libC}}
+	_, foundAt, err := imp.Import("", "shared/main.libsonnet")
+	if err != nil {
+		t.Fatalf("import: %v", err)
+	}
+	if !strings.HasPrefix(foundAt, libB) {
+		t.Errorf("foundAt = %q, want it to start with %q (rightmost *match*, not rightmost path)", foundAt, libB)
+	}
+}
+
+func TestLibraryPathPrecedence_SinglePath_TrivialResolve(t *testing.T) {
+	libA := t.TempDir()
+	writeLibrary(t, libA, "alone", `{ v: "ok" }`)
+
+	imp := &jsonnet.FileImporter{JPaths: []string{libA}}
+	_, foundAt, err := imp.Import("", "alone/main.libsonnet")
+	if err != nil {
+		t.Fatalf("import: %v", err)
+	}
+	if !strings.HasPrefix(foundAt, libA) {
+		t.Errorf("foundAt = %q, want it to start with %q", foundAt, libA)
+	}
+}
+
+func TestLibraryPathPrecedence_NoPathHasFile_ReturnsError(t *testing.T) {
+	libA := t.TempDir()
+	libB := t.TempDir()
+
+	imp := &jsonnet.FileImporter{JPaths: []string{libA, libB}}
+	_, _, err := imp.Import("", "nonexistent/main.libsonnet")
+	if err == nil {
+		t.Error("expected an error when no path has the library")
+	}
+}
+
+func TestLibraryPathPrecedence_EmptyJPaths_ReturnsError(t *testing.T) {
+	imp := &jsonnet.FileImporter{JPaths: nil}
+	_, _, err := imp.Import("", "anything/main.libsonnet")
+	if err == nil {
+		t.Error("expected an error when JPaths is empty")
+	}
+}
+
+func TestLibraryPathPrecedence_ReversingPathOrderFlipsTheResolution(t *testing.T) {
+	// Same two paths, opposite order — verifies the rightmost-wins rule is
+	// truly *order-dependent*, not just "B happens to win because it's named B".
+	libA := t.TempDir()
+	libB := t.TempDir()
+	writeLibrary(t, libA, "shared", `{ v: "from-A" }`)
+	writeLibrary(t, libB, "shared", `{ v: "from-B" }`)
+
+	tests := []struct {
+		name       string
+		paths      []string
+		wantPrefix string
+	}{
+		{"A then B", []string{libA, libB}, libB},
+		{"B then A", []string{libB, libA}, libA},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			imp := &jsonnet.FileImporter{JPaths: tc.paths}
+			_, foundAt, err := imp.Import("", "shared/main.libsonnet")
+			if err != nil {
+				t.Fatalf("import: %v", err)
+			}
+			if !strings.HasPrefix(foundAt, tc.wantPrefix) {
+				t.Errorf("foundAt = %q, want it to start with %q", foundAt, tc.wantPrefix)
+			}
+		})
+	}
+}
+
 func TestJsonnetHandler_LibraryImport_RightmostPathWins(t *testing.T) {
 	libLeft := t.TempDir()
 	libRight := t.TempDir()
