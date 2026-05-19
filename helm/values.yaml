@@ -44,6 +44,9 @@ deployment:
 pod:
   additionalLabels: {}
 
+service:
+  ipFamilyPolicy: ""
+
 # Modify the paths used, use this in case you run a custom image
 paths:
   snippets: /srv/snippets
