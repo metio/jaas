@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -96,10 +97,19 @@ func resolveSnippet(name string, snippets []string, snippetDirectories []string)
 	if slices.Contains(snippets, name) {
 		return name, true
 	}
+	if name == "" {
+		return "", false
+	}
+	relative := name + "/main.jsonnet"
 	for _, dir := range snippetDirectories {
-		path := fmt.Sprintf("%s/%s/main.jsonnet", dir, name)
-		if _, err := os.Stat(path); err == nil {
-			return path, true
+		root, err := os.OpenRoot(dir)
+		if err != nil {
+			continue
+		}
+		_, statErr := root.Stat(relative)
+		_ = root.Close()
+		if statErr == nil {
+			return filepath.Join(dir, name, "main.jsonnet"), true
 		}
 	}
 	return "", false

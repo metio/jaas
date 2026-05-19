@@ -142,6 +142,98 @@ func TestResolveSnippet(t *testing.T) {
 	})
 }
 
+func TestResolveSnippet_RejectsPathTraversal(t *testing.T) {
+	snippetDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(snippetDir, "ok"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(snippetDir, "ok", "main.jsonnet"), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	outside := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(outside, "secret"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(outside, "secret", "main.jsonnet"), []byte(`{"leaked": true}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	relEscape, err := filepath.Rel(snippetDir, filepath.Join(outside, "secret"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	bad := []string{
+		"..",
+		"../etc",
+		"../../etc/passwd",
+		"ok/../../etc",
+		"/etc/passwd",
+		filepath.Join(outside, "secret"),
+		relEscape,
+	}
+	for _, name := range bad {
+		t.Run("rejects "+name, func(t *testing.T) {
+			if got, ok := resolveSnippet(name, nil, []string{snippetDir}); ok {
+				t.Errorf("resolveSnippet(%q) = %q, true; want \"\", false", name, got)
+			}
+		})
+	}
+
+	t.Run("legitimate name still resolves", func(t *testing.T) {
+		got, ok := resolveSnippet("ok", nil, []string{snippetDir})
+		if !ok {
+			t.Fatal("expected match")
+		}
+		want := filepath.Join(snippetDir, "ok", "main.jsonnet")
+		if got != want {
+			t.Errorf("got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("legitimate nested name still resolves", func(t *testing.T) {
+		if err := os.MkdirAll(filepath.Join(snippetDir, "a", "b"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(snippetDir, "a", "b", "main.jsonnet"), []byte("{}"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		got, ok := resolveSnippet("a/b", nil, []string{snippetDir})
+		if !ok {
+			t.Fatal("expected match")
+		}
+		want := filepath.Join(snippetDir, "a", "b", "main.jsonnet")
+		if got != want {
+			t.Errorf("got %q, want %q", got, want)
+		}
+	})
+}
+
+func TestResolveSnippet_RejectsSymlinkEscape(t *testing.T) {
+	snippetDir := t.TempDir()
+	outside := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(outside, "target"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(outside, "target", "main.jsonnet"), []byte(`{"leaked": true}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(outside, "target"), filepath.Join(snippetDir, "sneaky")); err != nil {
+		t.Fatal(err)
+	}
+
+	if got, ok := resolveSnippet("sneaky", nil, []string{snippetDir}); ok {
+		t.Errorf("resolveSnippet(\"sneaky\") = %q, true; want \"\", false (symlink escapes the snippet directory)", got)
+	}
+}
+
+func TestResolveSnippet_EmptyNameNotFound(t *testing.T) {
+	dir := t.TempDir()
+	if _, ok := resolveSnippet("", nil, []string{dir}); ok {
+		t.Error("resolveSnippet(\"\") returned ok=true; want false")
+	}
+}
+
 func TestApplyTLAVars(t *testing.T) {
 	dir := t.TempDir()
 	snippet := filepath.Join(dir, "tla.jsonnet")
@@ -261,6 +353,34 @@ func TestJsonnetHandler_LogsCarryRequestContext(t *testing.T) {
 		if got, _ := ctx.Value(ctxKey{}).(string); got != sentinel {
 			t.Errorf("log record %d: ctx value = %q, want %q", i, got, sentinel)
 		}
+	}
+}
+
+func TestJsonnetHandler_TraversalReturnsNotFound(t *testing.T) {
+	snippetDir := t.TempDir()
+	outside := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(outside, "secret"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(outside, "secret", "main.jsonnet"), []byte(`{"leaked": true}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	relEscape, err := filepath.Rel(snippetDir, filepath.Join(outside, "secret"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	h := JsonnetHandler(nil, []string{snippetDir}, nil)
+	req := httptest.NewRequest(http.MethodGet, "/jsonnet/x", nil)
+	req.SetPathValue("snippet", relEscape)
+	rr := httptest.NewRecorder()
+	h(rr, req)
+
+	if got, want := rr.Code, http.StatusNotFound; got != want {
+		t.Fatalf("status = %d, want %d (body: %s)", got, want, rr.Body.String())
+	}
+	if strings.Contains(rr.Body.String(), "leaked") {
+		t.Errorf("body leaked outside file: %q", rr.Body.String())
 	}
 }
 
