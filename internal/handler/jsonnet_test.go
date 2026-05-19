@@ -7,7 +7,9 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -69,10 +71,46 @@ func TestParseExtVars(t *testing.T) {
 			environ: []string{"JAAS_EXT_VAR_malformed", "JAAS_EXT_VAR_ok=v"},
 			want:    map[string]string{"ok": "v"},
 		},
+		"duplicate keys: last wins": {
+			environ: []string{"JAAS_EXT_VAR_x=first", "JAAS_EXT_VAR_x=second"},
+			want:    map[string]string{"x": "second"},
+		},
+		"prefix without trailing key name yields empty key": {
+			environ: []string{"JAAS_EXT_VAR_=v"},
+			want:    map[string]string{"": "v"},
+		},
+		"prefix with similar but distinct name rejected": {
+			environ: []string{"JAAS_EXT_VAR=v", "JAAS_EXT_VARS_=v"},
+			want:    map[string]string{},
+		},
+		"value preserves tabs": {
+			environ: []string{"JAAS_EXT_VAR_t=\tindented\t"},
+			want:    map[string]string{"t": "\tindented\t"},
+		},
+		"value preserves newlines": {
+			environ: []string{"JAAS_EXT_VAR_multi=line1\nline2"},
+			want:    map[string]string{"multi": "line1\nline2"},
+		},
+		"unicode key and value": {
+			environ: []string{"JAAS_EXT_VAR_naïve=café"},
+			want:    map[string]string{"naïve": "café"},
+		},
+		"value containing only whitespace": {
+			environ: []string{"JAAS_EXT_VAR_blank=   "},
+			want:    map[string]string{"blank": "   "},
+		},
+		"deeply prefixed name": {
+			environ: []string{"JAAS_EXT_VAR_JAAS_EXT_VAR_x=double"},
+			want:    map[string]string{"JAAS_EXT_VAR_x": "double"},
+		},
+		"mixed prefixed and unprefixed": {
+			environ: []string{"PATH=/x", "JAAS_EXT_VAR_a=A", "FOO=bar", "JAAS_EXT_VAR_b=B"},
+			want:    map[string]string{"a": "A", "b": "B"},
+		},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			got := parseExtVars(tc.environ)
+			got := ParseExtVars(tc.environ)
 			if len(got) != len(tc.want) {
 				t.Fatalf("got %v, want %v", got, tc.want)
 			}
@@ -82,6 +120,54 @@ func TestParseExtVars(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestParseExtVars_DoesNotMutateInput(t *testing.T) {
+	in := []string{"JAAS_EXT_VAR_x=y", "PATH=/usr/bin"}
+	cp := append([]string{}, in...)
+	_ = ParseExtVars(in)
+	for i := range in {
+		if in[i] != cp[i] {
+			t.Errorf("input[%d] mutated: got %q, want %q", i, in[i], cp[i])
+		}
+	}
+}
+
+func TestParseExtVars_ReturnsNonNilOnEmpty(t *testing.T) {
+	got := ParseExtVars(nil)
+	if got == nil {
+		t.Error("ParseExtVars(nil) = nil, want non-nil empty map")
+	}
+	if len(got) != 0 {
+		t.Errorf("ParseExtVars(nil) = %v, want empty map", got)
+	}
+}
+
+func TestParseExtVars_ManyEntries(t *testing.T) {
+	environ := make([]string, 0, 1000)
+	for i := 0; i < 500; i++ {
+		environ = append(environ, fmt.Sprintf("JAAS_EXT_VAR_k%d=v%d", i, i))
+		environ = append(environ, fmt.Sprintf("OTHER_%d=ignored", i))
+	}
+	got := ParseExtVars(environ)
+	if len(got) != 500 {
+		t.Fatalf("len(got) = %d, want 500", len(got))
+	}
+	for i := 0; i < 500; i++ {
+		key := fmt.Sprintf("k%d", i)
+		want := fmt.Sprintf("v%d", i)
+		if got[key] != want {
+			t.Errorf("got[%q] = %q, want %q", key, got[key], want)
+		}
+	}
+}
+
+func TestParseExtVars_LongValue(t *testing.T) {
+	long := strings.Repeat("x", 100000)
+	got := ParseExtVars([]string{"JAAS_EXT_VAR_big=" + long})
+	if got["big"] != long {
+		t.Errorf("long value not preserved (got len %d, want %d)", len(got["big"]), len(long))
 	}
 }
 
@@ -537,3 +623,377 @@ func TestJsonnetHandler_MaxStackLimitsRecursion(t *testing.T) {
 		}
 	})
 }
+
+// --- ExtVars: lift from per-request os.Environ() to startup-built map ---
+
+// writeExtVarSnippet writes a snippet at <dir>/<name>/main.jsonnet that returns
+// std.extVar("varName") so handler-level ExtVar wiring can be observed in the
+// response body.
+func writeExtVarSnippet(t *testing.T, dir, name, varName string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(dir, name), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := fmt.Sprintf(`{ v: std.extVar(%q) }`, varName)
+	if err := os.WriteFile(filepath.Join(dir, name, "main.jsonnet"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func callExtVarSnippet(t *testing.T, h http.HandlerFunc, snippet string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, "/jsonnet/"+snippet, nil)
+	req.SetPathValue("snippet", snippet)
+	rr := httptest.NewRecorder()
+	h(rr, req)
+	return rr
+}
+
+func TestJsonnetHandler_NilExtVarsWithSnippetThatDoesNotUseExtVar(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "plain"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "plain", "main.jsonnet"), []byte(`{ ok: true }`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := JsonnetHandler(Config{SnippetDirectories: []string{dir}, ExtVars: nil})
+	rr := callExtVarSnippet(t, h, "plain")
+	if rr.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+}
+
+func TestJsonnetHandler_EmptyExtVarsWithSnippetThatUsesExtVar(t *testing.T) {
+	dir := t.TempDir()
+	writeExtVarSnippet(t, dir, "needs", "missing")
+	h := JsonnetHandler(Config{SnippetDirectories: []string{dir}, ExtVars: map[string]string{}})
+	rr := callExtVarSnippet(t, h, "needs")
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400 (jsonnet should fail because extVar is undefined; body: %s)", rr.Code, rr.Body.String())
+	}
+}
+
+func TestJsonnetHandler_SingleExtVarSurfacedToSnippet(t *testing.T) {
+	dir := t.TempDir()
+	writeExtVarSnippet(t, dir, "echo", "greeting")
+	h := JsonnetHandler(Config{
+		SnippetDirectories: []string{dir},
+		ExtVars:            map[string]string{"greeting": "hello"},
+	})
+	rr := callExtVarSnippet(t, h, "echo")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), `"hello"`) {
+		t.Errorf("body = %q, want it to contain \"hello\"", rr.Body.String())
+	}
+}
+
+func TestJsonnetHandler_ExtVarValuesPassedVerbatim(t *testing.T) {
+	dir := t.TempDir()
+	writeExtVarSnippet(t, dir, "echo", "v")
+
+	tests := map[string]string{
+		"empty string":   "",
+		"numeric-like":   "123",
+		"json-like":      `{"a":1}`,
+		"json array":     `[1,2,3]`,
+		"unicode":        "café 🚀",
+		"quotes":         `she said "hi"`,
+		"backslashes":    `C:\Users\x`,
+		"newline":        "line1\nline2",
+		"carriage":       "a\rb",
+		"tabs":           "a\tb\tc",
+		"whitespace":     "   ",
+		"with equals":    "k=v=w",
+		"long":           strings.Repeat("z", 10000),
+		"unicode escape": "éclair",
+		"emoji":          "🦀",
+	}
+
+	for name, value := range tests {
+		t.Run(name, func(t *testing.T) {
+			h := JsonnetHandler(Config{
+				SnippetDirectories: []string{dir},
+				ExtVars:            map[string]string{"v": value},
+			})
+			rr := callExtVarSnippet(t, h, "echo")
+			if rr.Code != http.StatusOK {
+				t.Fatalf("status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+			}
+
+			var payload struct {
+				V string `json:"v"`
+			}
+			if err := json.Unmarshal(rr.Body.Bytes(), &payload); err != nil {
+				t.Fatalf("body is not valid JSON: %v (body: %q)", err, rr.Body.String())
+			}
+			if payload.V != value {
+				t.Errorf("payload.v = %q, want %q", payload.V, value)
+			}
+		})
+	}
+}
+
+func TestJsonnetHandler_MultipleExtVarsInSameSnippet(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "both"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := `{ a: std.extVar("a"), b: std.extVar("b"), c: std.extVar("c") }`
+	if err := os.WriteFile(filepath.Join(dir, "both", "main.jsonnet"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := JsonnetHandler(Config{
+		SnippetDirectories: []string{dir},
+		ExtVars: map[string]string{
+			"a": "one",
+			"b": "two",
+			"c": "three",
+		},
+	})
+	rr := callExtVarSnippet(t, h, "both")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+	for _, expected := range []string{`"one"`, `"two"`, `"three"`} {
+		if !strings.Contains(rr.Body.String(), expected) {
+			t.Errorf("body = %q, want it to contain %s", rr.Body.String(), expected)
+		}
+	}
+}
+
+func TestJsonnetHandler_ExtVarsLiftedAtConstruction(t *testing.T) {
+	// Confirms #9: the handler does not re-read os.Environ() per request.
+	// We set JAAS_EXT_VAR_late AFTER constructing the handler and expect the
+	// snippet's std.extVar("late") call to fail because the handler's ExtVars
+	// were captured at construction time (and don't include "late").
+	dir := t.TempDir()
+	writeExtVarSnippet(t, dir, "late", "late")
+
+	// Construct handler with explicit ExtVars (none).
+	h := JsonnetHandler(Config{
+		SnippetDirectories: []string{dir},
+		ExtVars:            map[string]string{},
+	})
+
+	// Now modify the process environment.
+	t.Setenv("JAAS_EXT_VAR_late", "should-not-be-seen")
+
+	rr := callExtVarSnippet(t, h, "late")
+	if rr.Code == http.StatusOK {
+		t.Errorf("status = 200, want non-2xx — handler must not consult os.Environ() per request (body: %s)", rr.Body.String())
+	}
+	if strings.Contains(rr.Body.String(), "should-not-be-seen") {
+		t.Errorf("body contains the late-set value %q; lift was not effective", rr.Body.String())
+	}
+}
+
+func TestJsonnetHandler_ExtVarsIsolatedAcrossHandlers(t *testing.T) {
+	dir := t.TempDir()
+	writeExtVarSnippet(t, dir, "echo", "v")
+
+	h1 := JsonnetHandler(Config{SnippetDirectories: []string{dir}, ExtVars: map[string]string{"v": "ONE"}})
+	h2 := JsonnetHandler(Config{SnippetDirectories: []string{dir}, ExtVars: map[string]string{"v": "TWO"}})
+
+	rr1 := callExtVarSnippet(t, h1, "echo")
+	rr2 := callExtVarSnippet(t, h2, "echo")
+
+	if !strings.Contains(rr1.Body.String(), `"ONE"`) {
+		t.Errorf("h1 body = %q, want \"ONE\"", rr1.Body.String())
+	}
+	if !strings.Contains(rr2.Body.String(), `"TWO"`) {
+		t.Errorf("h2 body = %q, want \"TWO\"", rr2.Body.String())
+	}
+}
+
+func TestJsonnetHandler_ExtVarsStableAcrossMultipleRequests(t *testing.T) {
+	dir := t.TempDir()
+	writeExtVarSnippet(t, dir, "echo", "v")
+
+	h := JsonnetHandler(Config{
+		SnippetDirectories: []string{dir},
+		ExtVars:            map[string]string{"v": "fixed"},
+	})
+
+	for i := 0; i < 25; i++ {
+		rr := callExtVarSnippet(t, h, "echo")
+		if rr.Code != http.StatusOK {
+			t.Fatalf("call %d: status = %d, want 200", i, rr.Code)
+		}
+		if !strings.Contains(rr.Body.String(), `"fixed"`) {
+			t.Errorf("call %d: body = %q, want \"fixed\"", i, rr.Body.String())
+		}
+	}
+}
+
+func TestJsonnetHandler_ExtVarsManyKeysAllExposed(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "all"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	const N = 50
+	vars := make(map[string]string, N)
+	for i := 0; i < N; i++ {
+		vars[fmt.Sprintf("k%d", i)] = fmt.Sprintf("v%d", i)
+	}
+
+	// Build a snippet that emits {k0: extVar("k0"), k1: extVar("k1"), …}
+	var b strings.Builder
+	b.WriteString("{ ")
+	for i := 0; i < N; i++ {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		fmt.Fprintf(&b, "k%d: std.extVar(\"k%d\")", i, i)
+	}
+	b.WriteString(" }")
+	if err := os.WriteFile(filepath.Join(dir, "all", "main.jsonnet"), []byte(b.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	h := JsonnetHandler(Config{
+		SnippetDirectories: []string{dir},
+		ExtVars:            vars,
+	})
+
+	rr := callExtVarSnippet(t, h, "all")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+
+	var payload map[string]string
+	if err := json.Unmarshal(rr.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("body is not valid JSON: %v (body: %q)", err, rr.Body.String())
+	}
+	for k, v := range vars {
+		if payload[k] != v {
+			t.Errorf("payload[%q] = %q, want %q", k, payload[k], v)
+		}
+	}
+}
+
+func TestJsonnetHandler_ExtVarKeyWithUnderscoresAndDigits(t *testing.T) {
+	dir := t.TempDir()
+	writeExtVarSnippet(t, dir, "weird", "my_ext_var_123")
+	h := JsonnetHandler(Config{
+		SnippetDirectories: []string{dir},
+		ExtVars:            map[string]string{"my_ext_var_123": "weird-name-ok"},
+	})
+	rr := callExtVarSnippet(t, h, "weird")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), `"weird-name-ok"`) {
+		t.Errorf("body = %q, want \"weird-name-ok\"", rr.Body.String())
+	}
+}
+
+func TestJsonnetHandler_ExtVarFromParseExtVars_EndToEnd(t *testing.T) {
+	// Demonstrates the production wiring: ParseExtVars(env) → Config.ExtVars
+	dir := t.TempDir()
+	writeExtVarSnippet(t, dir, "echo", "v")
+
+	environ := []string{
+		"PATH=/usr/bin",
+		"JAAS_EXT_VAR_v=from-environ",
+		"HOME=/home/x",
+	}
+	vars := ParseExtVars(environ)
+
+	h := JsonnetHandler(Config{
+		SnippetDirectories: []string{dir},
+		ExtVars:            vars,
+	})
+	rr := callExtVarSnippet(t, h, "echo")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), `"from-environ"`) {
+		t.Errorf("body = %q, want \"from-environ\"", rr.Body.String())
+	}
+}
+
+func TestJsonnetHandler_ExtVarUsedTwiceInSnippet(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "twice"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := `local v = std.extVar("v"); { a: v, b: v, c: v + v }`
+	if err := os.WriteFile(filepath.Join(dir, "twice", "main.jsonnet"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := JsonnetHandler(Config{
+		SnippetDirectories: []string{dir},
+		ExtVars:            map[string]string{"v": "X"},
+	})
+	rr := callExtVarSnippet(t, h, "twice")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+	for _, expected := range []string{`"a": "X"`, `"b": "X"`, `"c": "XX"`} {
+		if !strings.Contains(rr.Body.String(), expected) {
+			t.Errorf("body = %q, want it to contain %s", rr.Body.String(), expected)
+		}
+	}
+}
+
+func TestJsonnetHandler_NoExtVarSlogPerRequestDebug(t *testing.T) {
+	// Confirms that the per-request debug log for ExtVars has been removed.
+	// We install a capturing slog handler at debug level, then issue a request
+	// against a snippet whose ExtVars map contains a unique sentinel value.
+	// The sentinel must NOT appear in any captured log record.
+	captured := &debugCaptureHandler{}
+	prev := slog.Default()
+	slog.SetDefault(slog.New(captured))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	dir := t.TempDir()
+	writeExtVarSnippet(t, dir, "echo", "v")
+
+	const sentinel = "DO-NOT-LOG-THIS-VALUE-7f3c"
+	h := JsonnetHandler(Config{
+		SnippetDirectories: []string{dir},
+		ExtVars:            map[string]string{"v": sentinel},
+	})
+	rr := callExtVarSnippet(t, h, "echo")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+
+	captured.mu.Lock()
+	defer captured.mu.Unlock()
+	for _, msg := range captured.messages {
+		if strings.Contains(msg, sentinel) {
+			t.Errorf("found ExtVar value in slog output (per-request log not removed): %q", msg)
+		}
+	}
+}
+
+type debugCaptureHandler struct {
+	mu       sync.Mutex
+	messages []string
+}
+
+func (h *debugCaptureHandler) Enabled(context.Context, slog.Level) bool { return true }
+
+func (h *debugCaptureHandler) Handle(_ context.Context, r slog.Record) error {
+	var b strings.Builder
+	b.WriteString(r.Message)
+	r.Attrs(func(a slog.Attr) bool {
+		b.WriteString(" ")
+		b.WriteString(a.Key)
+		b.WriteString("=")
+		b.WriteString(a.Value.String())
+		return true
+	})
+	h.mu.Lock()
+	h.messages = append(h.messages, b.String())
+	h.mu.Unlock()
+	return nil
+}
+
+func (h *debugCaptureHandler) WithAttrs([]slog.Attr) slog.Handler { return h }
+func (h *debugCaptureHandler) WithGroup(string) slog.Handler      { return h }

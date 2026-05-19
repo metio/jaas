@@ -28,6 +28,7 @@ type Config struct {
 	Snippets           []string
 	SnippetDirectories []string
 	LibraryPaths       []string
+	ExtVars            map[string]string
 	EvaluationTimeout  time.Duration
 	MaxStack           int
 }
@@ -63,9 +64,8 @@ func JsonnetHandler(cfg Config) http.HandlerFunc {
 			vm.MaxStack = cfg.MaxStack
 		}
 
-		for key, value := range parseExtVars(os.Environ()) {
+		for key, value := range cfg.ExtVars {
 			vm.ExtVar(key, value)
-			slog.DebugContext(ctx, "Set external variable", slog.String("key", key), slog.String("value", value))
 		}
 
 		queryParams := request.URL.Query()
@@ -130,7 +130,7 @@ func evaluateWithDeadline(ctx context.Context, eval func() (string, error), time
 	}
 }
 
-func parseExtVars(environ []string) map[string]string {
+func ParseExtVars(environ []string) map[string]string {
 	result := make(map[string]string)
 	for _, env := range environ {
 		key, value, ok := strings.Cut(env, "=")
