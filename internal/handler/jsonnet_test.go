@@ -997,3 +997,560 @@ func (h *debugCaptureHandler) Handle(_ context.Context, r slog.Record) error {
 
 func (h *debugCaptureHandler) WithAttrs([]slog.Attr) slog.Handler { return h }
 func (h *debugCaptureHandler) WithGroup(string) slog.Handler      { return h }
+
+// --- FileImporter is freshly allocated per request: race-free + cache-free ---
+
+func writeLibrary(t *testing.T, dir, name, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(dir, name), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, name, "main.libsonnet"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writeSnippet(t *testing.T, dir, name, body string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(dir, name), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, name, "main.jsonnet"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestJsonnetHandler_ConcurrentRequestsAreRaceFree(t *testing.T) {
+	dir := t.TempDir()
+	writeExtVarSnippet(t, dir, "echo", "v")
+	h := JsonnetHandler(Config{
+		SnippetDirectories: []string{dir},
+		ExtVars:            map[string]string{"v": "shared"},
+	})
+
+	var wg sync.WaitGroup
+	const workers = 100
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			rr := callExtVarSnippet(t, h, "echo")
+			if rr.Code != http.StatusOK {
+				t.Errorf("status = %d, want 200", rr.Code)
+				return
+			}
+			if !strings.Contains(rr.Body.String(), `"shared"`) {
+				t.Errorf("body = %q, want \"shared\"", rr.Body.String())
+			}
+		}()
+	}
+	wg.Wait()
+}
+
+func TestJsonnetHandler_LibraryImport_Basic(t *testing.T) {
+	libDir := t.TempDir()
+	writeLibrary(t, libDir, "mylib", `{ greeting: "hi from lib" }`)
+
+	snipDir := t.TempDir()
+	writeSnippet(t, snipDir, "use", `local lib = import 'mylib/main.libsonnet'; { msg: lib.greeting }`)
+
+	h := JsonnetHandler(Config{
+		SnippetDirectories: []string{snipDir},
+		LibraryPaths:       []string{libDir},
+	})
+	rr := callExtVarSnippet(t, h, "use")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "hi from lib") {
+		t.Errorf("body = %q, want 'hi from lib'", rr.Body.String())
+	}
+}
+
+func TestJsonnetHandler_LibraryImport_RaceFreeUnderLoad(t *testing.T) {
+	libDir := t.TempDir()
+	writeLibrary(t, libDir, "mylib", `{ greeting: "race-free" }`)
+
+	snipDir := t.TempDir()
+	writeSnippet(t, snipDir, "use", `local lib = import 'mylib/main.libsonnet'; { msg: lib.greeting }`)
+
+	h := JsonnetHandler(Config{
+		SnippetDirectories: []string{snipDir},
+		LibraryPaths:       []string{libDir},
+	})
+
+	var wg sync.WaitGroup
+	const workers = 100
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			rr := callExtVarSnippet(t, h, "use")
+			if rr.Code != http.StatusOK {
+				t.Errorf("status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+				return
+			}
+			if !strings.Contains(rr.Body.String(), "race-free") {
+				t.Errorf("body = %q, want 'race-free'", rr.Body.String())
+			}
+		}()
+	}
+	wg.Wait()
+}
+
+func TestJsonnetHandler_LibraryImport_RightmostPathWins(t *testing.T) {
+	libLeft := t.TempDir()
+	libRight := t.TempDir()
+	writeLibrary(t, libLeft, "shared", `{ v: "from-left" }`)
+	writeLibrary(t, libRight, "shared", `{ v: "from-right" }`)
+
+	snipDir := t.TempDir()
+	writeSnippet(t, snipDir, "use", `local s = import 'shared/main.libsonnet'; { which: s.v }`)
+
+	h := JsonnetHandler(Config{
+		SnippetDirectories: []string{snipDir},
+		LibraryPaths:       []string{libLeft, libRight},
+	})
+	rr := callExtVarSnippet(t, h, "use")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "from-right") {
+		t.Errorf("body = %q, want 'from-right' (rightmost path)", rr.Body.String())
+	}
+}
+
+func TestJsonnetHandler_LibraryImport_MissingLibraryReturns400(t *testing.T) {
+	snipDir := t.TempDir()
+	writeSnippet(t, snipDir, "use", `local x = import 'doesnotexist/lib.libsonnet'; { a: x }`)
+
+	h := JsonnetHandler(Config{
+		SnippetDirectories: []string{snipDir},
+		LibraryPaths:       []string{},
+	})
+	rr := callExtVarSnippet(t, h, "use")
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400 (body: %s)", rr.Code, rr.Body.String())
+	}
+}
+
+func TestJsonnetHandler_LibraryImport_ChangesVisibleImmediately(t *testing.T) {
+	// Side effect of constructing a fresh FileImporter per request.
+	libDir := t.TempDir()
+	libPath := filepath.Join(libDir, "mylib", "main.libsonnet")
+	writeLibrary(t, libDir, "mylib", `{ v: "v1" }`)
+
+	snipDir := t.TempDir()
+	writeSnippet(t, snipDir, "use", `local lib = import 'mylib/main.libsonnet'; { r: lib.v }`)
+
+	h := JsonnetHandler(Config{
+		SnippetDirectories: []string{snipDir},
+		LibraryPaths:       []string{libDir},
+	})
+
+	rr := callExtVarSnippet(t, h, "use")
+	if !strings.Contains(rr.Body.String(), `"v1"`) {
+		t.Errorf("phase 1: body = %q, want it to contain \"v1\"", rr.Body.String())
+	}
+
+	if err := os.WriteFile(libPath, []byte(`{ v: "v2" }`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	rr = callExtVarSnippet(t, h, "use")
+	if !strings.Contains(rr.Body.String(), `"v2"`) {
+		t.Errorf("phase 2: body = %q, want it to contain \"v2\"", rr.Body.String())
+	}
+}
+
+func TestJsonnetHandler_LibraryImport_NoLibraryPaths(t *testing.T) {
+	snipDir := t.TempDir()
+	writeSnippet(t, snipDir, "plain", `{ ok: true }`)
+
+	h := JsonnetHandler(Config{
+		SnippetDirectories: []string{snipDir},
+		LibraryPaths:       nil,
+	})
+	rr := callExtVarSnippet(t, h, "plain")
+	if rr.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+}
+
+func TestJsonnetHandler_LibraryImport_EmptyLibraryPathsSlice(t *testing.T) {
+	snipDir := t.TempDir()
+	writeSnippet(t, snipDir, "plain", `{ ok: true }`)
+
+	h := JsonnetHandler(Config{
+		SnippetDirectories: []string{snipDir},
+		LibraryPaths:       []string{},
+	})
+	rr := callExtVarSnippet(t, h, "plain")
+	if rr.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+}
+
+func TestJsonnetHandler_LibraryImport_Subpath(t *testing.T) {
+	libDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(libDir, "lib", "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(libDir, "lib", "sub", "thing.libsonnet"), []byte(`{ s: "nested" }`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	snipDir := t.TempDir()
+	writeSnippet(t, snipDir, "use", `local x = import 'lib/sub/thing.libsonnet'; { msg: x.s }`)
+
+	h := JsonnetHandler(Config{
+		SnippetDirectories: []string{snipDir},
+		LibraryPaths:       []string{libDir},
+	})
+	rr := callExtVarSnippet(t, h, "use")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "nested") {
+		t.Errorf("body = %q, want 'nested'", rr.Body.String())
+	}
+}
+
+func TestJsonnetHandler_LibraryImport_Transitive(t *testing.T) {
+	libDir := t.TempDir()
+	writeLibrary(t, libDir, "a", `local b = import 'b/main.libsonnet'; { result: b.message }`)
+	writeLibrary(t, libDir, "b", `{ message: "transitive" }`)
+
+	snipDir := t.TempDir()
+	writeSnippet(t, snipDir, "use", `local a = import 'a/main.libsonnet'; { final: a.result }`)
+
+	h := JsonnetHandler(Config{
+		SnippetDirectories: []string{snipDir},
+		LibraryPaths:       []string{libDir},
+	})
+	rr := callExtVarSnippet(t, h, "use")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "transitive") {
+		t.Errorf("body = %q, want 'transitive'", rr.Body.String())
+	}
+}
+
+func TestJsonnetHandler_LibraryImport_PerHandlerIsolation(t *testing.T) {
+	libA := t.TempDir()
+	libB := t.TempDir()
+	writeLibrary(t, libA, "common", `{ from: "handler-A" }`)
+	writeLibrary(t, libB, "common", `{ from: "handler-B" }`)
+
+	snipDir := t.TempDir()
+	writeSnippet(t, snipDir, "use", `local c = import 'common/main.libsonnet'; { who: c.from }`)
+
+	hA := JsonnetHandler(Config{
+		SnippetDirectories: []string{snipDir},
+		LibraryPaths:       []string{libA},
+	})
+	hB := JsonnetHandler(Config{
+		SnippetDirectories: []string{snipDir},
+		LibraryPaths:       []string{libB},
+	})
+
+	rrA := callExtVarSnippet(t, hA, "use")
+	rrB := callExtVarSnippet(t, hB, "use")
+
+	if !strings.Contains(rrA.Body.String(), "handler-A") {
+		t.Errorf("hA body = %q, want 'handler-A'", rrA.Body.String())
+	}
+	if !strings.Contains(rrB.Body.String(), "handler-B") {
+		t.Errorf("hB body = %q, want 'handler-B'", rrB.Body.String())
+	}
+}
+
+func TestJsonnetHandler_LibraryImport_NonExistentPathDoesNotFailSnippetsWithoutImports(t *testing.T) {
+	snipDir := t.TempDir()
+	writeSnippet(t, snipDir, "plain", `{ ok: true }`)
+
+	h := JsonnetHandler(Config{
+		SnippetDirectories: []string{snipDir},
+		LibraryPaths:       []string{"/this/path/does/not/exist"},
+	})
+	rr := callExtVarSnippet(t, h, "plain")
+	if rr.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200 (snippet has no imports; missing lib path must not break it; body: %s)", rr.Code, rr.Body.String())
+	}
+}
+
+func TestJsonnetHandler_LibraryImport_UsesStdFunctions(t *testing.T) {
+	libDir := t.TempDir()
+	writeLibrary(t, libDir, "utils", `{ greeting(name): "hello, " + std.asciiUpper(name) }`)
+
+	snipDir := t.TempDir()
+	writeSnippet(t, snipDir, "use", `local u = import 'utils/main.libsonnet'; { msg: u.greeting("world") }`)
+
+	h := JsonnetHandler(Config{
+		SnippetDirectories: []string{snipDir},
+		LibraryPaths:       []string{libDir},
+	})
+	rr := callExtVarSnippet(t, h, "use")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "hello, WORLD") {
+		t.Errorf("body = %q, want 'hello, WORLD'", rr.Body.String())
+	}
+}
+
+func TestJsonnetHandler_LibraryImport_LibraryReadsExtVar(t *testing.T) {
+	libDir := t.TempDir()
+	writeLibrary(t, libDir, "envread", `{ from_env: std.extVar("region") }`)
+
+	snipDir := t.TempDir()
+	writeSnippet(t, snipDir, "use", `local e = import 'envread/main.libsonnet'; { region: e.from_env }`)
+
+	h := JsonnetHandler(Config{
+		SnippetDirectories: []string{snipDir},
+		LibraryPaths:       []string{libDir},
+		ExtVars:            map[string]string{"region": "us-east-1"},
+	})
+	rr := callExtVarSnippet(t, h, "use")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "us-east-1") {
+		t.Errorf("body = %q, want 'us-east-1'", rr.Body.String())
+	}
+}
+
+func TestJsonnetHandler_LibraryImport_MultipleImportsInOneSnippet(t *testing.T) {
+	libDir := t.TempDir()
+	writeLibrary(t, libDir, "alpha", `{ v: "A" }`)
+	writeLibrary(t, libDir, "beta", `{ v: "B" }`)
+	writeLibrary(t, libDir, "gamma", `{ v: "C" }`)
+
+	snipDir := t.TempDir()
+	writeSnippet(t, snipDir, "all", `
+		local a = import 'alpha/main.libsonnet';
+		local b = import 'beta/main.libsonnet';
+		local g = import 'gamma/main.libsonnet';
+		{ a: a.v, b: b.v, g: g.v }
+	`)
+
+	h := JsonnetHandler(Config{
+		SnippetDirectories: []string{snipDir},
+		LibraryPaths:       []string{libDir},
+	})
+	rr := callExtVarSnippet(t, h, "all")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+	for _, want := range []string{`"A"`, `"B"`, `"C"`} {
+		if !strings.Contains(rr.Body.String(), want) {
+			t.Errorf("body = %q, want it to contain %s", rr.Body.String(), want)
+		}
+	}
+}
+
+func TestJsonnetHandler_LibraryImport_SameLibraryImportedTwice(t *testing.T) {
+	// Within a single VM evaluation, jsonnet's per-VM cache makes this efficient.
+	// We just need to assert the values come out right.
+	libDir := t.TempDir()
+	writeLibrary(t, libDir, "x", `{ n: 42 }`)
+
+	snipDir := t.TempDir()
+	writeSnippet(t, snipDir, "twice", `
+		local a = import 'x/main.libsonnet';
+		local b = import 'x/main.libsonnet';
+		{ a: a.n, b: b.n, sum: a.n + b.n }
+	`)
+
+	h := JsonnetHandler(Config{
+		SnippetDirectories: []string{snipDir},
+		LibraryPaths:       []string{libDir},
+	})
+	rr := callExtVarSnippet(t, h, "twice")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+	for _, want := range []string{`"a": 42`, `"b": 42`, `"sum": 84`} {
+		if !strings.Contains(rr.Body.String(), want) {
+			t.Errorf("body = %q, want it to contain %s", rr.Body.String(), want)
+		}
+	}
+}
+
+func TestJsonnetHandler_LibraryImport_InvalidLibrarySyntaxReturns400(t *testing.T) {
+	libDir := t.TempDir()
+	writeLibrary(t, libDir, "broken", `{ this is not valid jsonnet`)
+
+	snipDir := t.TempDir()
+	writeSnippet(t, snipDir, "use", `local b = import 'broken/main.libsonnet'; { a: b }`)
+
+	h := JsonnetHandler(Config{
+		SnippetDirectories: []string{snipDir},
+		LibraryPaths:       []string{libDir},
+	})
+	rr := callExtVarSnippet(t, h, "use")
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400 (body: %s)", rr.Code, rr.Body.String())
+	}
+}
+
+func TestJsonnetHandler_LibraryImport_CombinedWithTLAsAndExtVars(t *testing.T) {
+	libDir := t.TempDir()
+	writeLibrary(t, libDir, "fmt", `{ join(a, b, sep): a + sep + b }`)
+
+	snipDir := t.TempDir()
+	writeSnippet(t, snipDir, "compose",
+		`function(prefix) local f = import 'fmt/main.libsonnet'; { msg: f.join(prefix, std.extVar("suffix"), "-") }`)
+
+	h := JsonnetHandler(Config{
+		SnippetDirectories: []string{snipDir},
+		LibraryPaths:       []string{libDir},
+		ExtVars:            map[string]string{"suffix": "tail"},
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/jsonnet/compose?prefix=head", nil)
+	req.SetPathValue("snippet", "compose")
+	rr := httptest.NewRecorder()
+	h(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "head-tail") {
+		t.Errorf("body = %q, want 'head-tail'", rr.Body.String())
+	}
+}
+
+func TestJsonnetHandler_LibraryImport_HighConcurrencyStress(t *testing.T) {
+	libDir := t.TempDir()
+	writeLibrary(t, libDir, "shared", `{ stamp: "stress-ok" }`)
+
+	snipDir := t.TempDir()
+	writeSnippet(t, snipDir, "use", `local s = import 'shared/main.libsonnet'; { stamp: s.stamp }`)
+
+	h := JsonnetHandler(Config{
+		SnippetDirectories: []string{snipDir},
+		LibraryPaths:       []string{libDir},
+	})
+
+	var wg sync.WaitGroup
+	const workers = 500
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			rr := callExtVarSnippet(t, h, "use")
+			if rr.Code != http.StatusOK {
+				t.Errorf("status = %d, want 200", rr.Code)
+				return
+			}
+			if !strings.Contains(rr.Body.String(), "stress-ok") {
+				t.Errorf("body = %q, want 'stress-ok'", rr.Body.String())
+			}
+		}()
+	}
+	wg.Wait()
+}
+
+func TestJsonnetHandler_LibraryImport_ConcurrentMixedSnippets(t *testing.T) {
+	libDir := t.TempDir()
+	writeLibrary(t, libDir, "lib", `{ v: 1 }`)
+
+	snipDir := t.TempDir()
+	writeSnippet(t, snipDir, "one", `local l = import 'lib/main.libsonnet'; { name: "one", v: l.v }`)
+	writeSnippet(t, snipDir, "two", `local l = import 'lib/main.libsonnet'; { name: "two", v: l.v + 1 }`)
+	writeSnippet(t, snipDir, "three", `local l = import 'lib/main.libsonnet'; { name: "three", v: l.v + 2 }`)
+
+	h := JsonnetHandler(Config{
+		SnippetDirectories: []string{snipDir},
+		LibraryPaths:       []string{libDir},
+	})
+
+	cases := map[string]string{
+		"one":   `"name": "one"`,
+		"two":   `"name": "two"`,
+		"three": `"name": "three"`,
+	}
+
+	var wg sync.WaitGroup
+	for snippet, want := range cases {
+		for i := 0; i < 30; i++ {
+			wg.Add(1)
+			go func(snippet, want string) {
+				defer wg.Done()
+				rr := callExtVarSnippet(t, h, snippet)
+				if rr.Code != http.StatusOK {
+					t.Errorf("snippet=%s: status = %d, want 200", snippet, rr.Code)
+					return
+				}
+				if !strings.Contains(rr.Body.String(), want) {
+					t.Errorf("snippet=%s: body = %q, want substring %s", snippet, rr.Body.String(), want)
+				}
+			}(snippet, want)
+		}
+	}
+	wg.Wait()
+}
+
+func TestJsonnetHandler_LibraryImport_ConcurrentWithExtVarsAndTLAs(t *testing.T) {
+	libDir := t.TempDir()
+	writeLibrary(t, libDir, "lib", `{ build(prefix, env, query): prefix + ":" + env + ":" + query }`)
+
+	snipDir := t.TempDir()
+	writeSnippet(t, snipDir, "compose",
+		`function(q) local l = import 'lib/main.libsonnet'; { out: l.build("p", std.extVar("e"), q) }`)
+
+	h := JsonnetHandler(Config{
+		SnippetDirectories: []string{snipDir},
+		LibraryPaths:       []string{libDir},
+		ExtVars:            map[string]string{"e": "production"},
+	})
+
+	var wg sync.WaitGroup
+	const workers = 50
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			q := fmt.Sprintf("query%d", i)
+			req := httptest.NewRequest(http.MethodGet, "/jsonnet/compose?q="+q, nil)
+			req.SetPathValue("snippet", "compose")
+			rr := httptest.NewRecorder()
+			h(rr, req)
+			if rr.Code != http.StatusOK {
+				t.Errorf("worker %d: status = %d, want 200 (body: %s)", i, rr.Code, rr.Body.String())
+				return
+			}
+			want := fmt.Sprintf(`"out": "p:production:%s"`, q)
+			if !strings.Contains(rr.Body.String(), want) {
+				t.Errorf("worker %d: body = %q, want substring %q", i, rr.Body.String(), want)
+			}
+		}(i)
+	}
+	wg.Wait()
+}
+
+func TestJsonnetHandler_LibraryImport_LibraryReadsTLA(t *testing.T) {
+	libDir := t.TempDir()
+	writeLibrary(t, libDir, "f", `{ wrap(s): "[" + s + "]" }`)
+
+	snipDir := t.TempDir()
+	writeSnippet(t, snipDir, "wrap",
+		`function(s) local f = import 'f/main.libsonnet'; { out: f.wrap(s) }`)
+
+	h := JsonnetHandler(Config{
+		SnippetDirectories: []string{snipDir},
+		LibraryPaths:       []string{libDir},
+	})
+	req := httptest.NewRequest(http.MethodGet, "/jsonnet/wrap?s=value", nil)
+	req.SetPathValue("snippet", "wrap")
+	rr := httptest.NewRecorder()
+	h(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "[value]") {
+		t.Errorf("body = %q, want '[value]'", rr.Body.String())
+	}
+}
