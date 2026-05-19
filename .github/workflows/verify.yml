@@ -46,6 +46,7 @@ jobs:
         uses: d3adb5/helm-unittest-action@v2
         with:
           charts: helm
-          helm-version: v3.8.0
+          helm-version: v3.21.0  # see https://github.com/d3adb5/helm-unittest-action/issues/23
+          unittest-version: v1.0.3  # see https://github.com/helm-unittest/helm-unittest/issues/856
           install-mode: if-not-present
           github-token: ${{ secrets.GITHUB_TOKEN }}
