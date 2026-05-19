@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: The jaas Authors
 # SPDX-License-Identifier: 0BSD
 
+{{- if gt (.Values.replicas.max | int) (.Values.replicas.min | int) }}
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
@@ -24,5 +25,5 @@ spec:
       app.kubernetes.io/component: jaas
       app.kubernetes.io/instance: {{ .Release.Name }}
       app.kubernetes.io/part-of: {{ .Chart.Name }}
-      app.kubernetes.io/managed-by: {{ .Release.Service }}
   minAvailable: {{ if lt (.Values.replicas.min | int) 2 }}0{{ else }}1{{ end }}
+{{- end }}

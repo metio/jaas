@@ -2,9 +2,14 @@ matches its arguments snapshot:
   1: |
     - -listen-address=0.0.0.0
     - -port=8080
+    - -read-timeout=10s
+    - -write-timeout=10s
     - -management-listen-address=0.0.0.0
     - -management-port=8081
+    - -management-read-timeout=10s
+    - -management-write-timeout=10s
     - -log-level=info
+    - -jsonnet-endpoint-path=jsonnet
     - -snippet-directory=/srv/snippets
     - -library-path=/srv/libraries/grafonnet
     - -library-path=/srv/libraries/docsonnet

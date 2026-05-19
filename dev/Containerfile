@@ -3,5 +3,13 @@
 
 FROM docker.io/library/golang:latest
 
-RUN apt-get update && apt-get install -y git
+RUN apt-get update && apt-get install -y git curl
 RUN go install honnef.co/go/tools/cmd/staticcheck@latest
+RUN curl -fsSL https://get.helm.sh/helm-v3.21.0-linux-amd64.tar.gz | tar -xz -C /tmp \
+    && mv /tmp/linux-amd64/helm /usr/local/bin/helm \
+    && rm -rf /tmp/linux-amd64
+ENV HELM_PLUGINS=/usr/local/share/helm/plugins
+RUN mkdir -p ${HELM_PLUGINS} \
+    && chmod -R a+rwX ${HELM_PLUGINS} \
+    && helm plugin install https://github.com/helm-unittest/helm-unittest --version v1.0.3 \
+    && chmod -R a+rX ${HELM_PLUGINS}

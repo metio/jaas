@@ -25,7 +25,6 @@ spec:
       app.kubernetes.io/component: jaas
       app.kubernetes.io/instance: {{ .Release.Name }}
       app.kubernetes.io/part-of: {{ .Chart.Name }}
-      app.kubernetes.io/managed-by: {{ .Release.Service }}
   template:
     metadata:
       labels:
@@ -81,9 +80,14 @@ spec:
           args:
             - -listen-address=0.0.0.0
             - -port={{ .Values.ports.http }}
+            - -read-timeout={{ .Values.arguments.readTimeout }}
+            - -write-timeout={{ .Values.arguments.writeTimeout }}
             - -management-listen-address=0.0.0.0
             - -management-port={{ .Values.ports.management }}
+            - -management-read-timeout={{ .Values.arguments.managementReadTimeout }}
+            - -management-write-timeout={{ .Values.arguments.managementWriteTimeout }}
             - -log-level={{ .Values.arguments.logLevel }}
+            - -jsonnet-endpoint-path={{ .Values.arguments.jsonnetEndpointPath }}
             - -snippet-directory={{ $.Values.paths.snippets }}
           {{ if .Values.libraries.grafonnet.enabled }}
             - -library-path={{ .Values.paths.libraries }}/grafonnet
