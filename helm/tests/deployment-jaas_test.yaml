@@ -377,6 +377,68 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].args
           content: -max-stack=0
+  - it: passes the default arguments.shutdownDelay via -shutdown-delay
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: -shutdown-delay=5s
+  - it: passes a custom arguments.shutdownDelay via -shutdown-delay
+    set:
+      arguments:
+        shutdownDelay: 20s
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: -shutdown-delay=20s
+  - it: accepts disabling the shutdown delay (0)
+    set:
+      arguments:
+        shutdownDelay: 0s
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: -shutdown-delay=0s
+
+  # ------------------------------------------------------------------
+  # Scheduling selectors must NOT include managed-by (item #8) but must
+  # still carry the other expected stable labels.
+  # ------------------------------------------------------------------
+  - it: podAntiAffinity labelSelector excludes managed-by
+    asserts:
+      - notExists:
+          path: spec.template.spec.affinity.podAntiAffinity.preferredDuringSchedulingIgnoredDuringExecution[0].podAffinityTerm.labelSelector.matchLabels["app.kubernetes.io/managed-by"]
+  - it: podAntiAffinity labelSelector retains name, component, and part-of
+    asserts:
+      - equal:
+          path: spec.template.spec.affinity.podAntiAffinity.preferredDuringSchedulingIgnoredDuringExecution[0].podAffinityTerm.labelSelector.matchLabels["app.kubernetes.io/name"]
+          value: jaas
+      - equal:
+          path: spec.template.spec.affinity.podAntiAffinity.preferredDuringSchedulingIgnoredDuringExecution[0].podAffinityTerm.labelSelector.matchLabels["app.kubernetes.io/component"]
+          value: jaas
+      - equal:
+          path: spec.template.spec.affinity.podAntiAffinity.preferredDuringSchedulingIgnoredDuringExecution[0].podAffinityTerm.labelSelector.matchLabels["app.kubernetes.io/part-of"]
+          value: jaas
+  - it: topologySpreadConstraints labelSelector excludes managed-by
+    asserts:
+      - notExists:
+          path: spec.template.spec.topologySpreadConstraints[0].labelSelector.matchLabels["app.kubernetes.io/managed-by"]
+  - it: topologySpreadConstraints labelSelector retains the other expected labels
+    asserts:
+      - equal:
+          path: spec.template.spec.topologySpreadConstraints[0].labelSelector.matchLabels["app.kubernetes.io/name"]
+          value: jaas
+      - equal:
+          path: spec.template.spec.topologySpreadConstraints[0].labelSelector.matchLabels["app.kubernetes.io/component"]
+          value: jaas
+      - equal:
+          path: spec.template.spec.topologySpreadConstraints[0].labelSelector.matchLabels["app.kubernetes.io/part-of"]
+          value: jaas
+      - exists:
+          path: spec.template.spec.topologySpreadConstraints[0].labelSelector.matchLabels["app.kubernetes.io/instance"]
+      - exists:
+          path: spec.template.spec.topologySpreadConstraints[0].labelSelector.matchLabels["app.kubernetes.io/version"]
+      - exists:
+          path: spec.template.spec.topologySpreadConstraints[0].labelSelector.matchLabels["helm.sh/chart"]
 
   # ------------------------------------------------------------------
   # Resources

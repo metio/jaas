@@ -97,6 +97,7 @@ func main() {
 	var managementReadTimeout = flag.Duration("management-read-timeout", 10*time.Second, "maximum duration for reading the entire request, including the body in the management server")
 	var evaluationTimeout = flag.Duration("evaluation-timeout", 5*time.Second, "Maximum duration a single Jsonnet evaluation is allowed to take. Set to 0 to disable.")
 	var maxStack = flag.Int("max-stack", 500, "Maximum Jsonnet call-stack depth. Set to 0 to use go-jsonnet's default.")
+	var shutdownDelay = flag.Duration("shutdown-delay", 5*time.Second, "Time to wait after readiness flips to false before initiating graceful shutdown; gives Kubernetes time to propagate the not-ready status to endpoint controllers. Set to 0 to disable.")
 	flag.Var(&libraryPaths, "library-path", "The path of a directory containing jsonnet libraries (can be specified multiple times). Rightmost matching library will be used.")
 	flag.Var(&snippets, "snippet", "The path of a jsonnet file or directory containing snippets (can be specified multiple times). Snippets will be loaded from the given path, where the file name is the snippet name.")
 	flag.Var(&snippetDirectories, "snippet-directory", "The path of a directory containing snippets as subdirectories (can be specified multiple times). Snippets will be loaded from subdirectories of the given path, where the directory name is the snippet name.")
@@ -130,7 +131,8 @@ func main() {
 		slog.Duration("management-write-timeout", *managementWriteTimeout),
 		slog.Duration("management-read-timeout", *managementReadTimeout),
 		slog.Duration("evaluation-timeout", *evaluationTimeout),
-		slog.Int("max-stack", *maxStack))
+		slog.Int("max-stack", *maxStack),
+		slog.Duration("shutdown-delay", *shutdownDelay))
 
 	extVars := handler.ParseExtVars(os.Environ())
 	slog.InfoContext(ctx, "External variables loaded", slog.Int("count", len(extVars)))
@@ -211,7 +213,7 @@ func main() {
 		slog.ErrorContext(ctx, "Server error, shutting down", slog.Any("error", err))
 	}
 
-	state.SetReady(false)
+	drainBeforeShutdown(state, *shutdownDelay, slog.Default())
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer shutdownCancel()
@@ -232,6 +234,18 @@ func configureLogger(logLevel *string) {
 		Level: parseLogLevel(*logLevel),
 	})
 	slog.SetDefault(slog.New(logHandler))
+}
+
+// drainBeforeShutdown flips readiness off and (if delay > 0) blocks for `delay`
+// so Kubernetes can propagate the not-ready status to its endpoint controllers
+// before in-flight requests start being aborted by Shutdown.
+func drainBeforeShutdown(state *handler.HealthState, delay time.Duration, logger *slog.Logger) {
+	state.SetReady(false)
+	if delay <= 0 {
+		return
+	}
+	logger.Info("Draining: waiting for readiness to propagate before shutdown", slog.Duration("delay", delay))
+	time.Sleep(delay)
 }
 
 func parseLogLevel(s string) slog.Level {

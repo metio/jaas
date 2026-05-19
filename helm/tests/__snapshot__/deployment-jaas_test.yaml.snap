@@ -12,6 +12,7 @@ matches its arguments snapshot:
     - -jsonnet-endpoint-path=jsonnet
     - -evaluation-timeout=5s
     - -max-stack=500
+    - -shutdown-delay=5s
     - -snippet-directory=/srv/snippets
     - -library-path=/srv/libraries/grafonnet
     - -library-path=/srv/libraries/docsonnet
