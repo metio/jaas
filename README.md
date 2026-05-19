@@ -116,6 +116,8 @@ See all available command line flags with `jaas --help`:
     	The port to bind to for the Jsonnet server (default "8080")
   -read-timeout duration
     	maximum duration for reading the entire request, including the body in the Jsonnet server (default 10s)
+  -shutdown-delay duration
+    	Time to wait after readiness flips to false before initiating graceful shutdown; gives Kubernetes time to propagate the not-ready status to endpoint controllers. Set to 0 to disable. (default 5s)
   -snippet value
     	The path of a jsonnet file or directory containing snippets (can be specified multiple times). Snippets will be loaded from the given path, where the file name is the snippet name.
   -snippet-directory value

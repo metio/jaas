@@ -48,7 +48,6 @@ spec:
                     app.kubernetes.io/name: {{ .Chart.Name }}
                     app.kubernetes.io/component: jaas
                     app.kubernetes.io/part-of: {{ .Chart.Name }}
-                    app.kubernetes.io/managed-by: {{ .Release.Service }}
                   matchExpressions:
                     - key: app.kubernetes.io/instance
                       operator: NotIn
@@ -67,7 +66,6 @@ spec:
               app.kubernetes.io/instance: {{ .Release.Name }}
               app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
               app.kubernetes.io/part-of: {{ .Chart.Name }}
-              app.kubernetes.io/managed-by: {{ .Release.Service }}
               helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
       automountServiceAccountToken: false
       {{- with .Values.imagePullSecrets }}
@@ -90,6 +88,7 @@ spec:
             - -jsonnet-endpoint-path={{ .Values.arguments.jsonnetEndpointPath }}
             - -evaluation-timeout={{ .Values.arguments.evaluationTimeout }}
             - -max-stack={{ .Values.arguments.maxStack }}
+            - -shutdown-delay={{ .Values.arguments.shutdownDelay }}
             - -snippet-directory={{ $.Values.paths.snippets }}
           {{ if .Values.libraries.grafonnet.enabled }}
             - -library-path={{ .Values.paths.libraries }}/grafonnet

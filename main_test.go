@@ -6,11 +6,20 @@
 package main
 
 import (
+	"io"
 	"log/slog"
 	"runtime/debug"
 	"strings"
+	"sync"
 	"testing"
+	"time"
+
+	"github.com/metio/jaas/internal/handler"
 )
+
+func discardLogger() *slog.Logger {
+	return slog.New(slog.NewJSONHandler(io.Discard, nil))
+}
 
 func TestParseLogLevel(t *testing.T) {
 	tests := map[string]slog.Level{
@@ -201,6 +210,125 @@ func TestResolveCommit(t *testing.T) {
 				t.Errorf("resolveCommit(%q, ...) = %q, want %q", tc.linker, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestDrainBeforeShutdown_FlipsReadyToFalse(t *testing.T) {
+	state := handler.NewHealthState()
+	state.SetReady(true)
+	drainBeforeShutdown(state, 0, discardLogger())
+	if state.Ready() {
+		t.Error("Ready() = true after drain; want false")
+	}
+}
+
+func TestDrainBeforeShutdown_FlipsReadyEvenWhenAlreadyFalse(t *testing.T) {
+	state := handler.NewHealthState()
+	// Never marked ready in the first place.
+	drainBeforeShutdown(state, 0, discardLogger())
+	if state.Ready() {
+		t.Error("Ready() = true after drain on never-ready state")
+	}
+}
+
+func TestDrainBeforeShutdown_DoesNotTouchStarted(t *testing.T) {
+	state := handler.NewHealthState()
+	state.MarkStarted()
+	state.SetReady(true)
+	drainBeforeShutdown(state, 0, discardLogger())
+	if !state.Started() {
+		t.Error("Started() flipped to false; drain must not touch the started flag")
+	}
+}
+
+func TestDrainBeforeShutdown_ZeroDelayReturnsImmediately(t *testing.T) {
+	state := handler.NewHealthState()
+	start := time.Now()
+	drainBeforeShutdown(state, 0, discardLogger())
+	if elapsed := time.Since(start); elapsed > 50*time.Millisecond {
+		t.Errorf("took %v with delay=0; want < 50ms", elapsed)
+	}
+}
+
+func TestDrainBeforeShutdown_NegativeDelayReturnsImmediately(t *testing.T) {
+	state := handler.NewHealthState()
+	start := time.Now()
+	drainBeforeShutdown(state, -1*time.Second, discardLogger())
+	if elapsed := time.Since(start); elapsed > 50*time.Millisecond {
+		t.Errorf("took %v with negative delay; want < 50ms", elapsed)
+	}
+}
+
+func TestDrainBeforeShutdown_PositiveDelaySleepsAtLeastThatLong(t *testing.T) {
+	state := handler.NewHealthState()
+	delay := 60 * time.Millisecond
+	start := time.Now()
+	drainBeforeShutdown(state, delay, discardLogger())
+	if elapsed := time.Since(start); elapsed < delay {
+		t.Errorf("took %v; want at least %v", elapsed, delay)
+	}
+}
+
+func TestDrainBeforeShutdown_FlipsReadyBeforeSleeping(t *testing.T) {
+	// Concurrent reader observes Ready()==false while drainBeforeShutdown is
+	// still sleeping — proves the flip happens before the sleep, not after.
+	state := handler.NewHealthState()
+	state.SetReady(true)
+
+	delay := 200 * time.Millisecond
+	done := make(chan struct{})
+	var observedReady bool
+	var mu sync.Mutex
+
+	go func() {
+		// Wait until well into the sleep, then sample Ready().
+		time.Sleep(delay / 4)
+		mu.Lock()
+		observedReady = state.Ready()
+		mu.Unlock()
+		close(done)
+	}()
+
+	drainBeforeShutdown(state, delay, discardLogger())
+	<-done
+
+	mu.Lock()
+	defer mu.Unlock()
+	if observedReady {
+		t.Error("observed Ready()==true mid-sleep; flip must happen before the sleep")
+	}
+}
+
+func TestDrainBeforeShutdown_LogsAtInfoLevelWhenDelaying(t *testing.T) {
+	state := handler.NewHealthState()
+
+	var buf strings.Builder
+	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	drainBeforeShutdown(state, 30*time.Millisecond, logger)
+
+	output := buf.String()
+	if !strings.Contains(output, "level=INFO") {
+		t.Errorf("expected an INFO record; got %q", output)
+	}
+	if !strings.Contains(output, "Draining") {
+		t.Errorf("expected message about draining; got %q", output)
+	}
+	if !strings.Contains(output, "delay=30ms") {
+		t.Errorf("expected delay attribute; got %q", output)
+	}
+}
+
+func TestDrainBeforeShutdown_DoesNotLogWhenDelayIsZero(t *testing.T) {
+	state := handler.NewHealthState()
+
+	var buf strings.Builder
+	logger := slog.New(slog.NewTextHandler(&buf, nil))
+
+	drainBeforeShutdown(state, 0, logger)
+
+	if buf.Len() != 0 {
+		t.Errorf("expected no log output with delay=0; got %q", buf.String())
 	}
 }
 

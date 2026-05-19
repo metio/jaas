@@ -36,6 +36,7 @@ arguments:
   jsonnetEndpointPath: jsonnet
   evaluationTimeout: 5s
   maxStack: 500
+  shutdownDelay: 5s
 
 # Fine tune the Deployment resource
 deployment:
