@@ -80,6 +80,8 @@ You can specify top level arguments using URL query parameters like this:
 See all available command line flags with `jaas --help`:
 
 ```
+  -evaluation-timeout duration
+    	Maximum duration a single Jsonnet evaluation is allowed to take. Set to 0 to disable. (default 5s)
   -jsonnet-endpoint-path string
     	The path to the jsonnet endpoint (default "jsonnet")
   -library-path value
@@ -96,6 +98,8 @@ See all available command line flags with `jaas --help`:
     	maximum duration for reading the entire request, including the body in the management server (default 10s)
   -management-write-timeout duration
     	The maximum duration before timing out writes of the response in the management server (default 10s)
+  -max-stack int
+    	Maximum Jsonnet call-stack depth. Set to 0 to use go-jsonnet's default. (default 500)
   -port string
     	The port to bind to for the Jsonnet server (default "8080")
   -read-timeout duration
