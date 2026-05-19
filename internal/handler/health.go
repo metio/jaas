@@ -5,19 +5,87 @@
 
 package handler
 
-import "net/http"
+import (
+	"net/http"
+	"sync"
+)
 
-func HealthHandler() http.HandlerFunc {
-	return func(writer http.ResponseWriter, request *http.Request) {
-		if request.Method != http.MethodGet {
-			writer.WriteHeader(http.StatusMethodNotAllowed)
+type HealthState struct {
+	mu      sync.RWMutex
+	started bool
+	ready   bool
+}
+
+func NewHealthState() *HealthState {
+	return &HealthState{}
+}
+
+func (s *HealthState) MarkStarted() {
+	s.mu.Lock()
+	s.started = true
+	s.mu.Unlock()
+}
+
+func (s *HealthState) SetReady(ready bool) {
+	s.mu.Lock()
+	s.ready = ready
+	s.mu.Unlock()
+}
+
+func (s *HealthState) Started() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.started
+}
+
+func (s *HealthState) Ready() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.ready
+}
+
+func StartupHandler(state *HealthState) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
-
-		writer.Header().Set("Content-Type", "application/json")
-		writer.WriteHeader(http.StatusOK)
-		if _, err := writer.Write([]byte(`{"status": "ok"}`)); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		if state.Started() {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"status":"ok"}`))
 			return
 		}
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"status":"not_started"}`))
+	}
+}
+
+func ReadinessHandler(state *HealthState) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if state.Ready() {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"status":"ok"}`))
+			return
+		}
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"status":"not_ready"}`))
+	}
+}
+
+func LivenessHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	}
 }
