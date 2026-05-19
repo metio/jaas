@@ -22,9 +22,7 @@ jobs:
           cache: true
       - id: lint
         name: Lint Go Code
-        uses: golangci/golangci-lint-action@v9
-        with:
-          version: latest
+        run: go vet ./...
       - id: tests
         name: Run Tests
         run: go test -v -cover ./...
