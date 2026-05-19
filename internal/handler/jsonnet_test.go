@@ -138,6 +138,10 @@ func TestApplyTLAVars(t *testing.T) {
 			params:  url.Values{"s": {"hello"}, "n": {"single"}},
 			wantSub: []string{`"s": "hello"`, `"n": "single"`},
 		},
+		"bare key (empty string value) becomes empty string TLA": {
+			params:  url.Values{"s": {""}, "n": {""}},
+			wantSub: []string{`"s": ""`, `"n": ""`},
+		},
 		"multi value becomes JSON-array TLA": {
 			params:  url.Values{"s": {"only"}, "n": {"a", "b"}},
 			wantSub: []string{`"s": "only"`, `"n":`, `"a"`, `"b"`},
@@ -186,6 +190,30 @@ func TestJsonnetHandler_SetsJSONContentTypeOnSuccess(t *testing.T) {
 	body, _ := io.ReadAll(rr.Body)
 	if !strings.Contains(string(body), `"ok"`) {
 		t.Errorf("body = %q, want JSON containing \"ok\"", string(body))
+	}
+}
+
+func TestJsonnetHandler_BareQueryKeyBecomesEmptyTLA(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "echo"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "echo", "main.jsonnet"), []byte(`function(v) { v: v }`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	h := JsonnetHandler(context.Background(), nil, []string{dir}, nil)
+	req := httptest.NewRequest(http.MethodGet, "/jsonnet/echo?v", nil)
+	req.SetPathValue("snippet", "echo")
+	rr := httptest.NewRecorder()
+	h(rr, req)
+
+	if got, want := rr.Code, http.StatusOK; got != want {
+		t.Fatalf("status = %d, want %d, body: %s", got, want, rr.Body.String())
+	}
+	body, _ := io.ReadAll(rr.Body)
+	if !strings.Contains(string(body), `"v": ""`) {
+		t.Errorf("body = %q, want it to contain `\"v\": \"\"`", string(body))
 	}
 }
 
