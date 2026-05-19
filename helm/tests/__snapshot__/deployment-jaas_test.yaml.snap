@@ -10,6 +10,8 @@ matches its arguments snapshot:
     - -management-write-timeout=10s
     - -log-level=info
     - -jsonnet-endpoint-path=jsonnet
+    - -evaluation-timeout=5s
+    - -max-stack=500
     - -snippet-directory=/srv/snippets
     - -library-path=/srv/libraries/grafonnet
     - -library-path=/srv/libraries/docsonnet

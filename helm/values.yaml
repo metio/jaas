@@ -34,6 +34,8 @@ arguments:
   managementWriteTimeout: 10s
   managementReadTimeout: 10s
   jsonnetEndpointPath: jsonnet
+  evaluationTimeout: 5s
+  maxStack: 500
 
 # Fine tune the Deployment resource
 deployment:

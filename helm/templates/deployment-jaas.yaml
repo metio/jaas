@@ -88,6 +88,8 @@ spec:
             - -management-write-timeout={{ .Values.arguments.managementWriteTimeout }}
             - -log-level={{ .Values.arguments.logLevel }}
             - -jsonnet-endpoint-path={{ .Values.arguments.jsonnetEndpointPath }}
+            - -evaluation-timeout={{ .Values.arguments.evaluationTimeout }}
+            - -max-stack={{ .Values.arguments.maxStack }}
             - -snippet-directory={{ $.Values.paths.snippets }}
           {{ if .Values.libraries.grafonnet.enabled }}
             - -library-path={{ .Values.paths.libraries }}/grafonnet
