@@ -106,43 +106,40 @@ func main() {
 	slog.DebugContext(ctx, "Management server created")
 
 	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, syscall.SIGINT)
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+
+	serverErrs := make(chan error, 2)
 
 	go func() {
-		err := jsonnetServer.ListenAndServe()
-		if errors.Is(err, http.ErrServerClosed) {
-			slog.DebugContext(ctx, "Server closed")
-			os.Exit(0)
-		} else if err != nil {
-			slog.ErrorContext(ctx, "Error while serving", slog.Any("error", err))
-			os.Exit(1)
+		if err := jsonnetServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			serverErrs <- fmt.Errorf("jsonnet server: %w", err)
 		}
 	}()
 	slog.DebugContext(ctx, "Jsonnet server started")
 
 	go func() {
-		err := managementServer.ListenAndServe()
-		if errors.Is(err, http.ErrServerClosed) {
-			slog.DebugContext(ctx, "Server closed")
-			os.Exit(0)
-		} else if err != nil {
-			slog.ErrorContext(ctx, "Error while serving", slog.Any("error", err))
-			os.Exit(1)
+		if err := managementServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			serverErrs <- fmt.Errorf("management server: %w", err)
 		}
 	}()
 	slog.DebugContext(ctx, "Management server started")
 
-	defer func() {
-		if err := jsonnetServer.Shutdown(ctx); err != nil {
-			slog.ErrorContext(ctx, "Cannot shut down Jsonnet server", slog.Any("error", err))
-		}
-		if err := managementServer.Shutdown(ctx); err != nil {
-			slog.ErrorContext(ctx, "Cannot shut down management server", slog.Any("error", err))
-		}
-	}()
+	select {
+	case sig := <-sigs:
+		slog.InfoContext(ctx, "Received signal, shutting down", slog.String("signal", sig.String()))
+	case err := <-serverErrs:
+		slog.ErrorContext(ctx, "Server error, shutting down", slog.Any("error", err))
+	}
 
-	sig := <-sigs
-	fmt.Println(sig)
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer shutdownCancel()
+
+	if err := jsonnetServer.Shutdown(shutdownCtx); err != nil {
+		slog.ErrorContext(ctx, "Cannot shut down Jsonnet server", slog.Any("error", err))
+	}
+	if err := managementServer.Shutdown(shutdownCtx); err != nil {
+		slog.ErrorContext(ctx, "Cannot shut down management server", slog.Any("error", err))
+	}
 
 	cancel()
 	slog.InfoContext(ctx, "JaaS service has shut down")

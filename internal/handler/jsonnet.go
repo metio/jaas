@@ -11,12 +11,15 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"slices"
 	"strings"
 
 	"github.com/google/go-jsonnet"
 )
+
+const extVarPrefix = "JAAS_EXT_VAR_"
 
 func JsonnetHandler(ctx context.Context, snippets []string, snippetDirectories []string, libraryPaths []string) http.HandlerFunc {
 	importer := &jsonnet.FileImporter{
@@ -30,61 +33,30 @@ func JsonnetHandler(ctx context.Context, snippets []string, snippetDirectories [
 			return
 		}
 
+		snippetName := request.PathValue("snippet")
+		slog.DebugContext(ctx, "Extracted snippet name", slog.String("snippet-name", snippetName))
+
+		fileName, ok := resolveSnippet(snippetName, snippets, snippetDirectories)
+		if !ok {
+			slog.ErrorContext(ctx, "Snippet not found", slog.String("snippet-name", snippetName))
+			writer.WriteHeader(http.StatusNotFound)
+			return
+		}
+		slog.DebugContext(ctx, "Resolved snippet", slog.String("snippet-name", snippetName), slog.String("file-name", fileName))
+
 		vm := jsonnet.MakeVM()
 		vm.Importer(importer)
 
-		for _, env := range os.Environ() {
-			pair := strings.SplitN(env, "=", 2)
-			if strings.HasPrefix(pair[0], "JAAS_EXT_VAR_") {
-				key := strings.TrimPrefix(pair[0], "JAAS_EXT_VAR_")
-				value := ""
-				if len(pair) > 0 {
-					value = pair[1]
-				}
-				vm.ExtVar(key, value)
-				slog.DebugContext(ctx, "Set external variable", slog.String("key", key), slog.Any("value", value))
-			}
+		for key, value := range parseExtVars(os.Environ()) {
+			vm.ExtVar(key, value)
+			slog.DebugContext(ctx, "Set external variable", slog.String("key", key), slog.String("value", value))
 		}
 
 		queryParams := request.URL.Query()
 		slog.DebugContext(ctx, "Extracted query parameters", slog.Any("queryParams", queryParams))
-		for key, value := range queryParams {
-			if len(value) == 0 {
-				vm.TLAVar(key, "")
-			} else if len(value) == 1 {
-				vm.TLAVar(key, value[0])
-			} else {
-				bytes, err := json.Marshal(value)
-				if err != nil {
-					slog.ErrorContext(ctx, "Cannot marshal query parameter value", slog.String("key", key), slog.Any("value", value), slog.Any("error", err))
-					writer.WriteHeader(http.StatusBadRequest)
-					return
-				}
-				vm.TLACode(key, string(bytes))
-			}
-		}
-
-		snippetName := request.PathValue("snippet")
-		slog.DebugContext(ctx, "Extracted snippet name", slog.String("snippet-name", snippetName))
-
-		var fileName string
-		if slices.Contains(snippets, snippetName) {
-			fileName = snippetName
-			slog.DebugContext(ctx, "Found exact match for snippet name", slog.String("snippet-name", snippetName))
-		} else {
-			for _, dir := range snippetDirectories {
-				jsonnetPath := fmt.Sprintf("%s/%s/main.jsonnet", dir, snippetName)
-				if _, err := os.Stat(jsonnetPath); err == nil {
-					fileName = jsonnetPath
-					slog.DebugContext(ctx, "Found snippet in directory", slog.String("snippet-name", snippetName), slog.String("file-name", fileName))
-					break
-				}
-			}
-		}
-
-		if fileName == "" {
-			slog.ErrorContext(ctx, "Snippet not found", slog.String("snippet-name", snippetName))
-			writer.WriteHeader(http.StatusNotFound)
+		if err := applyTLAVars(vm, queryParams); err != nil {
+			slog.ErrorContext(ctx, "Cannot apply TLA variables", slog.Any("error", err))
+			writer.WriteHeader(http.StatusBadRequest)
 			return
 		}
 
@@ -95,12 +67,57 @@ func JsonnetHandler(ctx context.Context, snippets []string, snippetDirectories [
 			return
 		}
 
-		writer.WriteHeader(http.StatusOK)
 		writer.Header().Set("Content-Type", "application/json")
-		_, err = writer.Write([]byte(jsonStr))
-		if err != nil {
+		writer.WriteHeader(http.StatusOK)
+		if _, err := writer.Write([]byte(jsonStr)); err != nil {
 			slog.ErrorContext(ctx, "Cannot write response", slog.Any("error", err))
 			return
 		}
 	}
+}
+
+func parseExtVars(environ []string) map[string]string {
+	result := make(map[string]string)
+	for _, env := range environ {
+		key, value, ok := strings.Cut(env, "=")
+		if !ok {
+			continue
+		}
+		if !strings.HasPrefix(key, extVarPrefix) {
+			continue
+		}
+		result[strings.TrimPrefix(key, extVarPrefix)] = value
+	}
+	return result
+}
+
+func resolveSnippet(name string, snippets []string, snippetDirectories []string) (string, bool) {
+	if slices.Contains(snippets, name) {
+		return name, true
+	}
+	for _, dir := range snippetDirectories {
+		path := fmt.Sprintf("%s/%s/main.jsonnet", dir, name)
+		if _, err := os.Stat(path); err == nil {
+			return path, true
+		}
+	}
+	return "", false
+}
+
+func applyTLAVars(vm *jsonnet.VM, queryParams url.Values) error {
+	for key, value := range queryParams {
+		switch len(value) {
+		case 0:
+			vm.TLAVar(key, "")
+		case 1:
+			vm.TLAVar(key, value[0])
+		default:
+			bytes, err := json.Marshal(value)
+			if err != nil {
+				return fmt.Errorf("marshal query parameter %q: %w", key, err)
+			}
+			vm.TLACode(key, string(bytes))
+		}
+	}
+	return nil
 }
