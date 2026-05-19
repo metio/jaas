@@ -146,20 +146,21 @@ func main() {
 }
 
 func configureLogger(logLevel *string) {
-	var level slog.Level
-	switch strings.ToLower(*logLevel) {
-	case "error":
-		level = slog.LevelError
-	case "warn":
-		level = slog.LevelWarn
-	case "debug":
-		level = slog.LevelDebug
-	case "info":
-	default:
-		level = slog.LevelInfo
-	}
 	logHandler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-		Level: level,
+		Level: parseLogLevel(*logLevel),
 	})
 	slog.SetDefault(slog.New(logHandler))
+}
+
+func parseLogLevel(s string) slog.Level {
+	switch strings.ToLower(s) {
+	case "error":
+		return slog.LevelError
+	case "warn":
+		return slog.LevelWarn
+	case "debug":
+		return slog.LevelDebug
+	default:
+		return slog.LevelInfo
+	}
 }
