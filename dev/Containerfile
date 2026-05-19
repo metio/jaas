@@ -4,3 +4,4 @@
 FROM docker.io/library/golang:latest
 
 RUN apt-get update && apt-get install -y git
+RUN go install honnef.co/go/tools/cmd/staticcheck@latest
