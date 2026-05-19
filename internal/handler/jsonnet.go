@@ -31,28 +31,34 @@ type Config struct {
 	ExtVars            map[string]string
 	EvaluationTimeout  time.Duration
 	MaxStack           int
+	Logger             *slog.Logger
 }
 
 func JsonnetHandler(cfg Config) http.HandlerFunc {
+	logger := cfg.Logger
+	if logger == nil {
+		logger = slog.Default()
+	}
+
 	return func(writer http.ResponseWriter, request *http.Request) {
 		ctx := request.Context()
 
 		if request.Method != http.MethodGet {
-			slog.ErrorContext(ctx, "Unsupported HTTP method used", slog.String("method", request.Method))
+			logger.ErrorContext(ctx, "Unsupported HTTP method used", slog.String("method", request.Method))
 			writer.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
 
 		snippetName := request.PathValue("snippet")
-		slog.DebugContext(ctx, "Extracted snippet name", slog.String("snippet-name", snippetName))
+		logger.DebugContext(ctx, "Extracted snippet name", slog.String("snippet-name", snippetName))
 
 		fileName, ok := resolveSnippet(snippetName, cfg.Snippets, cfg.SnippetDirectories)
 		if !ok {
-			slog.ErrorContext(ctx, "Snippet not found", slog.String("snippet-name", snippetName))
+			logger.ErrorContext(ctx, "Snippet not found", slog.String("snippet-name", snippetName))
 			writer.WriteHeader(http.StatusNotFound)
 			return
 		}
-		slog.DebugContext(ctx, "Resolved snippet", slog.String("snippet-name", snippetName), slog.String("file-name", fileName))
+		logger.DebugContext(ctx, "Resolved snippet", slog.String("snippet-name", snippetName), slog.String("file-name", fileName))
 
 		vm := jsonnet.MakeVM()
 		vm.Importer(&jsonnet.FileImporter{JPaths: cfg.LibraryPaths})
@@ -65,9 +71,9 @@ func JsonnetHandler(cfg Config) http.HandlerFunc {
 		}
 
 		queryParams := request.URL.Query()
-		slog.DebugContext(ctx, "Extracted query parameters", slog.Any("queryParams", queryParams))
+		logger.DebugContext(ctx, "Extracted query parameters", slog.Any("queryParams", queryParams))
 		if err := applyTLAVars(vm, queryParams); err != nil {
-			slog.ErrorContext(ctx, "Cannot apply TLA variables", slog.Any("error", err))
+			logger.ErrorContext(ctx, "Cannot apply TLA variables", slog.Any("error", err))
 			writer.WriteHeader(http.StatusBadRequest)
 			return
 		}
@@ -77,17 +83,17 @@ func JsonnetHandler(cfg Config) http.HandlerFunc {
 		}, cfg.EvaluationTimeout)
 		switch {
 		case errors.Is(err, context.DeadlineExceeded):
-			slog.ErrorContext(ctx, "Jsonnet evaluation timed out",
+			logger.ErrorContext(ctx, "Jsonnet evaluation timed out",
 				slog.Duration("timeout", cfg.EvaluationTimeout),
 				slog.String("file-name", fileName))
 			writer.WriteHeader(http.StatusGatewayTimeout)
 			return
 		case errors.Is(err, context.Canceled):
-			slog.WarnContext(ctx, "Jsonnet evaluation cancelled by caller",
+			logger.WarnContext(ctx, "Jsonnet evaluation cancelled by caller",
 				slog.String("file-name", fileName))
 			return
 		case err != nil:
-			slog.ErrorContext(ctx, "Cannot evaluate Jsonnet", slog.Any("error", err))
+			logger.ErrorContext(ctx, "Cannot evaluate Jsonnet", slog.Any("error", err))
 			writer.WriteHeader(http.StatusBadRequest)
 			return
 		}
@@ -95,7 +101,7 @@ func JsonnetHandler(cfg Config) http.HandlerFunc {
 		writer.Header().Set("Content-Type", "application/json")
 		writer.WriteHeader(http.StatusOK)
 		if _, err := writer.Write([]byte(jsonStr)); err != nil {
-			slog.ErrorContext(ctx, "Cannot write response", slog.Any("error", err))
+			logger.ErrorContext(ctx, "Cannot write response", slog.Any("error", err))
 			return
 		}
 	}
