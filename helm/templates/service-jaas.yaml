@@ -26,4 +26,3 @@ spec:
     app.kubernetes.io/component: jaas
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/part-of: {{ .Chart.Name }}
-    app.kubernetes.io/managed-by: {{ .Release.Service }}

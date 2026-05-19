@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: The jaas Authors
 # SPDX-License-Identifier: 0BSD
 
+{{- if gt (.Values.replicas.max | int) (.Values.replicas.min | int) }}
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
@@ -34,4 +35,4 @@ spec:
     apiVersion: apps/v1
     kind: Deployment
     name: jaas
-
+{{- end }}
