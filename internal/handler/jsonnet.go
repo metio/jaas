@@ -9,7 +9,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -72,11 +71,7 @@ func JsonnetHandler(cfg Config) http.HandlerFunc {
 
 		queryParams := request.URL.Query()
 		logger.DebugContext(ctx, "Extracted query parameters", slog.Any("queryParams", queryParams))
-		if err := applyTLAVars(vm, queryParams); err != nil {
-			logger.ErrorContext(ctx, "Cannot apply TLA variables", slog.Any("error", err))
-			writer.WriteHeader(http.StatusBadRequest)
-			return
-		}
+		applyTLAVars(vm, queryParams)
 
 		jsonStr, err := evaluateWithDeadline(ctx, func() (string, error) {
 			return vm.EvaluateFile(fileName)
@@ -169,17 +164,18 @@ func resolveSnippet(name string, snippets []string, snippetDirectories []string)
 	return "", false
 }
 
-func applyTLAVars(vm *jsonnet.VM, queryParams url.Values) error {
+// applyTLAVars maps URL query parameters onto the VM's Top Level Arguments.
+// Single-valued parameters become string TLAs via TLAVar; multi-valued ones
+// become JSON-array TLAs via TLACode. The encoding cannot fail: url.Values's
+// element type is []string, which has no Marshal-error path in encoding/json,
+// so the error return value is intentionally discarded.
+func applyTLAVars(vm *jsonnet.VM, queryParams url.Values) {
 	for key, value := range queryParams {
 		if len(value) == 1 {
 			vm.TLAVar(key, value[0])
 			continue
 		}
-		bytes, err := json.Marshal(value)
-		if err != nil {
-			return fmt.Errorf("marshal query parameter %q: %w", key, err)
-		}
+		bytes, _ := json.Marshal(value)
 		vm.TLACode(key, string(bytes))
 	}
-	return nil
 }

@@ -1,0 +1,10 @@
+{
+  "person1": {
+    "key": "more",
+    "required": {
+      "hello": "world"
+    },
+    "welcome": "Hello there!"
+  },
+  "standard": "value"
+}

@@ -10,6 +10,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -81,36 +82,58 @@ func resolveCommit(linker string, info *debug.BuildInfo, ok bool) string {
 }
 
 func main() {
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+	os.Exit(run(os.Args[1:], os.Environ(), os.Stdout, os.Stderr, sigs))
+}
+
+// run is the testable seam under main. All process-affecting side effects
+// (flag parsing, signal handling, stdout writes, slog.Default mutation) flow
+// through its parameters so tests can drive them in isolation.
+//
+// Return value follows the Unix convention: 0 success, 1 runtime failure
+// (bind / shutdown error surfaced before normal exit), 2 flag parse error.
+func run(args, env []string, stdout, stderr io.Writer, sigs <-chan os.Signal) int {
+	fs := flag.NewFlagSet("jaas", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+
 	var libraryPaths stringArray
 	var snippets stringArray
 	var snippetDirectories stringArray
-	var showVersion = flag.Bool("version", false, "Print version and exit")
-	var logLevel = flag.String("log-level", "info", "The log level to use (debug, info, warn, error)")
-	var listenAddress = flag.String("listen-address", "127.0.0.1", "The listen address to bind to for the Jsonnet server")
-	var port = flag.String("port", "8080", "The port to bind to for the Jsonnet server")
-	var jsonnetEndpointPath = flag.String("jsonnet-endpoint-path", "jsonnet", "The path to the jsonnet endpoint")
-	var writeTimeout = flag.Duration("write-timeout", 10*time.Second, "The maximum duration before timing out writes of the response in the Jsonnet server")
-	var readTimeout = flag.Duration("read-timeout", 10*time.Second, "maximum duration for reading the entire request, including the body in the Jsonnet server")
-	var managementListenAddress = flag.String("management-listen-address", "127.0.0.1", "The listen address to bind to for the management server")
-	var managementPort = flag.String("management-port", "8081", "The port to bind to for the management server")
-	var managementWriteTimeout = flag.Duration("management-write-timeout", 10*time.Second, "The maximum duration before timing out writes of the response in the management server")
-	var managementReadTimeout = flag.Duration("management-read-timeout", 10*time.Second, "maximum duration for reading the entire request, including the body in the management server")
-	var evaluationTimeout = flag.Duration("evaluation-timeout", 5*time.Second, "Maximum duration a single Jsonnet evaluation is allowed to take. Set to 0 to disable.")
-	var maxStack = flag.Int("max-stack", 500, "Maximum Jsonnet call-stack depth. Set to 0 to use go-jsonnet's default.")
-	var shutdownDelay = flag.Duration("shutdown-delay", 5*time.Second, "Time to wait after readiness flips to false before initiating graceful shutdown; gives Kubernetes time to propagate the not-ready status to endpoint controllers. Set to 0 to disable.")
-	flag.Var(&libraryPaths, "library-path", "The path of a directory containing jsonnet libraries (can be specified multiple times). Rightmost matching library will be used.")
-	flag.Var(&snippets, "snippet", "The path of a jsonnet file or directory containing snippets (can be specified multiple times). Snippets will be loaded from the given path, where the file name is the snippet name.")
-	flag.Var(&snippetDirectories, "snippet-directory", "The path of a directory containing snippets as subdirectories (can be specified multiple times). Snippets will be loaded from subdirectories of the given path, where the directory name is the snippet name.")
-	flag.Parse()
+	var showVersion = fs.Bool("version", false, "Print version and exit")
+	var logLevel = fs.String("log-level", "info", "The log level to use (debug, info, warn, error)")
+	var listenAddress = fs.String("listen-address", "127.0.0.1", "The listen address to bind to for the Jsonnet server")
+	var port = fs.String("port", "8080", "The port to bind to for the Jsonnet server")
+	var jsonnetEndpointPath = fs.String("jsonnet-endpoint-path", "jsonnet", "The path to the jsonnet endpoint")
+	var writeTimeout = fs.Duration("write-timeout", 10*time.Second, "The maximum duration before timing out writes of the response in the Jsonnet server")
+	var readTimeout = fs.Duration("read-timeout", 10*time.Second, "maximum duration for reading the entire request, including the body in the Jsonnet server")
+	var managementListenAddress = fs.String("management-listen-address", "127.0.0.1", "The listen address to bind to for the management server")
+	var managementPort = fs.String("management-port", "8081", "The port to bind to for the management server")
+	var managementWriteTimeout = fs.Duration("management-write-timeout", 10*time.Second, "The maximum duration before timing out writes of the response in the management server")
+	var managementReadTimeout = fs.Duration("management-read-timeout", 10*time.Second, "maximum duration for reading the entire request, including the body in the management server")
+	var evaluationTimeout = fs.Duration("evaluation-timeout", 5*time.Second, "Maximum duration a single Jsonnet evaluation is allowed to take. Set to 0 to disable.")
+	var maxStack = fs.Int("max-stack", 500, "Maximum Jsonnet call-stack depth. Set to 0 to use go-jsonnet's default.")
+	var shutdownDelay = fs.Duration("shutdown-delay", 5*time.Second, "Time to wait after readiness flips to false before initiating graceful shutdown; gives Kubernetes time to propagate the not-ready status to endpoint controllers. Set to 0 to disable.")
+	fs.Var(&libraryPaths, "library-path", "The path of a directory containing jsonnet libraries (can be specified multiple times). Rightmost matching library will be used.")
+	fs.Var(&snippets, "snippet", "The path of a jsonnet file or directory containing snippets (can be specified multiple times). Snippets will be loaded from the given path, where the file name is the snippet name.")
+	fs.Var(&snippetDirectories, "snippet-directory", "The path of a directory containing snippets as subdirectories (can be specified multiple times). Snippets will be loaded from subdirectories of the given path, where the directory name is the snippet name.")
 
-	if *showVersion {
-		fmt.Printf("version: %s\ncommit:  %s\n", version, commit)
-		os.Exit(0)
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
 	}
 
-	configureLogger(logLevel)
+	if *showVersion {
+		fmt.Fprintf(stdout, "version: %s\ncommit:  %s\n", version, commit)
+		return 0
+	}
+
+	configureLogger(stdout, *logLevel)
 
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	slog.InfoContext(ctx, "Starting JaaS",
 		slog.String("version", version),
@@ -134,7 +157,7 @@ func main() {
 		slog.Int("max-stack", *maxStack),
 		slog.Duration("shutdown-delay", *shutdownDelay))
 
-	extVars := handler.ParseExtVars(os.Environ())
+	extVars := handler.ParseExtVars(env)
 	slog.InfoContext(ctx, "External variables loaded", slog.Int("count", len(extVars)))
 
 	jsonnetMux := http.NewServeMux()
@@ -174,21 +197,18 @@ func main() {
 	managementListener, err := net.Listen("tcp", managementServer.Addr)
 	if err != nil {
 		slog.ErrorContext(ctx, "Cannot bind management listener", slog.String("addr", managementServer.Addr), slog.Any("error", err))
-		os.Exit(1)
+		return 1
 	}
 
 	jsonnetListener, err := net.Listen("tcp", jsonnetServer.Addr)
 	if err != nil {
 		_ = managementListener.Close()
 		slog.ErrorContext(ctx, "Cannot bind jsonnet listener", slog.String("addr", jsonnetServer.Addr), slog.Any("error", err))
-		os.Exit(1)
+		return 1
 	}
 
 	state.MarkStarted()
 	state.SetReady(true)
-
-	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 
 	serverErrs := make(chan error, 2)
 
@@ -206,11 +226,13 @@ func main() {
 	}()
 	slog.DebugContext(ctx, "Management server started")
 
+	exitCode := 0
 	select {
 	case sig := <-sigs:
 		slog.InfoContext(ctx, "Received signal, shutting down", slog.String("signal", sig.String()))
 	case err := <-serverErrs:
 		slog.ErrorContext(ctx, "Server error, shutting down", slog.Any("error", err))
+		exitCode = 1
 	}
 
 	drainBeforeShutdown(state, *shutdownDelay, slog.Default())
@@ -220,18 +242,20 @@ func main() {
 
 	if err := jsonnetServer.Shutdown(shutdownCtx); err != nil {
 		slog.ErrorContext(ctx, "Cannot shut down Jsonnet server", slog.Any("error", err))
+		exitCode = 1
 	}
 	if err := managementServer.Shutdown(shutdownCtx); err != nil {
 		slog.ErrorContext(ctx, "Cannot shut down management server", slog.Any("error", err))
+		exitCode = 1
 	}
 
-	cancel()
 	slog.InfoContext(ctx, "JaaS service has shut down")
+	return exitCode
 }
 
-func configureLogger(logLevel *string) {
-	logHandler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-		Level: parseLogLevel(*logLevel),
+func configureLogger(out io.Writer, logLevel string) {
+	logHandler := slog.NewJSONHandler(out, &slog.HandlerOptions{
+		Level: parseLogLevel(logLevel),
 	})
 	slog.SetDefault(slog.New(logHandler))
 }
