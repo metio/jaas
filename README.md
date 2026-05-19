@@ -75,6 +75,18 @@ You can specify top level arguments using URL query parameters like this:
 - `http://<IP>:<PORT>/jsonnet/snippet?var1=value1&var2`: Set `var1` to `value1` and `var2` to an empty string for the snippet evaluation.
 - `http://<IP>:<PORT>/jsonnet/snippet?var1=value1&var1=value2`: Set `var1` to a list containing `value1` and `value2` for the snippet evaluation.
 
+### Security Considerations
+
+JaaS evaluates Jsonnet on the server and serves the result over HTTP. Before exposing it to a wider audience, operators should be aware of the following:
+
+**Library paths are an unrestricted read scope.** Any file reachable under a configured `-library-path` (or under the snippet's own directory) can be `import`-ed or `importstr`-ed by *any* snippet — go-jsonnet's `FileImporter` does not sandbox per snippet. Scope `-library-path` directories tightly; do not point them at `/`, `/etc`, or anywhere holding credentials.
+
+**Snippets are operator-controlled, not caller-controlled.** Callers only supply Top Level Arguments via URL query parameters; jsonnet's `import` / `importstr` require string literals, so TLAs and external variables cannot be used to construct arbitrary import paths. That said, deploying a snippet authored by someone you don't trust is equivalent to running their code on the server.
+
+**Snippet name resolution is sandboxed.** The URL's `{snippet...}` segment is resolved via Go's `os.Root`, which rejects `..` traversal and symlinks that escape the configured `-snippet-directory`. So a malicious URL like `/jsonnet/../etc/passwd` is rejected with 404, even though the OS would otherwise resolve it.
+
+**Evaluation has caps but isn't cancellable mid-flight.** `-evaluation-timeout` bounds wall-clock time per request and `-max-stack` bounds Jsonnet's call-stack depth, but go-jsonnet has no mid-evaluation cancellation — a slow snippet keeps consuming CPU on the server until it finishes naturally or the timeout fires the HTTP response. Size container CPU/memory limits accordingly.
+
 ### Command Line Flags
 
 See all available command line flags with `jaas --help`:
