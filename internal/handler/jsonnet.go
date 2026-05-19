@@ -106,18 +106,15 @@ func resolveSnippet(name string, snippets []string, snippetDirectories []string)
 
 func applyTLAVars(vm *jsonnet.VM, queryParams url.Values) error {
 	for key, value := range queryParams {
-		switch len(value) {
-		case 0:
-			vm.TLAVar(key, "")
-		case 1:
+		if len(value) == 1 {
 			vm.TLAVar(key, value[0])
-		default:
-			bytes, err := json.Marshal(value)
-			if err != nil {
-				return fmt.Errorf("marshal query parameter %q: %w", key, err)
-			}
-			vm.TLACode(key, string(bytes))
+			continue
 		}
+		bytes, err := json.Marshal(value)
+		if err != nil {
+			return fmt.Errorf("marshal query parameter %q: %w", key, err)
+		}
+		vm.TLACode(key, string(bytes))
 	}
 	return nil
 }
