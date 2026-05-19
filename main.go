@@ -11,6 +11,7 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -100,11 +101,11 @@ func main() {
 	}
 	slog.DebugContext(ctx, "Jsonnet server created")
 
-	healthHandler := handler.HealthHandler()
+	state := handler.NewHealthState()
 	managementMux := http.NewServeMux()
-	managementMux.HandleFunc("/start", healthHandler)
-	managementMux.HandleFunc("/ready", healthHandler)
-	managementMux.HandleFunc("/live", healthHandler)
+	managementMux.HandleFunc("/start", handler.StartupHandler(state))
+	managementMux.HandleFunc("/ready", handler.ReadinessHandler(state))
+	managementMux.HandleFunc("/live", handler.LivenessHandler())
 	slog.DebugContext(ctx, "Management handlers configured")
 
 	managementServer := &http.Server{
@@ -115,20 +116,36 @@ func main() {
 	}
 	slog.DebugContext(ctx, "Management server created")
 
+	managementListener, err := net.Listen("tcp", managementServer.Addr)
+	if err != nil {
+		slog.ErrorContext(ctx, "Cannot bind management listener", slog.String("addr", managementServer.Addr), slog.Any("error", err))
+		os.Exit(1)
+	}
+
+	jsonnetListener, err := net.Listen("tcp", jsonnetServer.Addr)
+	if err != nil {
+		_ = managementListener.Close()
+		slog.ErrorContext(ctx, "Cannot bind jsonnet listener", slog.String("addr", jsonnetServer.Addr), slog.Any("error", err))
+		os.Exit(1)
+	}
+
+	state.MarkStarted()
+	state.SetReady(true)
+
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 
 	serverErrs := make(chan error, 2)
 
 	go func() {
-		if err := jsonnetServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		if err := jsonnetServer.Serve(jsonnetListener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			serverErrs <- fmt.Errorf("jsonnet server: %w", err)
 		}
 	}()
 	slog.DebugContext(ctx, "Jsonnet server started")
 
 	go func() {
-		if err := managementServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		if err := managementServer.Serve(managementListener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			serverErrs <- fmt.Errorf("management server: %w", err)
 		}
 	}()
@@ -140,6 +157,8 @@ func main() {
 	case err := <-serverErrs:
 		slog.ErrorContext(ctx, "Server error, shutting down", slog.Any("error", err))
 	}
+
+	state.SetReady(false)
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer shutdownCancel()
