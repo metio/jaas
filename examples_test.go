@@ -31,7 +31,7 @@ type goldenCase struct {
 	query   url.Values // optional query parameters (URL-encoded by net/url)
 }
 
-// runGoldenCase boots jaas via runInBackground, fetches the configured URL,
+// runGoldenCase boots the server via runInBackground, fetches the configured URL,
 // and either compares the canonicalized response against testdata/golden/<name>.json
 // or rewrites that file when -update is set.
 func runGoldenCase(t *testing.T, tc goldenCase) {
@@ -321,9 +321,9 @@ func TestExamples_TransitiveLibraryImports(t *testing.T) {
 }
 
 func TestExamples_KubernetesManifest(t *testing.T) {
-	// Realistic shape: a Deployment manifest assembled from four TLAs. This
-	// is the closest existing test to "what an actual JaaS user would use it
-	// for" — a parameterised k8s/grafana-style YAML/JSON resource builder.
+	// Realistic shape: a Deployment manifest assembled from four TLAs — the
+	// closest existing test to "what an actual user would build us for" —
+	// a parameterised k8s/grafana-style YAML/JSON resource builder.
 	runGoldenCase(t, goldenCase{
 		name: "dashboards_k8s_manifest",
 		args: []string{

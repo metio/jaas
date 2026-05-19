@@ -156,7 +156,8 @@ tests:
           path: spec.replicas
 
   # ------------------------------------------------------------------
-  # Selector — must not include managed-by (see item #12 in review history)
+  # Selector — must not include managed-by, because spec.selector is immutable
+  # and managed-by can change across install tools (Helm, Helmfile, ArgoCD).
   # ------------------------------------------------------------------
   - it: selector includes the expected stable labels only
     asserts:
@@ -400,8 +401,9 @@ tests:
           content: -shutdown-delay=0s
 
   # ------------------------------------------------------------------
-  # Scheduling selectors must NOT include managed-by (item #8) but must
-  # still carry the other expected stable labels.
+  # Scheduling selectors must NOT include managed-by, but must still carry
+  # the other expected stable labels — without those, the constraints would
+  # match too little (or nothing) and stop influencing pod placement.
   # ------------------------------------------------------------------
   - it: podAntiAffinity labelSelector excludes managed-by
     asserts:
