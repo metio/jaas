@@ -79,7 +79,7 @@ func main() {
 		slog.Duration("management-read-timeout", *managementReadTimeout))
 
 	jsonnetMux := http.NewServeMux()
-	jsonnetMux.HandleFunc(fmt.Sprintf("/%s/{snippet...}", *jsonnetEndpointPath), handler.JsonnetHandler(ctx, snippets, snippetDirectories, libraryPaths))
+	jsonnetMux.HandleFunc(fmt.Sprintf("/%s/{snippet...}", *jsonnetEndpointPath), handler.JsonnetHandler(snippets, snippetDirectories, libraryPaths))
 	slog.DebugContext(ctx, "Jsonnet handler configured")
 
 	jsonnetServer := &http.Server{

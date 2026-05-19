@@ -6,7 +6,6 @@
 package handler
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -21,12 +20,14 @@ import (
 
 const extVarPrefix = "JAAS_EXT_VAR_"
 
-func JsonnetHandler(ctx context.Context, snippets []string, snippetDirectories []string, libraryPaths []string) http.HandlerFunc {
+func JsonnetHandler(snippets []string, snippetDirectories []string, libraryPaths []string) http.HandlerFunc {
 	importer := &jsonnet.FileImporter{
 		JPaths: libraryPaths,
 	}
 
 	return func(writer http.ResponseWriter, request *http.Request) {
+		ctx := request.Context()
+
 		if request.Method != http.MethodGet {
 			slog.ErrorContext(ctx, "Unsupported HTTP method used", slog.String("method", request.Method))
 			writer.WriteHeader(http.StatusMethodNotAllowed)
