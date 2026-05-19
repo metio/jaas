@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime/debug"
 	"strings"
 	"syscall"
 	"time"
@@ -33,13 +34,57 @@ func (i *stringArray) Set(value string) error {
 	return nil
 }
 
-var jaasVersion = "development"
+// Overwritten at link time via `-ldflags="-X main.version=... -X main.commit=..."` by
+// the release workflow. For local builds `version` stays "development", and `commit`
+// is refined in init() by reading the VCS revision from runtime/debug — so a plain
+// `go build` shows the real SHA without needing any flags. The sentinel below marks
+// "no linker override; ask buildinfo".
+const commitSentinel = "unknown"
+
+var (
+	version = "development"
+	commit  = commitSentinel
+)
+
+func init() {
+	info, ok := debug.ReadBuildInfo()
+	commit = resolveCommit(commit, info, ok)
+}
+
+// resolveCommit picks the linker-supplied value if it differs from the sentinel,
+// otherwise it pulls vcs.revision out of buildinfo, appending "-dirty" if the
+// worktree had uncommitted changes at build time. Returns the sentinel when no
+// revision is available.
+func resolveCommit(linker string, info *debug.BuildInfo, ok bool) string {
+	if linker != commitSentinel {
+		return linker
+	}
+	if !ok || info == nil {
+		return commitSentinel
+	}
+	var rev, modified string
+	for _, s := range info.Settings {
+		switch s.Key {
+		case "vcs.revision":
+			rev = s.Value
+		case "vcs.modified":
+			modified = s.Value
+		}
+	}
+	if rev == "" {
+		return commitSentinel
+	}
+	if modified == "true" {
+		return rev + "-dirty"
+	}
+	return rev
+}
 
 func main() {
 	var libraryPaths stringArray
 	var snippets stringArray
 	var snippetDirectories stringArray
-	var version = flag.Bool("version", false, "Print version and exit")
+	var showVersion = flag.Bool("version", false, "Print version and exit")
 	var logLevel = flag.String("log-level", "info", "The log level to use (debug, info, warn, error)")
 	var listenAddress = flag.String("listen-address", "127.0.0.1", "The listen address to bind to for the Jsonnet server")
 	var port = flag.String("port", "8080", "The port to bind to for the Jsonnet server")
@@ -57,14 +102,18 @@ func main() {
 	flag.Var(&snippetDirectories, "snippet-directory", "The path of a directory containing snippets as subdirectories (can be specified multiple times). Snippets will be loaded from subdirectories of the given path, where the directory name is the snippet name.")
 	flag.Parse()
 
-	if *version {
-		fmt.Println(jaasVersion)
+	if *showVersion {
+		fmt.Printf("version: %s\ncommit:  %s\n", version, commit)
 		os.Exit(0)
 	}
 
 	configureLogger(logLevel)
 
 	ctx, cancel := context.WithCancel(context.Background())
+
+	slog.InfoContext(ctx, "Starting JaaS",
+		slog.String("version", version),
+		slog.String("commit", commit))
 
 	slog.InfoContext(ctx, "CLI flags parsed",
 		slog.String("log-level", *logLevel),
