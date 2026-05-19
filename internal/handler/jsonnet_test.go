@@ -418,14 +418,10 @@ func TestJsonnetHandler_BareQueryKeyBecomesEmptyTLA(t *testing.T) {
 
 func TestJsonnetHandler_LogsCarryRequestContext(t *testing.T) {
 	captured := &ctxCaptureHandler{}
-	prev := slog.Default()
-	slog.SetDefault(slog.New(captured))
-	t.Cleanup(func() { slog.SetDefault(prev) })
-
 	type ctxKey struct{}
 	const sentinel = "trace-12345"
 
-	h := JsonnetHandler(Config{})
+	h := JsonnetHandler(Config{Logger: slog.New(captured)})
 	req := httptest.NewRequest(http.MethodPost, "/jsonnet/x", nil).
 		WithContext(context.WithValue(context.Background(), ctxKey{}, sentinel))
 	rr := httptest.NewRecorder()
@@ -942,13 +938,11 @@ func TestJsonnetHandler_ExtVarUsedTwiceInSnippet(t *testing.T) {
 
 func TestJsonnetHandler_NoExtVarSlogPerRequestDebug(t *testing.T) {
 	// Confirms that the per-request debug log for ExtVars has been removed.
-	// We install a capturing slog handler at debug level, then issue a request
-	// against a snippet whose ExtVars map contains a unique sentinel value.
-	// The sentinel must NOT appear in any captured log record.
+	// We install a capturing slog handler at debug level via Config.Logger,
+	// then issue a request against a snippet whose ExtVars map contains a
+	// unique sentinel value. The sentinel must NOT appear in any captured
+	// log record.
 	captured := &debugCaptureHandler{}
-	prev := slog.Default()
-	slog.SetDefault(slog.New(captured))
-	t.Cleanup(func() { slog.SetDefault(prev) })
 
 	dir := t.TempDir()
 	writeExtVarSnippet(t, dir, "echo", "v")
@@ -957,6 +951,7 @@ func TestJsonnetHandler_NoExtVarSlogPerRequestDebug(t *testing.T) {
 	h := JsonnetHandler(Config{
 		SnippetDirectories: []string{dir},
 		ExtVars:            map[string]string{"v": sentinel},
+		Logger:             slog.New(captured),
 	})
 	rr := callExtVarSnippet(t, h, "echo")
 	if rr.Code != http.StatusOK {
@@ -1529,6 +1524,580 @@ func TestJsonnetHandler_LibraryImport_ConcurrentWithExtVarsAndTLAs(t *testing.T)
 		}(i)
 	}
 	wg.Wait()
+}
+
+// --- Logger injection (item #13) ---
+
+type capturedRecord struct {
+	level slog.Level
+	msg   string
+	attrs map[string]slog.Value
+	ctx   context.Context
+}
+
+type recordCapture struct {
+	mu       sync.Mutex
+	level    slog.Level
+	useLevel bool
+	records  []capturedRecord
+}
+
+func newRecordCapture() *recordCapture { return &recordCapture{} }
+
+func newRecordCaptureAtLevel(l slog.Level) *recordCapture {
+	return &recordCapture{level: l, useLevel: true}
+}
+
+func (h *recordCapture) Enabled(_ context.Context, l slog.Level) bool {
+	if h.useLevel {
+		return l >= h.level
+	}
+	return true
+}
+
+func (h *recordCapture) Handle(ctx context.Context, r slog.Record) error {
+	rec := capturedRecord{
+		level: r.Level,
+		msg:   r.Message,
+		attrs: map[string]slog.Value{},
+		ctx:   ctx,
+	}
+	r.Attrs(func(a slog.Attr) bool {
+		rec.attrs[a.Key] = a.Value
+		return true
+	})
+	h.mu.Lock()
+	h.records = append(h.records, rec)
+	h.mu.Unlock()
+	return nil
+}
+
+func (h *recordCapture) WithAttrs(attrs []slog.Attr) slog.Handler {
+	return &recordCaptureChild{base: h, attrs: attrs}
+}
+func (h *recordCapture) WithGroup(_ string) slog.Handler { return h }
+
+type recordCaptureChild struct {
+	base  *recordCapture
+	attrs []slog.Attr
+}
+
+func (c *recordCaptureChild) Enabled(ctx context.Context, l slog.Level) bool {
+	return c.base.Enabled(ctx, l)
+}
+
+func (c *recordCaptureChild) Handle(ctx context.Context, r slog.Record) error {
+	for _, a := range c.attrs {
+		r.AddAttrs(a)
+	}
+	return c.base.Handle(ctx, r)
+}
+
+func (c *recordCaptureChild) WithAttrs(attrs []slog.Attr) slog.Handler {
+	merged := append([]slog.Attr{}, c.attrs...)
+	merged = append(merged, attrs...)
+	return &recordCaptureChild{base: c.base, attrs: merged}
+}
+
+func (c *recordCaptureChild) WithGroup(_ string) slog.Handler { return c }
+
+func (h *recordCapture) snapshot() []capturedRecord {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	out := make([]capturedRecord, len(h.records))
+	copy(out, h.records)
+	return out
+}
+
+func (h *recordCapture) findMessage(msg string) (capturedRecord, bool) {
+	for _, r := range h.snapshot() {
+		if r.msg == msg {
+			return r, true
+		}
+	}
+	return capturedRecord{}, false
+}
+
+func (h *recordCapture) count() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return len(h.records)
+}
+
+// --- injection semantics ---
+
+func TestJsonnetHandler_Logger_InjectedLoggerReceivesRecords(t *testing.T) {
+	cap := newRecordCapture()
+	h := JsonnetHandler(Config{Logger: slog.New(cap)})
+	req := httptest.NewRequest(http.MethodPost, "/jsonnet/x", nil)
+	rr := httptest.NewRecorder()
+	h(rr, req)
+	if cap.count() == 0 {
+		t.Error("injected logger received zero records; expected at least one")
+	}
+}
+
+func TestJsonnetHandler_Logger_NilFallsBackToDefault(t *testing.T) {
+	cap := newRecordCapture()
+	prev := slog.Default()
+	slog.SetDefault(slog.New(cap))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	h := JsonnetHandler(Config{Logger: nil})
+	req := httptest.NewRequest(http.MethodPost, "/jsonnet/x", nil)
+	rr := httptest.NewRecorder()
+	h(rr, req)
+
+	if cap.count() == 0 {
+		t.Error("default logger received zero records; nil-fallback did not engage")
+	}
+}
+
+func TestJsonnetHandler_Logger_DoesNotPanicOnNil(t *testing.T) {
+	h := JsonnetHandler(Config{Logger: nil})
+	req := httptest.NewRequest(http.MethodGet, "/jsonnet/missing", nil)
+	req.SetPathValue("snippet", "missing")
+	rr := httptest.NewRecorder()
+	h(rr, req)
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want 404", rr.Code)
+	}
+}
+
+func TestJsonnetHandler_Logger_InjectedLoggerOverridesGlobal(t *testing.T) {
+	global := newRecordCapture()
+	injected := newRecordCapture()
+	prev := slog.Default()
+	slog.SetDefault(slog.New(global))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	h := JsonnetHandler(Config{Logger: slog.New(injected)})
+	req := httptest.NewRequest(http.MethodPost, "/jsonnet/x", nil)
+	rr := httptest.NewRecorder()
+	h(rr, req)
+
+	if injected.count() == 0 {
+		t.Error("injected logger should have received records")
+	}
+	if global.count() != 0 {
+		t.Errorf("global logger received %d records; injection should have bypassed it", global.count())
+	}
+}
+
+func TestJsonnetHandler_Logger_PerHandlerIsolation(t *testing.T) {
+	capA := newRecordCapture()
+	capB := newRecordCapture()
+	hA := JsonnetHandler(Config{Logger: slog.New(capA)})
+	hB := JsonnetHandler(Config{Logger: slog.New(capB)})
+
+	// Fire on A only.
+	hA(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/jsonnet/x", nil))
+	if capA.count() == 0 {
+		t.Error("logger A received no records after A request")
+	}
+	if capB.count() != 0 {
+		t.Errorf("logger B received %d records from handler A's request; loggers should be isolated", capB.count())
+	}
+
+	// Fire on B only; A's count should not change.
+	priorA := capA.count()
+	hB(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/jsonnet/x", nil))
+	if capB.count() == 0 {
+		t.Error("logger B received no records after B request")
+	}
+	if capA.count() != priorA {
+		t.Errorf("logger A count moved from %d to %d after a B request; isolation broken", priorA, capA.count())
+	}
+}
+
+func TestJsonnetHandler_Logger_StableAcrossMultipleRequests(t *testing.T) {
+	cap := newRecordCapture()
+	h := JsonnetHandler(Config{Logger: slog.New(cap)})
+	for i := 0; i < 10; i++ {
+		req := httptest.NewRequest(http.MethodPost, "/jsonnet/x", nil)
+		rr := httptest.NewRecorder()
+		h(rr, req)
+	}
+	if cap.count() < 10 {
+		t.Errorf("count = %d, want >= 10 (one record per request, all on the same logger)", cap.count())
+	}
+}
+
+func TestJsonnetHandler_Logger_LevelFilterDropsDebugLogs(t *testing.T) {
+	// Logger gated at Error level; the success-path Debug logs should be dropped
+	// and the lone Error log should still pass through (we trigger one with POST).
+	cap := newRecordCaptureAtLevel(slog.LevelError)
+	h := JsonnetHandler(Config{Logger: slog.New(cap)})
+
+	// POST → method-not-allowed Error log.
+	req := httptest.NewRequest(http.MethodPost, "/jsonnet/x", nil)
+	rr := httptest.NewRecorder()
+	h(rr, req)
+
+	for _, r := range cap.snapshot() {
+		if r.level < slog.LevelError {
+			t.Errorf("record at level %v leaked through Error-only filter: msg=%q", r.level, r.msg)
+		}
+	}
+	if cap.count() == 0 {
+		t.Error("expected at least one Error record to pass through")
+	}
+}
+
+func TestJsonnetHandler_Logger_AcceptsLoggerWithPresetAttrs(t *testing.T) {
+	cap := newRecordCapture()
+	logger := slog.New(cap).With(slog.String("service", "jaas"), slog.String("env", "test"))
+	h := JsonnetHandler(Config{Logger: logger})
+	req := httptest.NewRequest(http.MethodPost, "/jsonnet/x", nil)
+	rr := httptest.NewRecorder()
+	h(rr, req)
+
+	if cap.count() == 0 {
+		t.Fatal("no records captured")
+	}
+	for _, r := range cap.snapshot() {
+		if v, ok := r.attrs["service"]; !ok || v.String() != "jaas" {
+			t.Errorf("record %q missing preset attr service=jaas; attrs=%v", r.msg, r.attrs)
+		}
+		if v, ok := r.attrs["env"]; !ok || v.String() != "test" {
+			t.Errorf("record %q missing preset attr env=test; attrs=%v", r.msg, r.attrs)
+		}
+	}
+}
+
+// --- per-log-site coverage ---
+
+func TestJsonnetHandler_Logger_LogsMethodNotAllowed(t *testing.T) {
+	cap := newRecordCapture()
+	h := JsonnetHandler(Config{Logger: slog.New(cap)})
+	req := httptest.NewRequest(http.MethodPost, "/jsonnet/x", nil)
+	rr := httptest.NewRecorder()
+	h(rr, req)
+
+	rec, ok := cap.findMessage("Unsupported HTTP method used")
+	if !ok {
+		t.Fatalf("expected record %q; got messages: %v", "Unsupported HTTP method used", messages(cap))
+	}
+	if rec.level != slog.LevelError {
+		t.Errorf("level = %v, want Error", rec.level)
+	}
+	if v, ok := rec.attrs["method"]; !ok || v.String() != "POST" {
+		t.Errorf("attrs missing method=POST; got %v", rec.attrs)
+	}
+}
+
+func TestJsonnetHandler_Logger_LogsSnippetNotFound(t *testing.T) {
+	cap := newRecordCapture()
+	h := JsonnetHandler(Config{Logger: slog.New(cap)})
+	req := httptest.NewRequest(http.MethodGet, "/jsonnet/missing", nil)
+	req.SetPathValue("snippet", "missing")
+	rr := httptest.NewRecorder()
+	h(rr, req)
+
+	rec, ok := cap.findMessage("Snippet not found")
+	if !ok {
+		t.Fatalf("expected record %q; got messages: %v", "Snippet not found", messages(cap))
+	}
+	if rec.level != slog.LevelError {
+		t.Errorf("level = %v, want Error", rec.level)
+	}
+	if v, ok := rec.attrs["snippet-name"]; !ok || v.String() != "missing" {
+		t.Errorf("attrs missing snippet-name=missing; got %v", rec.attrs)
+	}
+}
+
+func TestJsonnetHandler_Logger_LogsExtractedSnippetNameAtDebug(t *testing.T) {
+	cap := newRecordCapture()
+	h := JsonnetHandler(Config{Logger: slog.New(cap)})
+	req := httptest.NewRequest(http.MethodGet, "/jsonnet/anything", nil)
+	req.SetPathValue("snippet", "anything")
+	rr := httptest.NewRecorder()
+	h(rr, req)
+
+	rec, ok := cap.findMessage("Extracted snippet name")
+	if !ok {
+		t.Fatalf("expected record %q; got messages: %v", "Extracted snippet name", messages(cap))
+	}
+	if rec.level != slog.LevelDebug {
+		t.Errorf("level = %v, want Debug", rec.level)
+	}
+	if v, ok := rec.attrs["snippet-name"]; !ok || v.String() != "anything" {
+		t.Errorf("attrs missing snippet-name=anything; got %v", rec.attrs)
+	}
+}
+
+func TestJsonnetHandler_Logger_LogsResolvedSnippetOnSuccess(t *testing.T) {
+	cap := newRecordCapture()
+	dir := t.TempDir()
+	writeSnippet(t, dir, "hello", `{ok:true}`)
+	h := JsonnetHandler(Config{
+		SnippetDirectories: []string{dir},
+		Logger:             slog.New(cap),
+	})
+	req := httptest.NewRequest(http.MethodGet, "/jsonnet/hello", nil)
+	req.SetPathValue("snippet", "hello")
+	rr := httptest.NewRecorder()
+	h(rr, req)
+
+	rec, ok := cap.findMessage("Resolved snippet")
+	if !ok {
+		t.Fatalf("expected record %q; got messages: %v", "Resolved snippet", messages(cap))
+	}
+	if rec.level != slog.LevelDebug {
+		t.Errorf("level = %v, want Debug", rec.level)
+	}
+	if v, ok := rec.attrs["snippet-name"]; !ok || v.String() != "hello" {
+		t.Errorf("attrs missing snippet-name=hello; got %v", rec.attrs)
+	}
+	if _, ok := rec.attrs["file-name"]; !ok {
+		t.Errorf("attrs missing file-name; got %v", rec.attrs)
+	}
+}
+
+func TestJsonnetHandler_Logger_LogsExtractedQueryParams(t *testing.T) {
+	cap := newRecordCapture()
+	dir := t.TempDir()
+	writeSnippet(t, dir, "hello", `{ok:true}`)
+	h := JsonnetHandler(Config{
+		SnippetDirectories: []string{dir},
+		Logger:             slog.New(cap),
+	})
+	req := httptest.NewRequest(http.MethodGet, "/jsonnet/hello?foo=bar", nil)
+	req.SetPathValue("snippet", "hello")
+	rr := httptest.NewRecorder()
+	h(rr, req)
+
+	rec, ok := cap.findMessage("Extracted query parameters")
+	if !ok {
+		t.Fatalf("expected record %q; got messages: %v", "Extracted query parameters", messages(cap))
+	}
+	if rec.level != slog.LevelDebug {
+		t.Errorf("level = %v, want Debug", rec.level)
+	}
+}
+
+func TestJsonnetHandler_Logger_LogsEvaluationTimeout(t *testing.T) {
+	cap := newRecordCapture()
+	dir := t.TempDir()
+	writeSnippet(t, dir, "slow", `local f(n) = if n == 0 then 0 else f(n-1) + 1; f(500)`)
+	h := JsonnetHandler(Config{
+		SnippetDirectories: []string{dir},
+		EvaluationTimeout:  time.Microsecond,
+		MaxStack:           10000,
+		Logger:             slog.New(cap),
+	})
+	req := httptest.NewRequest(http.MethodGet, "/jsonnet/slow", nil)
+	req.SetPathValue("snippet", "slow")
+	rr := httptest.NewRecorder()
+	h(rr, req)
+
+	rec, ok := cap.findMessage("Jsonnet evaluation timed out")
+	if !ok {
+		t.Fatalf("expected record %q; got messages: %v", "Jsonnet evaluation timed out", messages(cap))
+	}
+	if rec.level != slog.LevelError {
+		t.Errorf("level = %v, want Error", rec.level)
+	}
+	if _, ok := rec.attrs["timeout"]; !ok {
+		t.Errorf("attrs missing timeout; got %v", rec.attrs)
+	}
+	if _, ok := rec.attrs["file-name"]; !ok {
+		t.Errorf("attrs missing file-name; got %v", rec.attrs)
+	}
+}
+
+func TestJsonnetHandler_Logger_LogsEvaluationCancelled(t *testing.T) {
+	cap := newRecordCapture()
+	dir := t.TempDir()
+	writeSnippet(t, dir, "slow", `local f(n) = if n == 0 then 0 else f(n-1) + 1; f(500)`)
+	h := JsonnetHandler(Config{
+		SnippetDirectories: []string{dir},
+		MaxStack:           10000,
+		Logger:             slog.New(cap),
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // pre-cancel so evaluation is cancelled immediately
+	req := httptest.NewRequest(http.MethodGet, "/jsonnet/slow", nil).WithContext(ctx)
+	req.SetPathValue("snippet", "slow")
+	rr := httptest.NewRecorder()
+	h(rr, req)
+
+	rec, ok := cap.findMessage("Jsonnet evaluation cancelled by caller")
+	if !ok {
+		t.Fatalf("expected record %q; got messages: %v", "Jsonnet evaluation cancelled by caller", messages(cap))
+	}
+	if rec.level != slog.LevelWarn {
+		t.Errorf("level = %v, want Warn", rec.level)
+	}
+}
+
+func TestJsonnetHandler_Logger_LogsCannotEvaluateOnSyntaxError(t *testing.T) {
+	cap := newRecordCapture()
+	dir := t.TempDir()
+	writeSnippet(t, dir, "broken", `{ this is not valid jsonnet`)
+	h := JsonnetHandler(Config{
+		SnippetDirectories: []string{dir},
+		Logger:             slog.New(cap),
+	})
+	req := httptest.NewRequest(http.MethodGet, "/jsonnet/broken", nil)
+	req.SetPathValue("snippet", "broken")
+	rr := httptest.NewRecorder()
+	h(rr, req)
+
+	rec, ok := cap.findMessage("Cannot evaluate Jsonnet")
+	if !ok {
+		t.Fatalf("expected record %q; got messages: %v", "Cannot evaluate Jsonnet", messages(cap))
+	}
+	if rec.level != slog.LevelError {
+		t.Errorf("level = %v, want Error", rec.level)
+	}
+	if _, ok := rec.attrs["error"]; !ok {
+		t.Errorf("attrs missing error; got %v", rec.attrs)
+	}
+}
+
+func TestJsonnetHandler_Logger_RecordsCarryRequestContext(t *testing.T) {
+	// Same idea as the older ctxCaptureHandler test, but goes through the
+	// injected-logger path and asserts the request context arrives on every
+	// captured record across multiple log call sites.
+	type ctxKey struct{}
+	const sentinel = "trace-injected-7c2"
+
+	cap := newRecordCapture()
+	dir := t.TempDir()
+	writeSnippet(t, dir, "hello", `{ok:true}`)
+	h := JsonnetHandler(Config{
+		SnippetDirectories: []string{dir},
+		Logger:             slog.New(cap),
+	})
+
+	ctx := context.WithValue(context.Background(), ctxKey{}, sentinel)
+	req := httptest.NewRequest(http.MethodGet, "/jsonnet/hello", nil).WithContext(ctx)
+	req.SetPathValue("snippet", "hello")
+	rr := httptest.NewRecorder()
+	h(rr, req)
+
+	if cap.count() == 0 {
+		t.Fatal("no records captured")
+	}
+	for i, r := range cap.snapshot() {
+		got, _ := r.ctx.Value(ctxKey{}).(string)
+		if got != sentinel {
+			t.Errorf("record %d (%q): ctx value = %q, want %q", i, r.msg, got, sentinel)
+		}
+	}
+}
+
+// --- success-path debug record coverage ---
+
+func TestJsonnetHandler_Logger_SuccessPathEmitsExpectedDebugRecords(t *testing.T) {
+	cap := newRecordCapture()
+	dir := t.TempDir()
+	writeSnippet(t, dir, "hello", `{ok:true}`)
+	h := JsonnetHandler(Config{
+		SnippetDirectories: []string{dir},
+		Logger:             slog.New(cap),
+	})
+	req := httptest.NewRequest(http.MethodGet, "/jsonnet/hello", nil)
+	req.SetPathValue("snippet", "hello")
+	rr := httptest.NewRecorder()
+	h(rr, req)
+
+	expected := []string{
+		"Extracted snippet name",
+		"Resolved snippet",
+		"Extracted query parameters",
+	}
+	for _, msg := range expected {
+		if _, ok := cap.findMessage(msg); !ok {
+			t.Errorf("expected record %q on success path; got messages: %v", msg, messages(cap))
+		}
+	}
+}
+
+func TestJsonnetHandler_Logger_LevelsAreDistinct(t *testing.T) {
+	// A single test that hits Error (POST → 405), Debug (Extracted snippet name)
+	// and confirms each surfaces with the right level on its own request.
+	cap := newRecordCapture()
+	h := JsonnetHandler(Config{Logger: slog.New(cap)})
+
+	rr := httptest.NewRecorder()
+	h(rr, httptest.NewRequest(http.MethodPost, "/jsonnet/x", nil))
+
+	rec, ok := cap.findMessage("Unsupported HTTP method used")
+	if !ok {
+		t.Fatalf("expected Error record; got %v", messages(cap))
+	}
+	if rec.level != slog.LevelError {
+		t.Errorf("Error path: level = %v, want Error", rec.level)
+	}
+
+	// reset captures
+	cap.mu.Lock()
+	cap.records = nil
+	cap.mu.Unlock()
+
+	rr = httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/jsonnet/anything", nil)
+	req.SetPathValue("snippet", "anything")
+	h(rr, req)
+	rec, ok = cap.findMessage("Extracted snippet name")
+	if !ok {
+		t.Fatalf("expected Debug record; got %v", messages(cap))
+	}
+	if rec.level != slog.LevelDebug {
+		t.Errorf("Debug path: level = %v, want Debug", rec.level)
+	}
+}
+
+// --- concurrency ---
+
+func TestJsonnetHandler_Logger_ConcurrentRequestsAllCaptured(t *testing.T) {
+	cap := newRecordCapture()
+	h := JsonnetHandler(Config{Logger: slog.New(cap)})
+
+	var wg sync.WaitGroup
+	const workers = 100
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			rr := httptest.NewRecorder()
+			h(rr, httptest.NewRequest(http.MethodPost, "/jsonnet/x", nil))
+		}()
+	}
+	wg.Wait()
+
+	if cap.count() < workers {
+		t.Errorf("captured %d records from %d concurrent POSTs; want >= %d", cap.count(), workers, workers)
+	}
+}
+
+func TestJsonnetHandler_Logger_HandlerWithoutLoggerDoesNotMutateDefaultLoggerOutsideCall(t *testing.T) {
+	// Two consecutive constructions of JsonnetHandler with Config{} must not
+	// reset slog.Default between calls.
+	mark := newRecordCapture()
+	prev := slog.Default()
+	slog.SetDefault(slog.New(mark))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	_ = JsonnetHandler(Config{})
+	if mark.count() != 0 {
+		t.Errorf("construction emitted %d log records; constructor should not log", mark.count())
+	}
+	_ = JsonnetHandler(Config{})
+	if mark.count() != 0 {
+		t.Errorf("second construction emitted %d records; constructor must be log-silent", mark.count())
+	}
+}
+
+func messages(cap *recordCapture) []string {
+	out := make([]string, 0, cap.count())
+	for _, r := range cap.snapshot() {
+		out = append(out, r.msg)
+	}
+	return out
 }
 
 func TestJsonnetHandler_LibraryImport_LibraryReadsTLA(t *testing.T) {
