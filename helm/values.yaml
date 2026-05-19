@@ -44,8 +44,13 @@ deployment:
 pod:
   additionalLabels: {}
 
+# Fine tune the Service resource
 service:
   ipFamilyPolicy: ""
+
+# Fine tune the PodDisruptionBudget
+pdb:
+  unhealthyPodEvictionPolicy: ""
 
 # Modify the paths used, use this in case you run a custom image
 paths:
