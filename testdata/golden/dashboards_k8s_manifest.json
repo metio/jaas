@@ -1,0 +1,39 @@
+{
+  "apiVersion": "apps/v1",
+  "kind": "Deployment",
+  "metadata": {
+    "labels": {
+      "app.kubernetes.io/name": "myapp"
+    },
+    "name": "myapp",
+    "namespace": "staging"
+  },
+  "spec": {
+    "replicas": 3,
+    "selector": {
+      "matchLabels": {
+        "app.kubernetes.io/name": "myapp"
+      }
+    },
+    "template": {
+      "metadata": {
+        "labels": {
+          "app.kubernetes.io/name": "myapp"
+        }
+      },
+      "spec": {
+        "containers": [
+          {
+            "image": "myorg/myapp:v1.2.3",
+            "name": "myapp",
+            "ports": [
+              {
+                "containerPort": 8080
+              }
+            ]
+          }
+        ]
+      }
+    }
+  }
+}

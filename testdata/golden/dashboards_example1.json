@@ -1,0 +1,13 @@
+{
+  "person1": {
+    "external": "secret",
+    "name": "Alice",
+    "welcome": "Hello Alice!"
+  },
+  "person2": {
+    "external": "secret",
+    "name": "Bob",
+    "welcome": "Hello Bob!"
+  },
+  "standard": "value"
+}
