@@ -7,6 +7,7 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -17,6 +18,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/go-jsonnet"
 )
@@ -286,7 +288,7 @@ func TestJsonnetHandler_SetsJSONContentTypeOnSuccess(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	h := JsonnetHandler(nil, []string{dir}, nil)
+	h := JsonnetHandler(Config{SnippetDirectories: []string{dir}})
 	req := httptest.NewRequest(http.MethodGet, "/jsonnet/hello", nil)
 	req.SetPathValue("snippet", "hello")
 	rr := httptest.NewRecorder()
@@ -313,7 +315,7 @@ func TestJsonnetHandler_BareQueryKeyBecomesEmptyTLA(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	h := JsonnetHandler(nil, []string{dir}, nil)
+	h := JsonnetHandler(Config{SnippetDirectories: []string{dir}})
 	req := httptest.NewRequest(http.MethodGet, "/jsonnet/echo?v", nil)
 	req.SetPathValue("snippet", "echo")
 	rr := httptest.NewRecorder()
@@ -337,7 +339,7 @@ func TestJsonnetHandler_LogsCarryRequestContext(t *testing.T) {
 	type ctxKey struct{}
 	const sentinel = "trace-12345"
 
-	h := JsonnetHandler(nil, nil, nil)
+	h := JsonnetHandler(Config{})
 	req := httptest.NewRequest(http.MethodPost, "/jsonnet/x", nil).
 		WithContext(context.WithValue(context.Background(), ctxKey{}, sentinel))
 	rr := httptest.NewRecorder()
@@ -370,7 +372,7 @@ func TestJsonnetHandler_TraversalReturnsNotFound(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	h := JsonnetHandler(nil, []string{snippetDir}, nil)
+	h := JsonnetHandler(Config{SnippetDirectories: []string{snippetDir}})
 	req := httptest.NewRequest(http.MethodGet, "/jsonnet/x", nil)
 	req.SetPathValue("snippet", relEscape)
 	rr := httptest.NewRecorder()
@@ -385,7 +387,7 @@ func TestJsonnetHandler_TraversalReturnsNotFound(t *testing.T) {
 }
 
 func TestJsonnetHandler_MethodNotAllowed(t *testing.T) {
-	h := JsonnetHandler(nil, nil, nil)
+	h := JsonnetHandler(Config{})
 	req := httptest.NewRequest(http.MethodPost, "/jsonnet/x", nil)
 	rr := httptest.NewRecorder()
 	h(rr, req)
@@ -395,7 +397,7 @@ func TestJsonnetHandler_MethodNotAllowed(t *testing.T) {
 }
 
 func TestJsonnetHandler_NotFound(t *testing.T) {
-	h := JsonnetHandler(nil, nil, nil)
+	h := JsonnetHandler(Config{})
 	req := httptest.NewRequest(http.MethodGet, "/jsonnet/missing", nil)
 	req.SetPathValue("snippet", "missing")
 	rr := httptest.NewRecorder()
@@ -403,4 +405,135 @@ func TestJsonnetHandler_NotFound(t *testing.T) {
 	if got, want := rr.Code, http.StatusNotFound; got != want {
 		t.Errorf("status = %d, want %d", got, want)
 	}
+}
+
+func TestEvaluateWithDeadline_Success(t *testing.T) {
+	out, err := evaluateWithDeadline(context.Background(), func() (string, error) {
+		return "ok", nil
+	}, time.Second)
+	if err != nil {
+		t.Fatalf("err = %v, want nil", err)
+	}
+	if out != "ok" {
+		t.Errorf("out = %q, want %q", out, "ok")
+	}
+}
+
+func TestEvaluateWithDeadline_PropagatesEvalError(t *testing.T) {
+	sentinel := errors.New("eval failed")
+	_, err := evaluateWithDeadline(context.Background(), func() (string, error) {
+		return "", sentinel
+	}, time.Second)
+	if !errors.Is(err, sentinel) {
+		t.Errorf("err = %v, want %v", err, sentinel)
+	}
+}
+
+func TestEvaluateWithDeadline_TimesOut(t *testing.T) {
+	start := time.Now()
+	_, err := evaluateWithDeadline(context.Background(), func() (string, error) {
+		time.Sleep(2 * time.Second)
+		return "late", nil
+	}, 50*time.Millisecond)
+	elapsed := time.Since(start)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("err = %v, want context.DeadlineExceeded", err)
+	}
+	if elapsed > 500*time.Millisecond {
+		t.Errorf("took %v, want well under the eval's 2s sleep", elapsed)
+	}
+}
+
+func TestEvaluateWithDeadline_RespectsContextCancel(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		cancel()
+	}()
+	_, err := evaluateWithDeadline(ctx, func() (string, error) {
+		time.Sleep(2 * time.Second)
+		return "late", nil
+	}, time.Hour)
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("err = %v, want context.Canceled", err)
+	}
+}
+
+func TestEvaluateWithDeadline_ZeroTimeoutMeansNoTimeout(t *testing.T) {
+	out, err := evaluateWithDeadline(context.Background(), func() (string, error) {
+		time.Sleep(20 * time.Millisecond)
+		return "ok", nil
+	}, 0)
+	if err != nil {
+		t.Fatalf("err = %v, want nil", err)
+	}
+	if out != "ok" {
+		t.Errorf("out = %q, want %q", out, "ok")
+	}
+}
+
+func TestJsonnetHandler_TimeoutReturns504(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "slow"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	snippet := `local f(n) = if n == 0 then 0 else f(n-1) + 1; f(500)`
+	if err := os.WriteFile(filepath.Join(dir, "slow", "main.jsonnet"), []byte(snippet), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	h := JsonnetHandler(Config{
+		SnippetDirectories: []string{dir},
+		EvaluationTimeout:  time.Microsecond,
+		MaxStack:           10000,
+	})
+	req := httptest.NewRequest(http.MethodGet, "/jsonnet/slow", nil)
+	req.SetPathValue("snippet", "slow")
+	rr := httptest.NewRecorder()
+	h(rr, req)
+
+	if got, want := rr.Code, http.StatusGatewayTimeout; got != want {
+		t.Errorf("status = %d, want %d (body: %s)", got, want, rr.Body.String())
+	}
+}
+
+func TestJsonnetHandler_MaxStackLimitsRecursion(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "deep"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	snippet := `local f(n) = if n == 0 then 0 else f(n-1) + 1; f(200)`
+	if err := os.WriteFile(filepath.Join(dir, "deep", "main.jsonnet"), []byte(snippet), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("hits stack limit", func(t *testing.T) {
+		h := JsonnetHandler(Config{
+			SnippetDirectories: []string{dir},
+			EvaluationTimeout:  10 * time.Second,
+			MaxStack:           20,
+		})
+		req := httptest.NewRequest(http.MethodGet, "/jsonnet/deep", nil)
+		req.SetPathValue("snippet", "deep")
+		rr := httptest.NewRecorder()
+		h(rr, req)
+		if got, want := rr.Code, http.StatusBadRequest; got != want {
+			t.Errorf("status = %d, want %d (body: %s)", got, want, rr.Body.String())
+		}
+	})
+
+	t.Run("succeeds with generous stack", func(t *testing.T) {
+		h := JsonnetHandler(Config{
+			SnippetDirectories: []string{dir},
+			EvaluationTimeout:  10 * time.Second,
+			MaxStack:           1000,
+		})
+		req := httptest.NewRequest(http.MethodGet, "/jsonnet/deep", nil)
+		req.SetPathValue("snippet", "deep")
+		rr := httptest.NewRecorder()
+		h(rr, req)
+		if got, want := rr.Code, http.StatusOK; got != want {
+			t.Errorf("status = %d, want %d (body: %s)", got, want, rr.Body.String())
+		}
+	})
 }

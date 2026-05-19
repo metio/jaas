@@ -6,7 +6,9 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -15,15 +17,24 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/google/go-jsonnet"
 )
 
 const extVarPrefix = "JAAS_EXT_VAR_"
 
-func JsonnetHandler(snippets []string, snippetDirectories []string, libraryPaths []string) http.HandlerFunc {
+type Config struct {
+	Snippets           []string
+	SnippetDirectories []string
+	LibraryPaths       []string
+	EvaluationTimeout  time.Duration
+	MaxStack           int
+}
+
+func JsonnetHandler(cfg Config) http.HandlerFunc {
 	importer := &jsonnet.FileImporter{
-		JPaths: libraryPaths,
+		JPaths: cfg.LibraryPaths,
 	}
 
 	return func(writer http.ResponseWriter, request *http.Request) {
@@ -38,7 +49,7 @@ func JsonnetHandler(snippets []string, snippetDirectories []string, libraryPaths
 		snippetName := request.PathValue("snippet")
 		slog.DebugContext(ctx, "Extracted snippet name", slog.String("snippet-name", snippetName))
 
-		fileName, ok := resolveSnippet(snippetName, snippets, snippetDirectories)
+		fileName, ok := resolveSnippet(snippetName, cfg.Snippets, cfg.SnippetDirectories)
 		if !ok {
 			slog.ErrorContext(ctx, "Snippet not found", slog.String("snippet-name", snippetName))
 			writer.WriteHeader(http.StatusNotFound)
@@ -48,6 +59,9 @@ func JsonnetHandler(snippets []string, snippetDirectories []string, libraryPaths
 
 		vm := jsonnet.MakeVM()
 		vm.Importer(importer)
+		if cfg.MaxStack > 0 {
+			vm.MaxStack = cfg.MaxStack
+		}
 
 		for key, value := range parseExtVars(os.Environ()) {
 			vm.ExtVar(key, value)
@@ -62,8 +76,21 @@ func JsonnetHandler(snippets []string, snippetDirectories []string, libraryPaths
 			return
 		}
 
-		jsonStr, err := vm.EvaluateFile(fileName)
-		if err != nil {
+		jsonStr, err := evaluateWithDeadline(ctx, func() (string, error) {
+			return vm.EvaluateFile(fileName)
+		}, cfg.EvaluationTimeout)
+		switch {
+		case errors.Is(err, context.DeadlineExceeded):
+			slog.ErrorContext(ctx, "Jsonnet evaluation timed out",
+				slog.Duration("timeout", cfg.EvaluationTimeout),
+				slog.String("file-name", fileName))
+			writer.WriteHeader(http.StatusGatewayTimeout)
+			return
+		case errors.Is(err, context.Canceled):
+			slog.WarnContext(ctx, "Jsonnet evaluation cancelled by caller",
+				slog.String("file-name", fileName))
+			return
+		case err != nil:
 			slog.ErrorContext(ctx, "Cannot evaluate Jsonnet", slog.Any("error", err))
 			writer.WriteHeader(http.StatusBadRequest)
 			return
@@ -75,6 +102,31 @@ func JsonnetHandler(snippets []string, snippetDirectories []string, libraryPaths
 			slog.ErrorContext(ctx, "Cannot write response", slog.Any("error", err))
 			return
 		}
+	}
+}
+
+func evaluateWithDeadline(ctx context.Context, eval func() (string, error), timeout time.Duration) (string, error) {
+	if timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
+
+	type result struct {
+		out string
+		err error
+	}
+	ch := make(chan result, 1)
+	go func() {
+		out, err := eval()
+		ch <- result{out: out, err: err}
+	}()
+
+	select {
+	case r := <-ch:
+		return r.out, r.err
+	case <-ctx.Done():
+		return "", ctx.Err()
 	}
 }
 

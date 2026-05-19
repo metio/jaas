@@ -49,6 +49,8 @@ func main() {
 	var managementPort = flag.String("management-port", "8081", "The port to bind to for the management server")
 	var managementWriteTimeout = flag.Duration("management-write-timeout", 10*time.Second, "The maximum duration before timing out writes of the response in the management server")
 	var managementReadTimeout = flag.Duration("management-read-timeout", 10*time.Second, "maximum duration for reading the entire request, including the body in the management server")
+	var evaluationTimeout = flag.Duration("evaluation-timeout", 5*time.Second, "Maximum duration a single Jsonnet evaluation is allowed to take. Set to 0 to disable.")
+	var maxStack = flag.Int("max-stack", 500, "Maximum Jsonnet call-stack depth. Set to 0 to use go-jsonnet's default.")
 	flag.Var(&libraryPaths, "library-path", "The path of a directory containing jsonnet libraries (can be specified multiple times). Rightmost matching library will be used.")
 	flag.Var(&snippets, "snippet", "The path of a jsonnet file or directory containing snippets (can be specified multiple times). Snippets will be loaded from the given path, where the file name is the snippet name.")
 	flag.Var(&snippetDirectories, "snippet-directory", "The path of a directory containing snippets as subdirectories (can be specified multiple times). Snippets will be loaded from subdirectories of the given path, where the directory name is the snippet name.")
@@ -76,10 +78,18 @@ func main() {
 		slog.String("management-listen-address", *managementListenAddress),
 		slog.String("management-port", *managementPort),
 		slog.Duration("management-write-timeout", *managementWriteTimeout),
-		slog.Duration("management-read-timeout", *managementReadTimeout))
+		slog.Duration("management-read-timeout", *managementReadTimeout),
+		slog.Duration("evaluation-timeout", *evaluationTimeout),
+		slog.Int("max-stack", *maxStack))
 
 	jsonnetMux := http.NewServeMux()
-	jsonnetMux.HandleFunc(fmt.Sprintf("/%s/{snippet...}", *jsonnetEndpointPath), handler.JsonnetHandler(snippets, snippetDirectories, libraryPaths))
+	jsonnetMux.HandleFunc(fmt.Sprintf("/%s/{snippet...}", *jsonnetEndpointPath), handler.JsonnetHandler(handler.Config{
+		Snippets:           snippets,
+		SnippetDirectories: snippetDirectories,
+		LibraryPaths:       libraryPaths,
+		EvaluationTimeout:  *evaluationTimeout,
+		MaxStack:           *maxStack,
+	}))
 	slog.DebugContext(ctx, "Jsonnet handler configured")
 
 	jsonnetServer := &http.Server{
