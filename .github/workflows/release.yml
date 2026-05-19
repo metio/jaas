@@ -56,10 +56,6 @@ jobs:
         name: Clone Git Repository
         if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
         uses: actions/checkout@v6
-      - id: versioning
-        name: Modify release version
-        if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
-        run: sed -i -e 's/var jaasVersion = .*/var jaasVersion = "${{ steps.release.outputs.version }}"/' main.go
       - id: setup_go
         name: Set up Go
         uses: actions/setup-go@v6
@@ -185,10 +181,6 @@ jobs:
         name: Clone Git Repository
         if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
         uses: actions/checkout@v6
-      - id: versioning
-        name: Modify release version
-        if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
-        run: sed -i -e 's/var jaasVersion = .*/var jaasVersion = "${{ steps.release.outputs.version }}"/' main.go
       - id: cosign-install
         if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
         name: Install Cosign
@@ -217,6 +209,9 @@ jobs:
           context: .
           file: ./Dockerfile
           push: true
+          build-args: |
+            VERSION=${{ needs.prepare.outputs.release_version }}
+            COMMIT=${{ github.sha }}
           tags: |
             docker.io/metio/jaas:latest
             docker.io/metio/jaas:${{ needs.prepare.outputs.release_version }}
