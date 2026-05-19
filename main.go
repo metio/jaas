@@ -83,11 +83,15 @@ func main() {
 		slog.Duration("evaluation-timeout", *evaluationTimeout),
 		slog.Int("max-stack", *maxStack))
 
+	extVars := handler.ParseExtVars(os.Environ())
+	slog.InfoContext(ctx, "External variables loaded", slog.Int("count", len(extVars)))
+
 	jsonnetMux := http.NewServeMux()
 	jsonnetMux.HandleFunc(fmt.Sprintf("/%s/{snippet...}", *jsonnetEndpointPath), handler.JsonnetHandler(handler.Config{
 		Snippets:           snippets,
 		SnippetDirectories: snippetDirectories,
 		LibraryPaths:       libraryPaths,
+		ExtVars:            extVars,
 		EvaluationTimeout:  *evaluationTimeout,
 		MaxStack:           *maxStack,
 	}))
