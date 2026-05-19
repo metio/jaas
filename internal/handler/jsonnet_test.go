@@ -8,16 +8,35 @@ package handler
 import (
 	"context"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/google/go-jsonnet"
 )
+
+type ctxCaptureHandler struct {
+	mu       sync.Mutex
+	contexts []context.Context
+}
+
+func (h *ctxCaptureHandler) Enabled(_ context.Context, _ slog.Level) bool { return true }
+
+func (h *ctxCaptureHandler) Handle(ctx context.Context, _ slog.Record) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.contexts = append(h.contexts, ctx)
+	return nil
+}
+
+func (h *ctxCaptureHandler) WithAttrs(_ []slog.Attr) slog.Handler { return h }
+func (h *ctxCaptureHandler) WithGroup(_ string) slog.Handler      { return h }
 
 func TestParseExtVars(t *testing.T) {
 	tests := map[string]struct {
@@ -175,7 +194,7 @@ func TestJsonnetHandler_SetsJSONContentTypeOnSuccess(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	h := JsonnetHandler(context.Background(), nil, []string{dir}, nil)
+	h := JsonnetHandler(nil, []string{dir}, nil)
 	req := httptest.NewRequest(http.MethodGet, "/jsonnet/hello", nil)
 	req.SetPathValue("snippet", "hello")
 	rr := httptest.NewRecorder()
@@ -202,7 +221,7 @@ func TestJsonnetHandler_BareQueryKeyBecomesEmptyTLA(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	h := JsonnetHandler(context.Background(), nil, []string{dir}, nil)
+	h := JsonnetHandler(nil, []string{dir}, nil)
 	req := httptest.NewRequest(http.MethodGet, "/jsonnet/echo?v", nil)
 	req.SetPathValue("snippet", "echo")
 	rr := httptest.NewRecorder()
@@ -217,8 +236,36 @@ func TestJsonnetHandler_BareQueryKeyBecomesEmptyTLA(t *testing.T) {
 	}
 }
 
+func TestJsonnetHandler_LogsCarryRequestContext(t *testing.T) {
+	captured := &ctxCaptureHandler{}
+	prev := slog.Default()
+	slog.SetDefault(slog.New(captured))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	type ctxKey struct{}
+	const sentinel = "trace-12345"
+
+	h := JsonnetHandler(nil, nil, nil)
+	req := httptest.NewRequest(http.MethodPost, "/jsonnet/x", nil).
+		WithContext(context.WithValue(context.Background(), ctxKey{}, sentinel))
+	rr := httptest.NewRecorder()
+	h(rr, req)
+
+	if got, want := rr.Code, http.StatusMethodNotAllowed; got != want {
+		t.Fatalf("status = %d, want %d", got, want)
+	}
+	if len(captured.contexts) == 0 {
+		t.Fatal("expected at least one log record")
+	}
+	for i, ctx := range captured.contexts {
+		if got, _ := ctx.Value(ctxKey{}).(string); got != sentinel {
+			t.Errorf("log record %d: ctx value = %q, want %q", i, got, sentinel)
+		}
+	}
+}
+
 func TestJsonnetHandler_MethodNotAllowed(t *testing.T) {
-	h := JsonnetHandler(context.Background(), nil, nil, nil)
+	h := JsonnetHandler(nil, nil, nil)
 	req := httptest.NewRequest(http.MethodPost, "/jsonnet/x", nil)
 	rr := httptest.NewRecorder()
 	h(rr, req)
@@ -228,7 +275,7 @@ func TestJsonnetHandler_MethodNotAllowed(t *testing.T) {
 }
 
 func TestJsonnetHandler_NotFound(t *testing.T) {
-	h := JsonnetHandler(context.Background(), nil, nil, nil)
+	h := JsonnetHandler(nil, nil, nil)
 	req := httptest.NewRequest(http.MethodGet, "/jsonnet/missing", nil)
 	req.SetPathValue("snippet", "missing")
 	rr := httptest.NewRecorder()
