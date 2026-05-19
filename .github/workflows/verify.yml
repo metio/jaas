@@ -23,6 +23,11 @@ jobs:
       - id: lint
         name: Lint Go Code
         run: go vet ./...
+      - id: staticcheck
+        name: Staticcheck
+        run: |
+          go install honnef.co/go/tools/cmd/staticcheck@latest
+          staticcheck ./...
       - id: tests
         name: Run Tests
         run: go test -v -cover ./...
