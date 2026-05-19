@@ -34,10 +34,6 @@ type Config struct {
 }
 
 func JsonnetHandler(cfg Config) http.HandlerFunc {
-	importer := &jsonnet.FileImporter{
-		JPaths: cfg.LibraryPaths,
-	}
-
 	return func(writer http.ResponseWriter, request *http.Request) {
 		ctx := request.Context()
 
@@ -59,7 +55,7 @@ func JsonnetHandler(cfg Config) http.HandlerFunc {
 		slog.DebugContext(ctx, "Resolved snippet", slog.String("snippet-name", snippetName), slog.String("file-name", fileName))
 
 		vm := jsonnet.MakeVM()
-		vm.Importer(importer)
+		vm.Importer(&jsonnet.FileImporter{JPaths: cfg.LibraryPaths})
 		if cfg.MaxStack > 0 {
 			vm.MaxStack = cfg.MaxStack
 		}
