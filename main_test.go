@@ -7,6 +7,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net"
@@ -1047,5 +1048,152 @@ func TestRun_JsonnetServerDoesNotExposeProbes(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusOK {
 		t.Error("jsonnet port served /live; ports must be isolated")
+	}
+}
+
+// ---- JSON error bodies on non-2xx, observed over the wire -----------------
+
+// decodeErrorBody reads & decodes a handler.ErrorResponse from an HTTP response.
+func decodeErrorBody(t *testing.T, resp *http.Response) handler.ErrorResponse {
+	t.Helper()
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+	var got handler.ErrorResponse
+	if err := json.Unmarshal(body, &got); err != nil {
+		t.Fatalf("decode body %q: %v", body, err)
+	}
+	return got
+}
+
+func TestRun_ErrorBody_SnippetNotFound_OverTCP(t *testing.T) {
+	h := runInBackground(t, nil, nil)
+	defer h.shutdown(t, 0)
+
+	resp, err := http.Get("http://" + h.jsonnet + "/jsonnet/no-such-snippet")
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", resp.StatusCode)
+	}
+	if got := resp.Header.Get("Content-Type"); got != "application/json" {
+		t.Errorf("Content-Type = %q, want application/json", got)
+	}
+	body := decodeErrorBody(t, resp)
+	if body.Error != handler.ErrCodeSnippetNotFound {
+		t.Errorf("error = %q, want %q", body.Error, handler.ErrCodeSnippetNotFound)
+	}
+	if body.Snippet != "no-such-snippet" {
+		t.Errorf("snippet = %q, want %q", body.Snippet, "no-such-snippet")
+	}
+}
+
+func TestRun_ErrorBody_MethodNotAllowed_OverTCP(t *testing.T) {
+	h := runInBackground(t, nil, nil)
+	defer h.shutdown(t, 0)
+
+	req, err := http.NewRequest(http.MethodPost, "http://"+h.jsonnet+"/jsonnet/whatever", nil)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("POST: %v", err)
+	}
+	if resp.StatusCode != http.StatusMethodNotAllowed {
+		t.Fatalf("status = %d, want 405", resp.StatusCode)
+	}
+	if got := resp.Header.Get("Content-Type"); got != "application/json" {
+		t.Errorf("Content-Type = %q, want application/json", got)
+	}
+	body := decodeErrorBody(t, resp)
+	if body.Error != handler.ErrCodeMethodNotAllowed {
+		t.Errorf("error = %q, want %q", body.Error, handler.ErrCodeMethodNotAllowed)
+	}
+}
+
+func TestRun_ErrorBody_EvaluationFailed_OverTCP(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "broken"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "broken", "main.jsonnet"), []byte(`local x =`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := runInBackground(t, []string{"-snippet-directory=" + dir}, nil)
+	defer h.shutdown(t, 0)
+
+	resp, err := http.Get("http://" + h.jsonnet + "/jsonnet/broken")
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", resp.StatusCode)
+	}
+	if got := resp.Header.Get("Content-Type"); got != "application/json" {
+		t.Errorf("Content-Type = %q, want application/json", got)
+	}
+	body := decodeErrorBody(t, resp)
+	if body.Error != handler.ErrCodeEvaluationFailed {
+		t.Errorf("error = %q, want %q", body.Error, handler.ErrCodeEvaluationFailed)
+	}
+	if body.Snippet != "broken" {
+		t.Errorf("snippet = %q, want %q", body.Snippet, "broken")
+	}
+	if body.Message == "" {
+		t.Error("message must surface the go-jsonnet error text")
+	}
+}
+
+func TestRun_ErrorBody_EvaluationTimeout_OverTCP(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "slow"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "slow", "main.jsonnet"),
+		[]byte(`local f(n) = if n == 0 then 0 else f(n-1) + 1; f(500)`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := runInBackground(t, []string{
+		"-snippet-directory=" + dir,
+		"-evaluation-timeout=1us",
+	}, nil)
+	defer h.shutdown(t, 0)
+
+	resp, err := http.Get("http://" + h.jsonnet + "/jsonnet/slow")
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	if resp.StatusCode != http.StatusGatewayTimeout {
+		t.Fatalf("status = %d, want 504", resp.StatusCode)
+	}
+	if got := resp.Header.Get("Content-Type"); got != "application/json" {
+		t.Errorf("Content-Type = %q, want application/json", got)
+	}
+	body := decodeErrorBody(t, resp)
+	if body.Error != handler.ErrCodeEvaluationTimeout {
+		t.Errorf("error = %q, want %q", body.Error, handler.ErrCodeEvaluationTimeout)
+	}
+	if body.Snippet != "slow" {
+		t.Errorf("snippet = %q, want %q", body.Snippet, "slow")
+	}
+}
+
+func TestRun_ErrorBody_AllPathsCarryContentLengthHeader(t *testing.T) {
+	// Confirms net/http auto-computes Content-Length for the JSON bodies, so
+	// the bridge can stream-allocate without surprises.
+	h := runInBackground(t, nil, nil)
+	defer h.shutdown(t, 0)
+
+	resp, err := http.Get("http://" + h.jsonnet + "/jsonnet/no-such")
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.Header.Get("Content-Length") == "" {
+		t.Errorf("Content-Length missing on 404; headers = %v", resp.Header)
 	}
 }

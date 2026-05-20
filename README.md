@@ -75,6 +75,31 @@ You can specify top level arguments using URL query parameters like this:
 - `http://<IP>:<PORT>/jsonnet/snippet?var1=value1&var2`: Set `var1` to `value1` and `var2` to an empty string for the snippet evaluation.
 - `http://<IP>:<PORT>/jsonnet/snippet?var1=value1&var1=value2`: Set `var1` to a list containing `value1` and `value2` for the snippet evaluation.
 
+### Error responses
+
+Non-2xx responses carry a JSON body with `Content-Type: application/json` so programmatic callers can pick the failure apart:
+
+```json
+{
+  "error":   "snippet_not_found",
+  "message": "snippet \"missing\" not found",
+  "snippet": "missing"
+}
+```
+
+`error` is a stable identifier — callers may match on it. The currently defined codes are:
+
+| code                  | HTTP status | When                                                           |
+|-----------------------|------------:|----------------------------------------------------------------|
+| `method_not_allowed`  | `405`       | Anything other than `GET` on `/jsonnet/…`                      |
+| `snippet_not_found`   | `404`       | The requested snippet name resolves to no file                 |
+| `evaluation_timeout`  | `504`       | Evaluation exceeded `-evaluation-timeout`                      |
+| `evaluation_failed`   | `400`       | go-jsonnet returned an error (syntax, missing import, stack…)  |
+
+`message` is human-readable detail; for `evaluation_failed` it is the raw go-jsonnet diagnostic, including file and line numbers from the snippet on disk. `snippet` echoes the requested snippet name when one was parsed, and is omitted otherwise.
+
+A client that closes the connection mid-evaluation receives no body and no status line — the handler detects the cancellation and bails without writing anything.
+
 ### Security Considerations
 
 JaaS evaluates Jsonnet on the server and serves the result over HTTP. Before exposing it to a wider audience, operators should be aware of the following:

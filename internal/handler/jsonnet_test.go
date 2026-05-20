@@ -2899,3 +2899,696 @@ func TestApplyTLAVars_EmptySliceValue_TreatedAsCode(t *testing.T) {
 		t.Errorf("len = %d, want 0", payload.Len)
 	}
 }
+
+// ---- JSON error bodies on non-2xx responses -------------------------------
+
+// decodeError parses rr.Body into an ErrorResponse, failing the test if the
+// body isn't valid JSON.
+func decodeError(t *testing.T, rr *httptest.ResponseRecorder) ErrorResponse {
+	t.Helper()
+	var got ErrorResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode body %q: %v", rr.Body.String(), err)
+	}
+	return got
+}
+
+// callHandler is sugar for "create request, set snippet path value, drive
+// handler, return the recorder." Used by the matrix tests below.
+func callHandler(h http.HandlerFunc, method, snippet string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(method, "/jsonnet/"+snippet, nil)
+	req.SetPathValue("snippet", snippet)
+	rr := httptest.NewRecorder()
+	h(rr, req)
+	return rr
+}
+
+// silentLogger writes to io.Discard — used by helper-level tests where we don't
+// care about log output.
+func silentLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
+}
+
+// ---- writeJSONError, in isolation -----------------------------------------
+
+func TestWriteJSONError_SetsStatusCode(t *testing.T) {
+	rr := httptest.NewRecorder()
+	writeJSONError(context.Background(), silentLogger(), rr, http.StatusTeapot, ErrorResponse{
+		Error:   "x",
+		Message: "y",
+	})
+	if rr.Code != http.StatusTeapot {
+		t.Errorf("status = %d, want 418", rr.Code)
+	}
+}
+
+func TestWriteJSONError_SetsContentTypeApplicationJSON(t *testing.T) {
+	rr := httptest.NewRecorder()
+	writeJSONError(context.Background(), silentLogger(), rr, http.StatusBadRequest, ErrorResponse{
+		Error:   "x",
+		Message: "y",
+	})
+	if got, want := rr.Header().Get("Content-Type"), "application/json"; got != want {
+		t.Errorf("Content-Type = %q, want %q", got, want)
+	}
+}
+
+func TestWriteJSONError_EncodesAllFields(t *testing.T) {
+	rr := httptest.NewRecorder()
+	writeJSONError(context.Background(), silentLogger(), rr, http.StatusBadRequest, ErrorResponse{
+		Error:   "boom",
+		Message: "stuff broke",
+		Snippet: "things/one",
+	})
+	want := ErrorResponse{Error: "boom", Message: "stuff broke", Snippet: "things/one"}
+	if got := decodeError(t, rr); got != want {
+		t.Errorf("body = %+v, want %+v", got, want)
+	}
+}
+
+func TestWriteJSONError_OmitsEmptySnippet(t *testing.T) {
+	rr := httptest.NewRecorder()
+	writeJSONError(context.Background(), silentLogger(), rr, http.StatusBadRequest, ErrorResponse{
+		Error:   "boom",
+		Message: "stuff broke",
+	})
+	if strings.Contains(rr.Body.String(), `"snippet"`) {
+		t.Errorf("body unexpectedly contains \"snippet\" key: %s", rr.Body.String())
+	}
+}
+
+func TestWriteJSONError_IncludesSnippetWhenPresent(t *testing.T) {
+	rr := httptest.NewRecorder()
+	writeJSONError(context.Background(), silentLogger(), rr, http.StatusBadRequest, ErrorResponse{
+		Error:   "boom",
+		Message: "stuff broke",
+		Snippet: "dashboards/x",
+	})
+	if !strings.Contains(rr.Body.String(), `"snippet":"dashboards/x"`) {
+		t.Errorf("body missing snippet field: %s", rr.Body.String())
+	}
+}
+
+func TestWriteJSONError_BodyIsValidJSONObject(t *testing.T) {
+	rr := httptest.NewRecorder()
+	writeJSONError(context.Background(), silentLogger(), rr, http.StatusBadRequest, ErrorResponse{
+		Error:   "x",
+		Message: "y",
+	})
+	var generic map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &generic); err != nil {
+		t.Fatalf("body is not a JSON object: %v (%s)", err, rr.Body.String())
+	}
+	if generic["error"] != "x" {
+		t.Errorf("error field = %v, want \"x\"", generic["error"])
+	}
+	if generic["message"] != "y" {
+		t.Errorf("message field = %v, want \"y\"", generic["message"])
+	}
+}
+
+func TestWriteJSONError_DoesNotEmitTrailingNewline(t *testing.T) {
+	// json.Marshal returns bytes without a trailing newline (json.Encoder does).
+	// Lock in that we use Marshal, so clients that expect to read exactly the
+	// content-length bytes aren't surprised by an extra \n.
+	rr := httptest.NewRecorder()
+	writeJSONError(context.Background(), silentLogger(), rr, http.StatusBadRequest, ErrorResponse{
+		Error:   "x",
+		Message: "y",
+	})
+	if strings.HasSuffix(rr.Body.String(), "\n") {
+		t.Errorf("body ends with newline: %q", rr.Body.String())
+	}
+}
+
+// failingWriter exercises writeJSONError's logger branch by failing Write.
+type failingWriter struct {
+	header http.Header
+	status int
+}
+
+func (f *failingWriter) Header() http.Header {
+	if f.header == nil {
+		f.header = http.Header{}
+	}
+	return f.header
+}
+func (f *failingWriter) Write([]byte) (int, error) { return 0, errors.New("simulated write failure") }
+func (f *failingWriter) WriteHeader(s int)         { f.status = s }
+
+func TestWriteJSONError_LogsWriteFailure(t *testing.T) {
+	cap := newRecordCapture()
+	w := &failingWriter{}
+	writeJSONError(context.Background(), slog.New(cap), w, http.StatusBadRequest, ErrorResponse{
+		Error:   "x",
+		Message: "y",
+	})
+	if cap.count() == 0 {
+		t.Error("expected a log record when Write fails; got none")
+	}
+}
+
+func TestWriteJSONError_StatusStillSetEvenIfWriteFails(t *testing.T) {
+	w := &failingWriter{}
+	writeJSONError(context.Background(), silentLogger(), w, http.StatusBadRequest, ErrorResponse{
+		Error:   "x",
+		Message: "y",
+	})
+	if w.status != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d (header must be written before body attempt)", w.status, http.StatusBadRequest)
+	}
+}
+
+func TestWriteJSONError_NoLogRecordsOnSuccess(t *testing.T) {
+	// Successful write should not emit any log records; warnings on the happy
+	// path would drown out real signals at scale.
+	cap := newRecordCapture()
+	rr := httptest.NewRecorder()
+	writeJSONError(context.Background(), slog.New(cap), rr, http.StatusBadRequest, ErrorResponse{
+		Error:   "x",
+		Message: "y",
+	})
+	if cap.count() != 0 {
+		t.Errorf("expected zero log records on success, got %d", cap.count())
+	}
+}
+
+func TestWriteJSONError_RequestContextThreadedToLogger(t *testing.T) {
+	// The ctx passed in must reach the logger so request-scoped attributes
+	// (trace id, request id) attach to error-write log records.
+	captured := &ctxCaptureHandler{}
+	type ctxKey struct{}
+	const sentinel = "trace-77"
+	ctx := context.WithValue(context.Background(), ctxKey{}, sentinel)
+
+	writeJSONError(ctx, slog.New(captured), &failingWriter{}, http.StatusBadRequest, ErrorResponse{
+		Error: "x", Message: "y",
+	})
+	if len(captured.contexts) == 0 {
+		t.Fatal("expected log record(s) on write failure")
+	}
+	for i, c := range captured.contexts {
+		if got, _ := c.Value(ctxKey{}).(string); got != sentinel {
+			t.Errorf("log record %d: ctx value = %q, want %q", i, got, sentinel)
+		}
+	}
+}
+
+// ---- Method not allowed ---------------------------------------------------
+
+func TestErrorResponse_MethodNotAllowed_AllNonGETMethods(t *testing.T) {
+	for _, method := range []string{
+		http.MethodPost, http.MethodPut, http.MethodDelete,
+		http.MethodPatch, http.MethodOptions, http.MethodHead, http.MethodConnect, http.MethodTrace,
+	} {
+		t.Run(method, func(t *testing.T) {
+			h := JsonnetHandler(Config{})
+			req := httptest.NewRequest(method, "/jsonnet/x", nil)
+			rr := httptest.NewRecorder()
+			h(rr, req)
+			if rr.Code != http.StatusMethodNotAllowed {
+				t.Errorf("status = %d, want 405", rr.Code)
+			}
+			if got := rr.Header().Get("Content-Type"); got != "application/json" {
+				t.Errorf("Content-Type = %q, want application/json", got)
+			}
+			// HEAD strips the body per RFC 7231; everything else must carry one.
+			if method != http.MethodHead {
+				body := decodeError(t, rr)
+				if body.Error != ErrCodeMethodNotAllowed {
+					t.Errorf("Error = %q, want %q", body.Error, ErrCodeMethodNotAllowed)
+				}
+				if body.Message == "" {
+					t.Error("Message must not be empty")
+				}
+			}
+		})
+	}
+}
+
+func TestErrorResponse_MethodNotAllowed_NoSnippetField(t *testing.T) {
+	// The method check fires before snippet resolution, so the snippet name is
+	// not yet considered "the user's intent" and is omitted from the body.
+	h := JsonnetHandler(Config{})
+	req := httptest.NewRequest(http.MethodPost, "/jsonnet/anything", nil)
+	rr := httptest.NewRecorder()
+	h(rr, req)
+	got := decodeError(t, rr)
+	if got.Snippet != "" {
+		t.Errorf("Snippet = %q, want empty (method check predates path parsing)", got.Snippet)
+	}
+	if strings.Contains(rr.Body.String(), `"snippet"`) {
+		t.Errorf("raw body unexpectedly contains snippet key: %s", rr.Body.String())
+	}
+}
+
+func TestErrorResponse_MethodNotAllowed_StableMessage(t *testing.T) {
+	h := JsonnetHandler(Config{})
+	req := httptest.NewRequest(http.MethodPost, "/jsonnet/x", nil)
+	rr := httptest.NewRecorder()
+	h(rr, req)
+	got := decodeError(t, rr)
+	if !strings.Contains(strings.ToLower(got.Message), "get") {
+		t.Errorf("Message = %q, want it to mention GET", got.Message)
+	}
+}
+
+// ---- Snippet not found ----------------------------------------------------
+
+func TestErrorResponse_SnippetNotFound_BodyShape(t *testing.T) {
+	h := JsonnetHandler(Config{})
+	rr := callHandler(h, http.MethodGet, "missing")
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", rr.Code)
+	}
+	got := decodeError(t, rr)
+	if got.Error != ErrCodeSnippetNotFound {
+		t.Errorf("Error = %q, want %q", got.Error, ErrCodeSnippetNotFound)
+	}
+	if got.Snippet != "missing" {
+		t.Errorf("Snippet = %q, want %q", got.Snippet, "missing")
+	}
+	if !strings.Contains(got.Message, "missing") {
+		t.Errorf("Message = %q, want it to mention the snippet name", got.Message)
+	}
+}
+
+func TestErrorResponse_SnippetNotFound_ContentType(t *testing.T) {
+	h := JsonnetHandler(Config{})
+	rr := callHandler(h, http.MethodGet, "missing")
+	if got := rr.Header().Get("Content-Type"); got != "application/json" {
+		t.Errorf("Content-Type = %q, want application/json", got)
+	}
+}
+
+func TestErrorResponse_SnippetNotFound_EmptyName(t *testing.T) {
+	h := JsonnetHandler(Config{})
+	rr := callHandler(h, http.MethodGet, "")
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", rr.Code)
+	}
+	got := decodeError(t, rr)
+	if got.Error != ErrCodeSnippetNotFound {
+		t.Errorf("Error = %q, want %q", got.Error, ErrCodeSnippetNotFound)
+	}
+	// omitempty kicks in for an empty Snippet field.
+	if strings.Contains(rr.Body.String(), `"snippet"`) {
+		t.Errorf("body unexpectedly includes \"snippet\" key for empty name: %s", rr.Body.String())
+	}
+}
+
+func TestErrorResponse_SnippetNotFound_NameWithSpecialCharacters(t *testing.T) {
+	h := JsonnetHandler(Config{})
+	rr := callHandler(h, http.MethodGet, `weird/"name`)
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", rr.Code)
+	}
+	got := decodeError(t, rr)
+	if got.Snippet != `weird/"name` {
+		t.Errorf("Snippet = %q, want %q (must be JSON-escaped, not stripped)", got.Snippet, `weird/"name`)
+	}
+}
+
+func TestErrorResponse_SnippetNotFound_TraversalDoesNotLeakFileContents(t *testing.T) {
+	snippetDir := t.TempDir()
+	outside := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(outside, "secret"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(outside, "secret", "main.jsonnet"), []byte(`{"leaked": true}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	relEscape, err := filepath.Rel(snippetDir, filepath.Join(outside, "secret"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	h := JsonnetHandler(Config{SnippetDirectories: []string{snippetDir}})
+	req := httptest.NewRequest(http.MethodGet, "/jsonnet/x", nil)
+	req.SetPathValue("snippet", relEscape)
+	rr := httptest.NewRecorder()
+	h(rr, req)
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", rr.Code)
+	}
+	if strings.Contains(rr.Body.String(), "leaked") {
+		t.Errorf("body unexpectedly contains 'leaked' from outside file: %s", rr.Body.String())
+	}
+}
+
+// ---- Evaluation timeout ---------------------------------------------------
+
+func TestErrorResponse_EvaluationTimeout_BodyShape(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "slow"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "slow", "main.jsonnet"),
+		[]byte(`local f(n) = if n == 0 then 0 else f(n-1) + 1; f(500)`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := JsonnetHandler(Config{
+		SnippetDirectories: []string{dir},
+		EvaluationTimeout:  time.Microsecond,
+		MaxStack:           10000,
+	})
+	rr := callHandler(h, http.MethodGet, "slow")
+	if rr.Code != http.StatusGatewayTimeout {
+		t.Fatalf("status = %d, want 504 (body: %s)", rr.Code, rr.Body.String())
+	}
+	got := decodeError(t, rr)
+	if got.Error != ErrCodeEvaluationTimeout {
+		t.Errorf("Error = %q, want %q", got.Error, ErrCodeEvaluationTimeout)
+	}
+	if got.Snippet != "slow" {
+		t.Errorf("Snippet = %q, want %q", got.Snippet, "slow")
+	}
+	if got.Message == "" {
+		t.Error("Message must not be empty")
+	}
+}
+
+func TestErrorResponse_EvaluationTimeout_MessageMentionsTimeout(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "slow"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "slow", "main.jsonnet"),
+		[]byte(`local f(n) = if n == 0 then 0 else f(n-1) + 1; f(500)`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := JsonnetHandler(Config{
+		SnippetDirectories: []string{dir},
+		EvaluationTimeout:  3 * time.Millisecond,
+		MaxStack:           10000,
+	})
+	rr := callHandler(h, http.MethodGet, "slow")
+	got := decodeError(t, rr)
+	// time.Duration formats as e.g. "3ms" — surface it so operators see the
+	// configured limit, not just "timed out."
+	if !strings.Contains(got.Message, "3ms") {
+		t.Errorf("Message = %q, want it to contain '3ms'", got.Message)
+	}
+}
+
+func TestErrorResponse_EvaluationTimeout_ContentType(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "slow"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "slow", "main.jsonnet"),
+		[]byte(`local f(n) = if n == 0 then 0 else f(n-1) + 1; f(500)`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := JsonnetHandler(Config{
+		SnippetDirectories: []string{dir},
+		EvaluationTimeout:  time.Microsecond,
+		MaxStack:           10000,
+	})
+	rr := callHandler(h, http.MethodGet, "slow")
+	if got := rr.Header().Get("Content-Type"); got != "application/json" {
+		t.Errorf("Content-Type = %q, want application/json", got)
+	}
+}
+
+// ---- Evaluation failed ----------------------------------------------------
+
+func TestErrorResponse_EvaluationFailed_SyntaxError(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "broken"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "broken", "main.jsonnet"),
+		[]byte(`local x =`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := JsonnetHandler(Config{SnippetDirectories: []string{dir}})
+	rr := callHandler(h, http.MethodGet, "broken")
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 (body: %s)", rr.Code, rr.Body.String())
+	}
+	got := decodeError(t, rr)
+	if got.Error != ErrCodeEvaluationFailed {
+		t.Errorf("Error = %q, want %q", got.Error, ErrCodeEvaluationFailed)
+	}
+	if got.Snippet != "broken" {
+		t.Errorf("Snippet = %q, want %q", got.Snippet, "broken")
+	}
+	if got.Message == "" {
+		t.Error("Message must surface the underlying go-jsonnet diagnostic")
+	}
+}
+
+func TestErrorResponse_EvaluationFailed_SurfacesUndefinedExtVar(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "noextvar"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "noextvar", "main.jsonnet"),
+		[]byte(`{ v: std.extVar("undefined_var") }`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := JsonnetHandler(Config{SnippetDirectories: []string{dir}})
+	rr := callHandler(h, http.MethodGet, "noextvar")
+	got := decodeError(t, rr)
+	if !strings.Contains(got.Message, "undefined_var") {
+		t.Errorf("Message = %q, want it to name the missing ext-var", got.Message)
+	}
+}
+
+func TestErrorResponse_EvaluationFailed_SurfacesMissingImport(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "missingimport"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "missingimport", "main.jsonnet"),
+		[]byte(`local x = import 'doesnotexist.libsonnet'; { a: x }`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := JsonnetHandler(Config{SnippetDirectories: []string{dir}})
+	rr := callHandler(h, http.MethodGet, "missingimport")
+	got := decodeError(t, rr)
+	if !strings.Contains(got.Message, "doesnotexist.libsonnet") {
+		t.Errorf("Message = %q, want it to name the missing import", got.Message)
+	}
+}
+
+func TestErrorResponse_EvaluationFailed_StackLimit(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "deep"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "deep", "main.jsonnet"),
+		[]byte(`local f(n) = if n == 0 then 0 else f(n-1) + 1; f(200)`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := JsonnetHandler(Config{
+		SnippetDirectories: []string{dir},
+		EvaluationTimeout:  10 * time.Second,
+		MaxStack:           20,
+	})
+	rr := callHandler(h, http.MethodGet, "deep")
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 (body: %s)", rr.Code, rr.Body.String())
+	}
+	got := decodeError(t, rr)
+	if got.Error != ErrCodeEvaluationFailed {
+		t.Errorf("Error = %q, want %q (stack-limit error is a 400, not a 504)", got.Error, ErrCodeEvaluationFailed)
+	}
+	if !strings.Contains(strings.ToLower(got.Message), "stack") {
+		t.Errorf("Message = %q, want it to mention 'stack'", got.Message)
+	}
+}
+
+// ---- Client cancellation: no body ----------------------------------------
+
+func TestErrorResponse_ClientCancel_WritesNoBody(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "slow"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "slow", "main.jsonnet"),
+		[]byte(`local f(n) = if n == 0 then 0 else f(n-1) + 1; f(500)`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := JsonnetHandler(Config{
+		SnippetDirectories: []string{dir},
+		EvaluationTimeout:  time.Hour,
+		MaxStack:           10000,
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	req := httptest.NewRequest(http.MethodGet, "/jsonnet/slow", nil).WithContext(ctx)
+	req.SetPathValue("snippet", "slow")
+	rr := httptest.NewRecorder()
+	h(rr, req)
+	// httptest.NewRecorder defaults Code to 200 as a placeholder; the cancel
+	// branch must skip WriteHeader entirely so the recorder stays at the default.
+	if rr.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200 placeholder (no WriteHeader on cancel)", rr.Code)
+	}
+	if rr.Body.Len() != 0 {
+		t.Errorf("body = %q, want empty (no body on cancel)", rr.Body.String())
+	}
+	if got := rr.Header().Get("Content-Type"); got != "" {
+		t.Errorf("Content-Type = %q, want empty (no headers on cancel)", got)
+	}
+}
+
+// ---- Cross-cutting matrix --------------------------------------------------
+
+func TestErrorResponse_AllPaths_ConformToContract(t *testing.T) {
+	timeoutDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(timeoutDir, "slow"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(timeoutDir, "slow", "main.jsonnet"),
+		[]byte(`local f(n) = if n == 0 then 0 else f(n-1) + 1; f(500)`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	brokenDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(brokenDir, "broken"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(brokenDir, "broken", "main.jsonnet"),
+		[]byte(`local x =`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cases := []struct {
+		name          string
+		cfg           Config
+		method        string
+		snippet       string
+		wantStatus    int
+		wantCode      string
+		wantSnippet   string
+		messageSubstr string
+	}{
+		{
+			name:          "method_not_allowed",
+			cfg:           Config{},
+			method:        http.MethodPost,
+			snippet:       "x",
+			wantStatus:    http.StatusMethodNotAllowed,
+			wantCode:      ErrCodeMethodNotAllowed,
+			wantSnippet:   "",
+			messageSubstr: "GET",
+		},
+		{
+			name:          "snippet_not_found",
+			cfg:           Config{},
+			method:        http.MethodGet,
+			snippet:       "ghost",
+			wantStatus:    http.StatusNotFound,
+			wantCode:      ErrCodeSnippetNotFound,
+			wantSnippet:   "ghost",
+			messageSubstr: "ghost",
+		},
+		{
+			name:          "evaluation_timeout",
+			cfg:           Config{SnippetDirectories: []string{timeoutDir}, EvaluationTimeout: time.Microsecond, MaxStack: 10000},
+			method:        http.MethodGet,
+			snippet:       "slow",
+			wantStatus:    http.StatusGatewayTimeout,
+			wantCode:      ErrCodeEvaluationTimeout,
+			wantSnippet:   "slow",
+			messageSubstr: "1µs",
+		},
+		{
+			name:          "evaluation_failed",
+			cfg:           Config{SnippetDirectories: []string{brokenDir}},
+			method:        http.MethodGet,
+			snippet:       "broken",
+			wantStatus:    http.StatusBadRequest,
+			wantCode:      ErrCodeEvaluationFailed,
+			wantSnippet:   "broken",
+			messageSubstr: "",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h := JsonnetHandler(tc.cfg)
+			rr := callHandler(h, tc.method, tc.snippet)
+			if rr.Code != tc.wantStatus {
+				t.Errorf("status = %d, want %d (body %s)", rr.Code, tc.wantStatus, rr.Body.String())
+			}
+			if got := rr.Header().Get("Content-Type"); got != "application/json" {
+				t.Errorf("Content-Type = %q, want application/json", got)
+			}
+			got := decodeError(t, rr)
+			if got.Error != tc.wantCode {
+				t.Errorf("Error = %q, want %q", got.Error, tc.wantCode)
+			}
+			if got.Snippet != tc.wantSnippet {
+				t.Errorf("Snippet = %q, want %q", got.Snippet, tc.wantSnippet)
+			}
+			if got.Message == "" {
+				t.Error("Message must not be empty")
+			}
+			if tc.messageSubstr != "" && !strings.Contains(got.Message, tc.messageSubstr) {
+				t.Errorf("Message = %q, want it to contain %q", got.Message, tc.messageSubstr)
+			}
+		})
+	}
+}
+
+// Constant freeze: wire-level identifiers callers match on.
+// Renaming a constant value is a breaking change — fix the consumer first.
+func TestErrorResponse_StableCodeValues(t *testing.T) {
+	want := map[string]string{
+		"ErrCodeMethodNotAllowed":  "method_not_allowed",
+		"ErrCodeSnippetNotFound":   "snippet_not_found",
+		"ErrCodeEvaluationTimeout": "evaluation_timeout",
+		"ErrCodeEvaluationFailed":  "evaluation_failed",
+	}
+	got := map[string]string{
+		"ErrCodeMethodNotAllowed":  ErrCodeMethodNotAllowed,
+		"ErrCodeSnippetNotFound":   ErrCodeSnippetNotFound,
+		"ErrCodeEvaluationTimeout": ErrCodeEvaluationTimeout,
+		"ErrCodeEvaluationFailed":  ErrCodeEvaluationFailed,
+	}
+	for k, v := range want {
+		if got[k] != v {
+			t.Errorf("%s = %q, want %q (do not change without a major bump)", k, got[k], v)
+		}
+	}
+}
+
+// ---- Success path is unchanged -------------------------------------------
+
+func TestErrorResponse_SuccessPath_BodyIsNotErrorShape(t *testing.T) {
+	// Negative control: 200 responses must NOT look like ErrorResponse — they
+	// are the rendered jsonnet output, which is whatever the user wrote.
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "fine"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "fine", "main.jsonnet"), []byte(`{ ok: true }`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := JsonnetHandler(Config{SnippetDirectories: []string{dir}})
+	rr := callHandler(h, http.MethodGet, "fine")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body %s)", rr.Code, rr.Body.String())
+	}
+	if strings.Contains(rr.Body.String(), `"error"`) {
+		t.Errorf("body looks like an ErrorResponse: %s", rr.Body.String())
+	}
+}
+
+func TestErrorResponse_SuccessPath_ContentTypeUnchanged(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "fine"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "fine", "main.jsonnet"), []byte(`{}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := JsonnetHandler(Config{SnippetDirectories: []string{dir}})
+	rr := callHandler(h, http.MethodGet, "fine")
+	if got, want := rr.Header().Get("Content-Type"), "application/json"; got != want {
+		t.Errorf("Content-Type = %q, want %q", got, want)
+	}
+}

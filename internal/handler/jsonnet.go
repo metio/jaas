@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -22,6 +23,26 @@ import (
 )
 
 const extVarPrefix = "JAAS_EXT_VAR_"
+
+// Stable machine-readable identifiers for the JSON error bodies returned on
+// non-2xx responses. They are part of the HTTP contract — programmatic callers
+// (e.g. the flux-jaas-controller bridge) match on these. Adding a new code is
+// a backwards-compatible change; renaming or removing one is not.
+const (
+	ErrCodeMethodNotAllowed  = "method_not_allowed"
+	ErrCodeSnippetNotFound   = "snippet_not_found"
+	ErrCodeEvaluationTimeout = "evaluation_timeout"
+	ErrCodeEvaluationFailed  = "evaluation_failed"
+)
+
+// ErrorResponse is the wire shape of a non-2xx body.
+type ErrorResponse struct {
+	Error   string `json:"error"`
+	Message string `json:"message"`
+	// Snippet is the requested snippet name, when one was parsed from the URL.
+	// Empty for failures that occur before snippet resolution.
+	Snippet string `json:"snippet,omitempty"`
+}
 
 type Config struct {
 	Snippets           []string
@@ -44,7 +65,10 @@ func JsonnetHandler(cfg Config) http.HandlerFunc {
 
 		if request.Method != http.MethodGet {
 			logger.ErrorContext(ctx, "Unsupported HTTP method used", slog.String("method", request.Method))
-			writer.WriteHeader(http.StatusMethodNotAllowed)
+			writeJSONError(ctx, logger, writer, http.StatusMethodNotAllowed, ErrorResponse{
+				Error:   ErrCodeMethodNotAllowed,
+				Message: "only GET is supported",
+			})
 			return
 		}
 
@@ -54,7 +78,11 @@ func JsonnetHandler(cfg Config) http.HandlerFunc {
 		fileName, ok := resolveSnippet(snippetName, cfg.Snippets, cfg.SnippetDirectories)
 		if !ok {
 			logger.ErrorContext(ctx, "Snippet not found", slog.String("snippet-name", snippetName))
-			writer.WriteHeader(http.StatusNotFound)
+			writeJSONError(ctx, logger, writer, http.StatusNotFound, ErrorResponse{
+				Error:   ErrCodeSnippetNotFound,
+				Message: fmt.Sprintf("snippet %q not found", snippetName),
+				Snippet: snippetName,
+			})
 			return
 		}
 		logger.DebugContext(ctx, "Resolved snippet", slog.String("snippet-name", snippetName), slog.String("file-name", fileName))
@@ -85,7 +113,11 @@ func JsonnetHandler(cfg Config) http.HandlerFunc {
 			logger.ErrorContext(ctx, "Jsonnet evaluation timed out",
 				slog.Duration("timeout", cfg.EvaluationTimeout),
 				slog.String("file-name", fileName))
-			writer.WriteHeader(http.StatusGatewayTimeout)
+			writeJSONError(ctx, logger, writer, http.StatusGatewayTimeout, ErrorResponse{
+				Error:   ErrCodeEvaluationTimeout,
+				Message: fmt.Sprintf("evaluation exceeded %s", cfg.EvaluationTimeout),
+				Snippet: snippetName,
+			})
 			return
 		case errors.Is(err, context.Canceled):
 			logger.WarnContext(ctx, "Jsonnet evaluation cancelled by caller",
@@ -93,7 +125,11 @@ func JsonnetHandler(cfg Config) http.HandlerFunc {
 			return
 		case err != nil:
 			logger.ErrorContext(ctx, "Cannot evaluate Jsonnet", slog.Any("error", err))
-			writer.WriteHeader(http.StatusBadRequest)
+			writeJSONError(ctx, logger, writer, http.StatusBadRequest, ErrorResponse{
+				Error:   ErrCodeEvaluationFailed,
+				Message: err.Error(),
+				Snippet: snippetName,
+			})
 			return
 		}
 
@@ -103,6 +139,19 @@ func JsonnetHandler(cfg Config) http.HandlerFunc {
 			logger.ErrorContext(ctx, "Cannot write response", slog.Any("error", err))
 			return
 		}
+	}
+}
+
+// writeJSONError serialises body as the response payload alongside status.
+// Marshal cannot fail: ErrorResponse's fields are all strings, which have no
+// Marshal-error path in encoding/json, so the error return is intentionally
+// discarded (matches the pattern in applyTLAVars).
+func writeJSONError(ctx context.Context, logger *slog.Logger, w http.ResponseWriter, status int, body ErrorResponse) {
+	payload, _ := json.Marshal(body)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	if _, err := w.Write(payload); err != nil {
+		logger.ErrorContext(ctx, "Cannot write error response", slog.Any("error", err))
 	}
 }
 
