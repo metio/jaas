@@ -1,0 +1,4 @@
+go test fuzz v1
+string("JAAS_EXT_VAR_JAAS_EXT_VAR_=")
+string("")
+string("")

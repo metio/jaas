@@ -1,0 +1,86 @@
+# SPDX-FileCopyrightText: The jaas Authors
+# SPDX-License-Identifier: 0BSD
+#
+# Two snippets where the second sources from the ExternalArtifact the
+# first publishes. When `base-config` re-renders, the operator's
+# ExternalArtifact watch enqueues `derived-config` automatically.
+#
+# Cycles are detected at reconcile time — if `derived-config` somehow
+# fed back into `base-config` (directly or via a library chain), the
+# reconciler refuses to publish and surfaces Ready=False with a
+# ReasonDependencyCycle.
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: chained-tenant
+  namespace: default
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: chained-tenant
+  namespace: default
+rules:
+  - apiGroups: [source.toolkit.fluxcd.io]
+    resources: [externalartifacts]
+    verbs: [get]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: chained-tenant
+  namespace: default
+subjects:
+  - kind: ServiceAccount
+    name: chained-tenant
+    namespace: default
+roleRef:
+  kind: Role
+  name: chained-tenant
+  apiGroup: rbac.authorization.k8s.io
+
+---
+# The "base" snippet renders a shared config blob other snippets consume.
+apiVersion: jaas.metio.wtf/v1
+kind: JsonnetSnippet
+metadata:
+  name: base-config
+  namespace: default
+spec:
+  serviceAccountName: chained-tenant
+  entryFile: main.jsonnet
+  files:
+    main.jsonnet: |
+      {
+        cluster: 'prod',
+        region:  'eu-west-1',
+        retentionDays: 30,
+      }
+
+---
+# The "derived" snippet sources from base-config's ExternalArtifact and
+# extends it. The reconciler's watch on ExternalArtifact updates
+# re-queues derived-config whenever base-config republishes.
+apiVersion: jaas.metio.wtf/v1
+kind: JsonnetSnippet
+metadata:
+  name: derived-config
+  namespace: default
+spec:
+  serviceAccountName: chained-tenant
+  entryFile: main.jsonnet
+  sourceRef:
+    kind: ExternalArtifact
+    name: base-config
+  files:
+    main.jsonnet: |
+      local base = import 'base-config.json';
+      base + {
+        alerting: {
+          errorRateThreshold: 0.01,
+          latencyP99Ms: 500,
+        },
+      }

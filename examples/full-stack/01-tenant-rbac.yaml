@@ -1,0 +1,47 @@
+# SPDX-FileCopyrightText: The jaas Authors
+# SPDX-License-Identifier: 0BSD
+#
+# The tenant ServiceAccount the JsonnetSnippet impersonates plus the
+# RBAC it needs to read the GitRepository source. JaaS mints a Bearer
+# token via the SA TokenRequest API on every reconcile and bounds every
+# tenant-side API call to this SA's permissions.
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: dashboards-tenant
+  namespace: monitoring
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: dashboards-tenant
+  namespace: monitoring
+rules:
+  # JaaS reads the GitRepository to discover its current
+  # status.artifact (URL + digest) before fetching the tarball.
+  - apiGroups: [source.toolkit.fluxcd.io]
+    resources: [gitrepositories]
+    verbs: [get]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: dashboards-tenant
+  namespace: monitoring
+subjects:
+  - kind: ServiceAccount
+    name: dashboards-tenant
+    namespace: monitoring
+roleRef:
+  kind: Role
+  name: dashboards-tenant
+  apiGroup: rbac.authorization.k8s.io

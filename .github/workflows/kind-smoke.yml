@@ -1,0 +1,348 @@
+# SPDX-FileCopyrightText: The jaas Authors
+# SPDX-License-Identifier: 0BSD
+
+name: Kind smoke test
+on:
+  pull_request:
+    paths:
+      - api/**
+      - config/**
+      - internal/operator/**
+      - internal/storage/**
+      - internal/sources/**
+      - internal/webhook/**
+      - main.go
+      - Dockerfile
+      - hack/smoke/**
+      - .github/workflows/kind-smoke.yml
+  workflow_dispatch:
+
+# Angle 1 of the two-angle e2e strategy: the DEV jaas binary (HEAD build) tested
+# against the LATEST RELEASED chart (oci://ghcr.io/metio/helm-charts/jaas). The
+# companion angle — dev chart × released binary — lives in the helm-charts repo
+# and runs THE SAME operator scenarios (the shared hack/smoke/*.sh scripts,
+# checked out from this repo at the released tag). Deploying jaas is the only
+# part that differs between angles; the scenario logic exists once, here.
+#
+# Bootstrap: until metio/helm-charts cuts its first `jaas-*` chart release there
+# is nothing to test against, so `discover` emits an empty version and every
+# smoke job skips (green). They activate automatically once a chart is released.
+#
+# Matrix: the `smoke` job sweeps k8s × Flux (ExternalArtifact landed in Flux
+# v2.3.x); the other jobs run once because their concern (webhook cert mode,
+# new CR fields, sourceRef chaining, fan-out throughput) is orthogonal to those
+# versions. fail-fast is off so one bad combo doesn't mask others.
+
+permissions:
+  contents: read
+
+jobs:
+  discover:
+    name: Discover latest released chart
+    runs-on: ubuntu-latest
+    outputs:
+      chart_version: ${{ steps.find.outputs.version }}
+    steps:
+      - id: find
+        name: Find newest jaas chart release in metio/helm-charts
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # The helm-charts release pipeline tags each chart release
+          # `<chart>-<version>`; releases sort newest-first.
+          tag="$(gh release list --repo metio/helm-charts --limit 100 \
+                  --json tagName \
+                  --jq '[.[] | select(.tagName | startswith("jaas-")) | .tagName] | .[0] // ""' 2>/dev/null || true)"
+          v="${tag#jaas-}"
+          if [ -z "$v" ]; then
+            echo "::notice::No released jaas chart yet (metio/helm-charts has no jaas-* release); smoke jobs skip until the first release."
+          else
+            echo "latest released chart version: $v"
+          fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+  smoke:
+    name: ${{ matrix.k8s_version }} / Flux ${{ matrix.flux_version }}
+    needs: discover
+    if: needs.discover.outputs.chart_version != ''
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        k8s_version:
+          - v1.31.4
+          - v1.32.2
+          - v1.33.1
+          - v1.34.0
+        flux_version:
+          - v2.4.0
+          - v2.5.1
+          - v2.6.0
+    steps:
+      - name: Clone Git Repository
+        uses: actions/checkout@v6
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build container image (dev / HEAD)
+        run: docker build --build-arg VERSION=smoke --build-arg COMMIT=${{ github.sha }} -t jaas:smoke .
+      - name: Create kind cluster (k8s ${{ matrix.k8s_version }})
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: jaas-smoke
+          node_image: kindest/node:${{ matrix.k8s_version }}
+          wait: 180s
+      - name: Load image into kind
+        run: kind load docker-image jaas:smoke --name jaas-smoke
+      - name: Cluster prereqs (cert-manager + Flux + issuer)
+        run: |
+          hack/smoke/setup-cert-manager.sh
+          hack/smoke/setup-flux.sh ${{ matrix.flux_version }}
+          hack/smoke/setup-selfsigned-issuer.sh
+      - name: Install released chart with the dev image
+        run: |
+          helm upgrade --install jaas oci://ghcr.io/metio/helm-charts/jaas \
+            --version "${{ needs.discover.outputs.chart_version }}" \
+            --namespace jaas-system \
+            --set image.registry=docker.io \
+            --set image.repository=library/jaas \
+            --set-string image.tag=smoke \
+            --set operator.enabled=true \
+            --set operator.defaultServiceAccount=default \
+            --set operator.webhook.enabled=true \
+            --set operator.webhook.certManager.issuerRef.kind=Issuer \
+            --set operator.webhook.certManager.issuerRef.name=jaas-selfsigned \
+            --wait --timeout 5m
+          # The released chart's vendored CRDs lag HEAD; the dev binary must run
+          # against its current schema, so overlay config/crd/bases.
+          kubectl apply --server-side --force-conflicts -f config/crd/bases/
+      - name: Operator scenario — basic (snippet → ExternalArtifact → fetch)
+        run: hack/smoke/scenario-basic.sh
+      - name: Uninstall hygiene — pre-delete hook drops finalizers
+        run: |
+          # The cleanup Job is a pre-delete hook; helm waits for it before
+          # removing the operator. After uninstall both the snippet and its
+          # ExternalArtifact must be gone — proving the finalizer ran end to end.
+          helm uninstall jaas -n jaas-system --wait --timeout 5m
+          if kubectl get jsonnetsnippet smoke 2>/dev/null; then echo "ERROR: snippet survived uninstall"; exit 1; fi
+          if kubectl get externalartifact smoke 2>/dev/null; then echo "ERROR: ExternalArtifact survived uninstall"; exit 1; fi
+          echo "Uninstall hygiene verified."
+      - name: Diagnostics on failure
+        if: failure()
+        run: |
+          kubectl get nodes -o wide || true
+          kubectl -n jaas-system get all || true
+          kubectl -n jaas-system logs deploy/jaas --tail=300 || true
+          kubectl -n flux-system logs deploy/source-controller --tail=300 || true
+          kubectl describe jsonnetsnippet smoke || true
+          kubectl describe externalartifact smoke || true
+          kubectl get crd | grep -E "jaas|fluxcd" || true
+
+  selfsigned:
+    name: self-signed webhook (cert-manager-free)
+    needs: discover
+    if: needs.discover.outputs.chart_version != ''
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone Git Repository
+        uses: actions/checkout@v6
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build container image (dev / HEAD)
+        run: docker build --build-arg VERSION=smoke --build-arg COMMIT=${{ github.sha }} -t jaas:smoke .
+      - name: Create kind cluster
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: jaas-smoke-ss
+          node_image: kindest/node:v1.33.1
+          wait: 180s
+      - name: Load image into kind
+        run: kind load docker-image jaas:smoke --name jaas-smoke-ss
+      - name: Cluster prereqs (Flux)
+        run: hack/smoke/setup-flux.sh v2.5.1
+      - name: Install released chart (self-signed cert mode) with the dev image
+        run: |
+          kubectl create namespace jaas-system
+          helm upgrade --install jaas oci://ghcr.io/metio/helm-charts/jaas \
+            --version "${{ needs.discover.outputs.chart_version }}" \
+            --namespace jaas-system \
+            --set image.registry=docker.io \
+            --set image.repository=library/jaas \
+            --set-string image.tag=smoke \
+            --set operator.enabled=true \
+            --set operator.defaultServiceAccount=default \
+            --set operator.webhook.enabled=true \
+            --set operator.webhook.certMode=self-signed \
+            --set operator.webhook.selfSignedValidity=24h \
+            --wait --timeout 5m
+          kubectl apply --server-side --force-conflicts -f config/crd/bases/
+      - name: Operator scenario — self-signed webhook
+        run: hack/smoke/scenario-selfsigned-webhook.sh
+      - name: Diagnostics on failure
+        if: failure()
+        run: |
+          kubectl -n jaas-system get all || true
+          kubectl -n jaas-system logs deploy/jaas --tail=300 || true
+          kubectl get validatingwebhookconfiguration jaas-jsonnetsnippet -o yaml || true
+          kubectl describe jsonnetsnippet smoke-ss || true
+
+  new-fields:
+    name: spec.suspend + spec.history + Events
+    needs: discover
+    if: needs.discover.outputs.chart_version != ''
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone Git Repository
+        uses: actions/checkout@v6
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build container image (dev / HEAD)
+        run: docker build --build-arg VERSION=smoke --build-arg COMMIT=${{ github.sha }} -t jaas:smoke .
+      - name: Create kind cluster
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: jaas-fields
+          node_image: kindest/node:v1.33.1
+          wait: 180s
+      - name: Load image into kind
+        run: kind load docker-image jaas:smoke --name jaas-fields
+      - name: Cluster prereqs (Flux)
+        run: hack/smoke/setup-flux.sh v2.5.1
+      - name: Install released chart (no webhook) with the dev image
+        run: |
+          kubectl create namespace jaas-system
+          helm upgrade --install jaas oci://ghcr.io/metio/helm-charts/jaas \
+            --version "${{ needs.discover.outputs.chart_version }}" \
+            --namespace jaas-system \
+            --set image.registry=docker.io \
+            --set image.repository=library/jaas \
+            --set-string image.tag=smoke \
+            --set operator.enabled=true \
+            --set operator.defaultServiceAccount=default \
+            --wait --timeout 5m
+          kubectl apply --server-side --force-conflicts -f config/crd/bases/
+      - name: Operator scenario — new CR fields
+        run: hack/smoke/scenario-fields.sh
+      - name: Diagnostics on failure
+        if: failure()
+        run: |
+          kubectl -n jaas-system get all || true
+          kubectl -n jaas-system logs deploy/jaas --tail=300 || true
+          kubectl describe jsonnetsnippet fields-demo || true
+          kubectl get events --field-selector involvedObject.name=fields-demo || true
+
+  source-chain:
+    name: sourceRef chain (Bucket → Snippet)
+    needs: discover
+    if: needs.discover.outputs.chart_version != ''
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone Git Repository
+        uses: actions/checkout@v6
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build container image (dev / HEAD)
+        run: docker build --build-arg VERSION=smoke --build-arg COMMIT=${{ github.sha }} -t jaas:smoke .
+      - name: Create kind cluster
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: jaas-chain
+          node_image: kindest/node:v1.33.1
+          wait: 180s
+      - name: Load image into kind
+        run: kind load docker-image jaas:smoke --name jaas-chain
+      - name: Cluster prereqs (Flux + MinIO bucket)
+        run: |
+          hack/smoke/setup-flux.sh v2.6.0
+          hack/smoke/setup-minio.sh
+      - name: Install released chart (no webhook) with the dev image
+        run: |
+          kubectl create namespace jaas-system
+          helm upgrade --install jaas oci://ghcr.io/metio/helm-charts/jaas \
+            --version "${{ needs.discover.outputs.chart_version }}" \
+            --namespace jaas-system \
+            --set image.registry=docker.io \
+            --set image.repository=library/jaas \
+            --set-string image.tag=smoke \
+            --set operator.enabled=true \
+            --set operator.defaultServiceAccount=default \
+            --wait --timeout 5m
+          kubectl apply --server-side --force-conflicts -f config/crd/bases/
+      - name: Operator scenario — sourceRef chain
+        run: hack/smoke/scenario-chain.sh
+      - name: Diagnostics on failure
+        if: failure()
+        run: |
+          kubectl -n flux-system logs deploy/source-controller --tail=300 || true
+          kubectl -n minio logs deploy/minio --tail=200 || true
+          kubectl -n jaas-system logs deploy/jaas --tail=300 || true
+          kubectl describe bucket dashboards || true
+          kubectl describe jsonnetsnippet chain-demo || true
+          kubectl describe externalartifact chain-demo || true
+
+  scale-smoke:
+    name: scale-smoke (N=50 snippets converge)
+    needs: discover
+    if: needs.discover.outputs.chart_version != ''
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone Git Repository
+        uses: actions/checkout@v6
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build container image (dev / HEAD)
+        run: docker build --build-arg VERSION=smoke --build-arg COMMIT=${{ github.sha }} -t jaas:smoke .
+      - name: Create kind cluster
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: jaas-scale
+          node_image: kindest/node:v1.33.1
+          wait: 180s
+      - name: Load image into kind
+        run: kind load docker-image jaas:smoke --name jaas-scale
+      - name: Cluster prereqs (Flux)
+        run: hack/smoke/setup-flux.sh v2.6.0
+      - name: Install released chart (no webhook) with the dev image
+        run: |
+          kubectl create namespace jaas-system
+          helm upgrade --install jaas oci://ghcr.io/metio/helm-charts/jaas \
+            --version "${{ needs.discover.outputs.chart_version }}" \
+            --namespace jaas-system \
+            --set image.registry=docker.io \
+            --set image.repository=library/jaas \
+            --set-string image.tag=smoke \
+            --set operator.enabled=true \
+            --set operator.defaultServiceAccount=default \
+            --wait --timeout 5m
+          kubectl apply --server-side --force-conflicts -f config/crd/bases/
+      - name: Operator scenario — scale (N=50 converge)
+        run: hack/smoke/scenario-scale.sh
+      - name: Sample the operator's metrics endpoint
+        run: |
+          kubectl -n jaas-system port-forward svc/jaas-metrics 8083:8083 &
+          PF_PID=$!
+          sleep 3
+          curl -fsSL http://localhost:8083/metrics \
+            | grep -E 'workqueue_depth|controller_runtime_reconcile_time|jaas_snippet_reconcile_total' \
+            | head -20 || true
+          kill $PF_PID || true
+      - name: Diagnostics on failure
+        if: failure()
+        run: |
+          kubectl -n jaas-system get all || true
+          kubectl -n jaas-system logs deploy/jaas --tail=500 || true
+          kubectl get jsonnetsnippet -n default -o wide || true

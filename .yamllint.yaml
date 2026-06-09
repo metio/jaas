@@ -1,0 +1,17 @@
+# SPDX-FileCopyrightText: The jaas Authors
+# SPDX-License-Identifier: 0BSD
+extends: default
+rules:
+  # 160 is the style target, but embedded shell/jsonpath in CI scripts and
+  # long values legitimately exceed it — warn rather than fail.
+  line-length:
+    max: 160
+    level: warning
+  document-start: disable
+  comments:
+    min-spaces-from-content: 1
+  truthy:
+    check-keys: false
+ignore:
+  # controller-gen output: machine-generated, long description lines.
+  - config/crd/bases/

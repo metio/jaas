@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: 0BSD
  */
 
+// Package handler implements the HTTP surface: the Jsonnet evaluation
+// endpoint plus the startup, readiness, and liveness probes.
 package handler
 
 import (
@@ -12,7 +14,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -20,6 +21,8 @@ import (
 	"time"
 
 	"github.com/google/go-jsonnet"
+
+	"github.com/metio/jaas/internal/eval"
 )
 
 const extVarPrefix = "JAAS_EXT_VAR_"
@@ -29,10 +32,11 @@ const extVarPrefix = "JAAS_EXT_VAR_"
 // (e.g. the flux-jaas-controller bridge) match on these. Adding a new code is
 // a backwards-compatible change; renaming or removing one is not.
 const (
-	ErrCodeMethodNotAllowed  = "method_not_allowed"
-	ErrCodeSnippetNotFound   = "snippet_not_found"
-	ErrCodeEvaluationTimeout = "evaluation_timeout"
-	ErrCodeEvaluationFailed  = "evaluation_failed"
+	ErrCodeMethodNotAllowed      = "method_not_allowed"
+	ErrCodeSnippetNotFound       = "snippet_not_found"
+	ErrCodeEvaluationTimeout     = "evaluation_timeout"
+	ErrCodeEvaluationFailed      = "evaluation_failed"
+	ErrCodeEvaluationUnavailable = "evaluation_unavailable"
 )
 
 // ErrorResponse is the wire shape of a non-2xx body.
@@ -87,28 +91,31 @@ func JsonnetHandler(cfg Config) http.HandlerFunc {
 		}
 		logger.DebugContext(ctx, "Resolved snippet", slog.String("snippet-name", snippetName), slog.String("file-name", fileName))
 
-		vm := jsonnet.MakeVM()
-		// go-jsonnet's FileImporter walks JPaths in reverse order: when the
-		// same library name is reachable under multiple -library-path entries
-		// the *rightmost* path wins. The README documents this; the suite
-		// `TestLibraryPathPrecedence_*` pins it directly against FileImporter.
-		vm.Importer(&jsonnet.FileImporter{JPaths: cfg.LibraryPaths})
-		if cfg.MaxStack > 0 {
-			vm.MaxStack = cfg.MaxStack
-		}
-
-		for key, value := range cfg.ExtVars {
-			vm.ExtVar(key, value)
-		}
-
 		queryParams := request.URL.Query()
 		logger.DebugContext(ctx, "Extracted query parameters", slog.Any("queryParams", queryParams))
-		applyTLAVars(vm, queryParams)
 
-		jsonStr, err := evaluateWithDeadline(ctx, func() (string, error) {
-			return vm.EvaluateFile(fileName)
-		}, cfg.EvaluationTimeout)
+		jsonStr, err := eval.EvaluateFile(ctx, fileName, eval.Options{
+			ExtVars:  cfg.ExtVars,
+			TLAs:     queryParams,
+			MaxStack: cfg.MaxStack,
+			Timeout:  cfg.EvaluationTimeout,
+			// go-jsonnet's FileImporter walks JPaths in reverse order:
+			// when the same library name resolves under multiple
+			// -library-path entries the *rightmost* path wins. The
+			// README documents this; `TestLibraryPathPrecedence_*`
+			// pins it against FileImporter directly.
+			Importer: &jsonnet.FileImporter{JPaths: cfg.LibraryPaths},
+		})
 		switch {
+		case errors.Is(err, eval.ErrEvalUnavailable):
+			logger.WarnContext(ctx, "Jsonnet evaluation rejected; concurrent-eval cap is full",
+				slog.String("file-name", fileName))
+			writeJSONError(ctx, logger, writer, http.StatusServiceUnavailable, ErrorResponse{
+				Error:   ErrCodeEvaluationUnavailable,
+				Message: "concurrent-eval cap is full; retry after backoff",
+				Snippet: snippetName,
+			})
+			return
 		case errors.Is(err, context.DeadlineExceeded):
 			logger.ErrorContext(ctx, "Jsonnet evaluation timed out",
 				slog.Duration("timeout", cfg.EvaluationTimeout),
@@ -135,6 +142,8 @@ func JsonnetHandler(cfg Config) http.HandlerFunc {
 
 		writer.Header().Set("Content-Type", "application/json")
 		writer.WriteHeader(http.StatusOK)
+		// #nosec G705 -- response is application/json (header above), not
+		// HTML; the body is the snippet's evaluated JSON output.
 		if _, err := writer.Write([]byte(jsonStr)); err != nil {
 			logger.ErrorContext(ctx, "Cannot write response", slog.Any("error", err))
 			return
@@ -145,38 +154,13 @@ func JsonnetHandler(cfg Config) http.HandlerFunc {
 // writeJSONError serialises body as the response payload alongside status.
 // Marshal cannot fail: ErrorResponse's fields are all strings, which have no
 // Marshal-error path in encoding/json, so the error return is intentionally
-// discarded (matches the pattern in applyTLAVars).
+// discarded (matches the pattern in applyTLAs).
 func writeJSONError(ctx context.Context, logger *slog.Logger, w http.ResponseWriter, status int, body ErrorResponse) {
 	payload, _ := json.Marshal(body)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	if _, err := w.Write(payload); err != nil {
 		logger.ErrorContext(ctx, "Cannot write error response", slog.Any("error", err))
-	}
-}
-
-func evaluateWithDeadline(ctx context.Context, eval func() (string, error), timeout time.Duration) (string, error) {
-	if timeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, timeout)
-		defer cancel()
-	}
-
-	type result struct {
-		out string
-		err error
-	}
-	ch := make(chan result, 1)
-	go func() {
-		out, err := eval()
-		ch <- result{out: out, err: err}
-	}()
-
-	select {
-	case r := <-ch:
-		return r.out, r.err
-	case <-ctx.Done():
-		return "", ctx.Err()
 	}
 }
 
@@ -215,20 +199,4 @@ func resolveSnippet(name string, snippets []string, snippetDirectories []string)
 		}
 	}
 	return "", false
-}
-
-// applyTLAVars maps URL query parameters onto the VM's Top Level Arguments.
-// Single-valued parameters become string TLAs via TLAVar; multi-valued ones
-// become JSON-array TLAs via TLACode. The encoding cannot fail: url.Values's
-// element type is []string, which has no Marshal-error path in encoding/json,
-// so the error return value is intentionally discarded.
-func applyTLAVars(vm *jsonnet.VM, queryParams url.Values) {
-	for key, value := range queryParams {
-		if len(value) == 1 {
-			vm.TLAVar(key, value[0])
-			continue
-		}
-		bytes, _ := json.Marshal(value)
-		vm.TLACode(key, string(bytes))
-	}
 }

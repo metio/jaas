@@ -1,0 +1,28 @@
+# SPDX-FileCopyrightText: The jaas Authors
+# SPDX-License-Identifier: 0BSD
+# Architecture rules enforced by arch-go (https://github.com/arch-go/arch-go).
+# Compliance must be perfect; coverage is not gated (most packages carry
+# no architectural constraint, only the few below do).
+threshold:
+  compliance: 100
+  coverage: 0
+dependenciesRules:
+  # API types stay free of controller internals AND of controller-runtime
+  # (scheme registration uses apimachinery's runtime.NewSchemeBuilder), so
+  # external consumers can import the CRD types without dragging the
+  # manager in.
+  - package: "**.api.**"
+    shouldNotDependsOn:
+      internal:
+        - "**.internal.**"
+      external:
+        - "sigs.k8s.io.controller-runtime.**"
+  # The SSRF-defence layer is pure logic: no internal and no external
+  # imports — standard library only — so its IP/URL validation can be
+  # reasoned about and fuzzed in isolation.
+  - package: "**.internal.urlguard"
+    shouldNotDependsOn:
+      internal:
+        - "**.internal.**"
+      external:
+        - "**"

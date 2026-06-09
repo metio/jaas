@@ -4,7 +4,7 @@
 name: REUSE compliance
 on:
   pull_request:
-    branches: [ main ]
+    branches: [main]
 jobs:
   reuse:
     runs-on: ubuntu-latest

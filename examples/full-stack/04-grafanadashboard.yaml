@@ -1,0 +1,26 @@
+# SPDX-FileCopyrightText: The jaas Authors
+# SPDX-License-Identifier: 0BSD
+#
+# grafana-operator picks up the ExternalArtifact JaaS publishes and
+# pushes its JSON body into Grafana. grafana-operator's URL fetcher
+# follows the ExternalArtifact's status.artifact.url field — that's
+# the in-cluster URL of the JaaS storage HTTP server.
+
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDashboard
+metadata:
+  name: api-latency
+  namespace: monitoring
+spec:
+  instanceSelector:
+    matchLabels:
+      dashboards: "grafana"
+  resyncPeriod: 30s
+  # grafana-operator dereferences a Flux source kind directly. The
+  # JaaS-published ExternalArtifact is one such source.
+  url: ""  # left empty: filled by the sourceRef below
+  sourceRef:
+    apiVersion: source.toolkit.fluxcd.io/v1
+    kind: ExternalArtifact
+    name: api-latency
+    namespace: monitoring

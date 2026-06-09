@@ -7,7 +7,9 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net"
@@ -19,11 +21,13 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
 
 	"github.com/metio/jaas/internal/handler"
+	"github.com/metio/jaas/internal/storage"
 )
 
 func discardLogger() *slog.Logger {
@@ -225,7 +229,7 @@ func TestResolveCommit(t *testing.T) {
 func TestDrainBeforeShutdown_FlipsReadyToFalse(t *testing.T) {
 	state := handler.NewHealthState()
 	state.SetReady(true)
-	drainBeforeShutdown(state, 0, discardLogger())
+	drainBeforeShutdown(make(chan os.Signal), state, 0, discardLogger())
 	if state.Ready() {
 		t.Error("Ready() = true after drain; want false")
 	}
@@ -234,7 +238,7 @@ func TestDrainBeforeShutdown_FlipsReadyToFalse(t *testing.T) {
 func TestDrainBeforeShutdown_FlipsReadyEvenWhenAlreadyFalse(t *testing.T) {
 	state := handler.NewHealthState()
 	// Never marked ready in the first place.
-	drainBeforeShutdown(state, 0, discardLogger())
+	drainBeforeShutdown(make(chan os.Signal), state, 0, discardLogger())
 	if state.Ready() {
 		t.Error("Ready() = true after drain on never-ready state")
 	}
@@ -244,7 +248,7 @@ func TestDrainBeforeShutdown_DoesNotTouchStarted(t *testing.T) {
 	state := handler.NewHealthState()
 	state.MarkStarted()
 	state.SetReady(true)
-	drainBeforeShutdown(state, 0, discardLogger())
+	drainBeforeShutdown(make(chan os.Signal), state, 0, discardLogger())
 	if !state.Started() {
 		t.Error("Started() flipped to false; drain must not touch the started flag")
 	}
@@ -253,7 +257,7 @@ func TestDrainBeforeShutdown_DoesNotTouchStarted(t *testing.T) {
 func TestDrainBeforeShutdown_ZeroDelayReturnsImmediately(t *testing.T) {
 	state := handler.NewHealthState()
 	start := time.Now()
-	drainBeforeShutdown(state, 0, discardLogger())
+	drainBeforeShutdown(make(chan os.Signal), state, 0, discardLogger())
 	if elapsed := time.Since(start); elapsed > 50*time.Millisecond {
 		t.Errorf("took %v with delay=0; want < 50ms", elapsed)
 	}
@@ -262,7 +266,7 @@ func TestDrainBeforeShutdown_ZeroDelayReturnsImmediately(t *testing.T) {
 func TestDrainBeforeShutdown_NegativeDelayReturnsImmediately(t *testing.T) {
 	state := handler.NewHealthState()
 	start := time.Now()
-	drainBeforeShutdown(state, -1*time.Second, discardLogger())
+	drainBeforeShutdown(make(chan os.Signal), state, -1*time.Second, discardLogger())
 	if elapsed := time.Since(start); elapsed > 50*time.Millisecond {
 		t.Errorf("took %v with negative delay; want < 50ms", elapsed)
 	}
@@ -272,7 +276,7 @@ func TestDrainBeforeShutdown_PositiveDelaySleepsAtLeastThatLong(t *testing.T) {
 	state := handler.NewHealthState()
 	delay := 60 * time.Millisecond
 	start := time.Now()
-	drainBeforeShutdown(state, delay, discardLogger())
+	drainBeforeShutdown(make(chan os.Signal), state, delay, discardLogger())
 	if elapsed := time.Since(start); elapsed < delay {
 		t.Errorf("took %v; want at least %v", elapsed, delay)
 	}
@@ -298,7 +302,7 @@ func TestDrainBeforeShutdown_FlipsReadyBeforeSleeping(t *testing.T) {
 		close(done)
 	}()
 
-	drainBeforeShutdown(state, delay, discardLogger())
+	drainBeforeShutdown(make(chan os.Signal), state, delay, discardLogger())
 	<-done
 
 	mu.Lock()
@@ -314,7 +318,7 @@ func TestDrainBeforeShutdown_LogsAtInfoLevelWhenDelaying(t *testing.T) {
 	var buf strings.Builder
 	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
-	drainBeforeShutdown(state, 30*time.Millisecond, logger)
+	drainBeforeShutdown(make(chan os.Signal), state, 30*time.Millisecond, logger)
 
 	output := buf.String()
 	if !strings.Contains(output, "level=INFO") {
@@ -334,7 +338,7 @@ func TestDrainBeforeShutdown_DoesNotLogWhenDelayIsZero(t *testing.T) {
 	var buf strings.Builder
 	logger := slog.New(slog.NewTextHandler(&buf, nil))
 
-	drainBeforeShutdown(state, 0, logger)
+	drainBeforeShutdown(make(chan os.Signal), state, 0, logger)
 
 	if buf.Len() != 0 {
 		t.Errorf("expected no log output with delay=0; got %q", buf.String())
@@ -654,6 +658,162 @@ func (h *runHandle) shutdown(t *testing.T, want int) {
 
 // ---- run: behavior --------------------------------------------------------
 
+// TestRun_DualStackBindAddressBoots proves the chart-default `::`
+// (IPv6 wildcard, with IPV6_V6ONLY=0 it accepts IPv4 too on Linux)
+// listen address gets through net.JoinHostPort without an
+// "address X: too many colons" stumble, and the resulting listener
+// accepts a connection from 127.0.0.1.
+func TestOCILibraryAliasesFromPaths(t *testing.T) {
+	// Two paths, each with two subdirs. One overlapping name.
+	dirA := t.TempDir()
+	dirB := t.TempDir()
+	for _, sub := range []string{"grafonnet", "docsonnet"} {
+		if err := os.Mkdir(filepath.Join(dirA, sub), 0o755); err != nil {
+			t.Fatalf("mkdir A/%s: %v", sub, err)
+		}
+	}
+	for _, sub := range []string{"xtd", "grafonnet"} { // grafonnet duplicates dirA's
+		if err := os.Mkdir(filepath.Join(dirB, sub), 0o755); err != nil {
+			t.Fatalf("mkdir B/%s: %v", sub, err)
+		}
+	}
+	// Drop a non-dir entry under dirA — must be filtered.
+	if err := os.WriteFile(filepath.Join(dirA, "junk.txt"), []byte("ignore me"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got := ociLibraryAliasesFromPaths([]string{dirA, dirB})
+
+	// Order matches walk order — assert membership + dedup.
+	want := map[string]bool{"grafonnet": true, "docsonnet": true, "xtd": true}
+	if len(got) != len(want) {
+		t.Errorf("got %v (len %d), want %d unique aliases", got, len(got), len(want))
+	}
+	seen := map[string]int{}
+	for _, name := range got {
+		seen[name]++
+	}
+	for k := range want {
+		if seen[k] != 1 {
+			t.Errorf("alias %q appeared %d times, want 1", k, seen[k])
+		}
+	}
+	if _, present := seen["junk.txt"]; present {
+		t.Error("junk.txt was incorrectly classified as an alias (filter dropped non-dirs)")
+	}
+}
+
+func TestOCILibraryAliasesFromPaths_MissingDirSkippedSilently(t *testing.T) {
+	got := ociLibraryAliasesFromPaths([]string{"/this/does/not/exist", t.TempDir()})
+	if len(got) != 0 {
+		t.Errorf("got %v, want empty slice (no readable subdirs)", got)
+	}
+}
+
+func TestOCILibraryAliasesFromPaths_EmptyInput(t *testing.T) {
+	got := ociLibraryAliasesFromPaths(nil)
+	if len(got) != 0 {
+		t.Errorf("got %v, want empty", got)
+	}
+}
+
+func TestOCILibrariesFromPaths_LoadsFileContents(t *testing.T) {
+	dir := t.TempDir()
+	libDir := filepath.Join(dir, "grafonnet")
+	if err := os.MkdirAll(filepath.Join(libDir, "panels"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(libDir, "main.libsonnet"), []byte(`{ root: true }`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(libDir, "panels", "graph.libsonnet"), []byte(`{ kind: "graph" }`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Non-importable extension: must be skipped.
+	if err := os.WriteFile(filepath.Join(libDir, "README.md"), []byte(`# grafonnet`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got := ociLibrariesFromPaths([]string{dir})
+	lib, ok := got["grafonnet"]
+	if !ok {
+		t.Fatalf("grafonnet alias missing; got %v", got)
+	}
+	if lib.Files["main.libsonnet"] != `{ root: true }` {
+		t.Errorf("main.libsonnet = %q", lib.Files["main.libsonnet"])
+	}
+	if lib.Files["panels/graph.libsonnet"] != `{ kind: "graph" }` {
+		t.Errorf("panels/graph.libsonnet = %q", lib.Files["panels/graph.libsonnet"])
+	}
+	if _, surfaced := lib.Files["README.md"]; surfaced {
+		t.Error("README.md unexpectedly included; non-jsonnet files must be filtered")
+	}
+}
+
+func TestOCILibrariesFromPaths_FirstWriteWinsOnDuplicateAlias(t *testing.T) {
+	dirA := t.TempDir()
+	dirB := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dirA, "shared"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dirB, "shared"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dirA, "shared", "main.libsonnet"), []byte(`{ from: "A" }`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dirB, "shared", "main.libsonnet"), []byte(`{ from: "B" }`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got := ociLibrariesFromPaths([]string{dirA, dirB})
+	lib := got["shared"]
+	if lib.Files["main.libsonnet"] != `{ from: "A" }` {
+		t.Errorf("got %q, want first-write-wins from dirA", lib.Files["main.libsonnet"])
+	}
+}
+
+func TestOCILibrariesFromPaths_MissingDirsAreSkipped(t *testing.T) {
+	got := ociLibrariesFromPaths([]string{"/does/not/exist"})
+	if len(got) != 0 {
+		t.Errorf("got %v, want empty", got)
+	}
+}
+
+func TestRun_DualStackBindAddressBoots(t *testing.T) {
+	jsonnetPort := freePort(t)
+	mgmtPort := freePort(t)
+
+	var stdout, stderr bytes.Buffer
+	sigs := make(chan os.Signal, 1)
+	done := make(chan int, 1)
+	withRestoredSlogDefault(t)
+	go func() {
+		done <- run([]string{
+			"-listen-address=::",
+			"-port=" + jsonnetPort,
+			"-management-listen-address=::",
+			"-management-port=" + mgmtPort,
+			"-shutdown-delay=0",
+		}, nil, &stdout, &stderr, sigs)
+	}()
+
+	// /live must be reachable over IPv4 — proves the dual-stack
+	// socket accepts v4-mapped connections.
+	waitForReady(t, "127.0.0.1:"+mgmtPort, 5*time.Second)
+
+	sigs <- syscall.SIGTERM
+	select {
+	case code := <-done:
+		if code != 0 {
+			t.Errorf("exit code = %d, want 0; stdout=%s stderr=%s",
+				code, stdout.String(), stderr.String())
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("run did not return within 10s")
+	}
+}
+
 func TestRun_VersionFlagPrintsAndExits(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	sigs := make(chan os.Signal, 1)
@@ -705,6 +865,152 @@ func TestRun_UnknownFlagReturnsTwo(t *testing.T) {
 	code := run([]string{"-this-flag-does-not-exist"}, nil, &stdout, &stderr, sigs)
 	if code != 2 {
 		t.Errorf("exit code = %d, want 2", code)
+	}
+}
+
+func TestParseWatchNamespaces(t *testing.T) {
+	cases := []struct {
+		name string
+		flag string
+		env  []string
+		want []string
+	}{
+		{"empty is cluster-wide (nil)", "", nil, nil},
+		{"comma list", "a,b,c", nil, []string{"a", "b", "c"}},
+		{"trims and drops empties", " a , ,b, ", nil, []string{"a", "b"}},
+		{"env fallback when flag empty", "", []string{"FOO=x", "JAAS_WATCH_NAMESPACES=team-a,team-b"}, []string{"team-a", "team-b"}},
+		{"flag wins over env", "only", []string{"JAAS_WATCH_NAMESPACES=ignored"}, []string{"only"}},
+		{"blank flag and blank env is nil", "   ", []string{"JAAS_WATCH_NAMESPACES="}, nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := parseWatchNamespaces(tc.flag, tc.env)
+			if !slices.Equal(got, tc.want) {
+				t.Errorf("parseWatchNamespaces(%q, %v) = %v, want %v", tc.flag, tc.env, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestAwaitGoroutines_TimesOutOnUnclosedChannel(t *testing.T) {
+	never := make(chan struct{})
+	if awaitGoroutines(context.Background(), 10*time.Millisecond, map[string]<-chan struct{}{"stuck": never}) {
+		t.Error("awaitGoroutines returned true while a channel never closes")
+	}
+}
+
+func TestAwaitGoroutines_ClosedAndNilChannelsBothOK(t *testing.T) {
+	done := make(chan struct{})
+	close(done)
+	ok := awaitGoroutines(context.Background(), time.Second, map[string]<-chan struct{}{
+		"closed":  done,
+		"skipped": nil, // a goroutine that never started → skipped
+	})
+	if !ok {
+		t.Error("awaitGoroutines returned false; a closed channel and a nil (skipped) one should both pass")
+	}
+}
+
+// fakeSweepBackend satisfies storage.Backend (via the embedded nil
+// interface) but only implements Sweep, which is all runStorageSweep calls.
+type fakeSweepBackend struct {
+	storage.Backend
+	calls atomic.Int32
+	n     int
+	err   error
+}
+
+func (f *fakeSweepBackend) Sweep(_ context.Context, _ time.Duration) (int, error) {
+	f.calls.Add(1)
+	return f.n, f.err
+}
+
+func TestRunStorageSweep_SurvivesErrorAndCountsRemovals(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		be   *fakeSweepBackend
+	}{
+		{"error path keeps ticking", &fakeSweepBackend{err: errors.New("boom")}},
+		{"success path with removals", &fakeSweepBackend{n: 3}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			done := make(chan struct{})
+			go func() { runStorageSweep(ctx, tc.be, time.Millisecond, time.Minute); close(done) }()
+			deadline := time.After(2 * time.Second)
+			for tc.be.calls.Load() < 2 {
+				select {
+				case <-deadline:
+					cancel()
+					<-done
+					t.Fatalf("sweep ran only %d times before timeout", tc.be.calls.Load())
+				default:
+					time.Sleep(time.Millisecond)
+				}
+			}
+			cancel()
+			<-done
+		})
+	}
+}
+
+func TestNewStorageBackend(t *testing.T) {
+	t.Run("local missing path", func(t *testing.T) {
+		var stderr bytes.Buffer
+		b, ok := newStorageBackend(context.Background(), &stderr, "local", "", storage.S3Config{})
+		if ok || b != nil {
+			t.Errorf("got (%v, %v), want (nil, false)", b, ok)
+		}
+		if !strings.Contains(stderr.String(), "storage-path") {
+			t.Errorf("stderr = %q, want it to name -storage-path", stderr.String())
+		}
+	})
+	t.Run("local ok", func(t *testing.T) {
+		var stderr bytes.Buffer
+		b, ok := newStorageBackend(context.Background(), &stderr, "local", t.TempDir(), storage.S3Config{})
+		if !ok || b == nil {
+			t.Fatalf("got (%v, %v), want a backend", b, ok)
+		}
+		_ = b.Close()
+	})
+	t.Run("s3 missing endpoint/bucket", func(t *testing.T) {
+		var stderr bytes.Buffer
+		if _, ok := newStorageBackend(context.Background(), &stderr, "s3", "", storage.S3Config{}); ok {
+			t.Error("want ok=false for missing S3 endpoint/bucket")
+		}
+		if !strings.Contains(stderr.String(), "s3-endpoint") {
+			t.Errorf("stderr = %q, want it to name -s3-endpoint", stderr.String())
+		}
+	})
+	t.Run("s3 ok", func(t *testing.T) {
+		var stderr bytes.Buffer
+		b, ok := newStorageBackend(context.Background(), &stderr, "s3", "",
+			storage.S3Config{Endpoint: "s3.example.com", Bucket: "b", UseSSL: true})
+		if !ok || b == nil {
+			t.Fatalf("got (%v, %v), want a backend", b, ok)
+		}
+		_ = b.Close()
+	})
+	t.Run("unknown backend", func(t *testing.T) {
+		var stderr bytes.Buffer
+		if _, ok := newStorageBackend(context.Background(), &stderr, "bogus", "", storage.S3Config{}); ok {
+			t.Error("want ok=false for an unknown backend")
+		}
+		if !strings.Contains(stderr.String(), "storage-backend") {
+			t.Errorf("stderr = %q, want it to name -storage-backend", stderr.String())
+		}
+	})
+}
+
+func TestRun_WebhookWithoutFluxIntegrationReturnsTwo(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	sigs := make(chan os.Signal, 1)
+	code := run([]string{"-enable-webhook"}, nil, &stdout, &stderr, sigs)
+	if code != 2 {
+		t.Errorf("exit code = %d, want 2 (webhook requires flux integration)", code)
+	}
+	if !strings.Contains(stderr.String(), "enable-flux-integration") {
+		t.Errorf("stderr = %q, want it to name the missing flag", stderr.String())
 	}
 }
 
@@ -1179,6 +1485,266 @@ func TestRun_ErrorBody_EvaluationTimeout_OverTCP(t *testing.T) {
 	}
 	if body.Snippet != "slow" {
 		t.Errorf("snippet = %q, want %q", body.Snippet, "slow")
+	}
+}
+
+// ---- new in v2: --ext-var, --enable-flux-integration and friends -----------
+
+func TestRun_ExtVarFlag_PopulatesHandlerExtVars(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "show"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "show", "main.jsonnet"),
+		[]byte(`{ env: std.extVar("env") }`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := runInBackground(t,
+		[]string{"-snippet-directory=" + dir, "-ext-var=env=dev"}, nil)
+	defer h.shutdown(t, 0)
+
+	resp, err := http.Get("http://" + h.jsonnet + "/jsonnet/show")
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(body), `"dev"`) {
+		t.Errorf("body = %q, want it to contain \"dev\"", string(body))
+	}
+}
+
+func TestRun_ExtVarFlag_OverlaysJaasExtVarEnvOnConflict(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "show"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "show", "main.jsonnet"),
+		[]byte(`{ region: std.extVar("region") }`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Env says us-east-1; CLI -ext-var says us-west-2; CLI wins.
+	h := runInBackground(t,
+		[]string{"-snippet-directory=" + dir, "-ext-var=region=us-west-2"},
+		[]string{"JAAS_EXT_VAR_region=us-east-1"})
+	defer h.shutdown(t, 0)
+
+	resp, err := http.Get("http://" + h.jsonnet + "/jsonnet/show")
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(body), `"us-west-2"`) {
+		t.Errorf("body = %q, want CLI to override env (\"us-west-2\")", string(body))
+	}
+}
+
+func TestRun_ExtVarFlag_InvalidFormatReturnsOne(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	sigs := make(chan os.Signal, 1)
+	withRestoredSlogDefault(t)
+	code := run([]string{"-ext-var=noequals"}, nil, &stdout, &stderr, sigs)
+	if code != 1 {
+		t.Errorf("exit code = %d, want 1; stderr=%q", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "Invalid -ext-var") {
+		t.Errorf("stderr = %q, want it to mention -ext-var", stderr.String())
+	}
+}
+
+func TestRun_ExtVarFlag_EmptyKeyReturnsOne(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	sigs := make(chan os.Signal, 1)
+	withRestoredSlogDefault(t)
+	code := run([]string{"-ext-var==orphan-value"}, nil, &stdout, &stderr, sigs)
+	if code != 1 {
+		t.Errorf("exit code = %d, want 1; stderr=%q", code, stderr.String())
+	}
+}
+
+func TestRun_FluxIntegration_DefaultDisabledLeavesOperatorOff(t *testing.T) {
+	h := runInBackground(t, nil, nil)
+	defer h.shutdown(t, 0)
+	if strings.Contains(h.stdout.String(), "Operator manager ready") {
+		t.Errorf("operator booted with default flags; stdout=%s", h.stdout.String())
+	}
+}
+
+func TestRun_FluxIntegration_InvalidRerenderRateReturnsOne(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	sigs := make(chan os.Signal, 1)
+	withRestoredSlogDefault(t)
+	code := run([]string{"-enable-flux-integration", "-rerender-rate=garbage"},
+		nil, &stdout, &stderr, sigs)
+	if code != 1 {
+		t.Errorf("exit code = %d, want 1; stderr=%q", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "Invalid -rerender-rate") {
+		t.Errorf("stderr = %q, want it to mention -rerender-rate", stderr.String())
+	}
+}
+
+func TestRun_FluxIntegration_ZeroRerenderBurstReturnsOne(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	sigs := make(chan os.Signal, 1)
+	withRestoredSlogDefault(t)
+	code := run([]string{"-enable-flux-integration", "-rerender-burst=0"},
+		nil, &stdout, &stderr, sigs)
+	if code != 1 {
+		t.Errorf("exit code = %d, want 1; stderr=%q", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "rerender-burst") {
+		t.Errorf("stderr = %q, want it to mention rerender-burst", stderr.String())
+	}
+}
+
+func TestRun_FluxIntegration_BadKubeconfigPathReturnsOne(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	sigs := make(chan os.Signal, 1)
+	withRestoredSlogDefault(t)
+	missing := filepath.Join(t.TempDir(), "does-not-exist.yaml")
+	storage := t.TempDir()
+	code := run([]string{
+		"-enable-flux-integration",
+		"-kubeconfig=" + missing,
+		"-storage-path=" + storage,
+		"-storage-base-url=http://example",
+	}, nil, &stdout, &stderr, sigs)
+	if code != 1 {
+		t.Errorf("exit code = %d, want 1; stdout=%s; stderr=%s",
+			code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Cannot load kubeconfig") {
+		t.Errorf("expected 'Cannot load kubeconfig' in logs; got %q", stdout.String())
+	}
+}
+
+func TestRun_FluxIntegration_MissingStoragePathReturnsOne(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	sigs := make(chan os.Signal, 1)
+	withRestoredSlogDefault(t)
+	// Supply a base-url so we exit on the path check (which is now
+	// guarded by -storage-backend=local), not on the base-url check
+	// that runs first.
+	code := run([]string{
+		"-enable-flux-integration",
+		"-storage-base-url=http://x",
+	}, nil, &stdout, &stderr, sigs)
+	if code != 1 {
+		t.Errorf("exit code = %d, want 1", code)
+	}
+	if !strings.Contains(stderr.String(), "storage-path") {
+		t.Errorf("stderr = %q, want it to mention storage-path", stderr.String())
+	}
+}
+
+func TestRun_FluxIntegration_MissingStorageBaseURLReturnsOne(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	sigs := make(chan os.Signal, 1)
+	withRestoredSlogDefault(t)
+	code := run([]string{
+		"-enable-flux-integration",
+		"-storage-path=" + t.TempDir(),
+	}, nil, &stdout, &stderr, sigs)
+	if code != 1 {
+		t.Errorf("exit code = %d, want 1", code)
+	}
+	if !strings.Contains(stderr.String(), "storage-base-url") {
+		t.Errorf("stderr = %q, want it to mention storage-base-url", stderr.String())
+	}
+}
+
+func TestRun_FluxIntegration_BadStoragePathReturnsOne(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	sigs := make(chan os.Signal, 1)
+	withRestoredSlogDefault(t)
+	code := run([]string{
+		"-enable-flux-integration",
+		"-storage-path=/proc/1/jaas-cannot-mkdir-here",
+		"-storage-base-url=http://example",
+	}, nil, &stdout, &stderr, sigs)
+	if code != 1 {
+		t.Errorf("exit code = %d, want 1", code)
+	}
+	if !strings.Contains(stdout.String(), "Cannot open storage") {
+		t.Errorf("stdout = %q, want 'Cannot open storage'", stdout.String())
+	}
+}
+
+func TestRun_FluxIntegration_UnknownBackendReturnsOne(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	sigs := make(chan os.Signal, 1)
+	withRestoredSlogDefault(t)
+	code := run([]string{
+		"-enable-flux-integration",
+		"-storage-base-url=http://x",
+		"-storage-backend=disk",
+	}, nil, &stdout, &stderr, sigs)
+	if code != 1 {
+		t.Errorf("exit code = %d, want 1", code)
+	}
+	if !strings.Contains(stderr.String(), "storage-backend") {
+		t.Errorf("stderr = %q, want it to mention storage-backend", stderr.String())
+	}
+}
+
+func TestRun_FluxIntegration_S3RequiresEndpointAndBucket(t *testing.T) {
+	cases := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "missing endpoint",
+			args: []string{"-s3-bucket=b"},
+			want: "s3-endpoint",
+		},
+		{
+			name: "missing bucket",
+			args: []string{"-s3-endpoint=s3.example"},
+			want: "s3-bucket",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			sigs := make(chan os.Signal, 1)
+			withRestoredSlogDefault(t)
+			args := append([]string{
+				"-enable-flux-integration",
+				"-storage-base-url=http://x",
+				"-storage-backend=s3",
+			}, tc.args...)
+			code := run(args, nil, &stdout, &stderr, sigs)
+			if code != 1 {
+				t.Errorf("exit code = %d, want 1", code)
+			}
+			if !strings.Contains(stderr.String(), tc.want) {
+				t.Errorf("stderr = %q, want it to mention %s", stderr.String(), tc.want)
+			}
+		})
+	}
+}
+
+func TestLoadKubeconfig_NonexistentPathReturnsError(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "no-such-file.yaml")
+	if _, err := loadKubeconfig(missing); err == nil {
+		t.Errorf("loadKubeconfig(%q) = nil, want error", missing)
+	}
+}
+
+func TestLoadKubeconfig_EmptyPathDelegatesToCtrlGetConfig(t *testing.T) {
+	// With no in-cluster credentials, no KUBECONFIG env, and no
+	// $HOME/.kube/config available in the dev shell, ctrl.GetConfig should
+	// return an error. We only assert "delegates" by observing the error
+	// shape, not the specific text — which varies by k8s.io versions.
+	t.Setenv("KUBECONFIG", "")
+	t.Setenv("HOME", t.TempDir()) // no ~/.kube/config in this temp HOME
+	if _, err := loadKubeconfig(""); err == nil {
+		// If running inside a cluster, this path could actually succeed.
+		// Skip rather than fail in that exotic environment.
+		t.Skip("loadKubeconfig(empty) returned a config; running in-cluster?")
 	}
 }
 
