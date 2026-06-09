@@ -1,0 +1,401 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.21.0
+  name: jsonnetsnippets.jaas.metio.wtf
+spec:
+  group: jaas.metio.wtf
+  names:
+    kind: JsonnetSnippet
+    listKind: JsonnetSnippetList
+    plural: jsonnetsnippets
+    shortNames:
+    - jsnip
+    singular: jsonnetsnippet
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.conditions[?(@.type=="Ready")].status
+      name: Ready
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="Ready")].reason
+      name: Reason
+      priority: 1
+      type: string
+    - jsonPath: .status.revision
+      name: Revision
+      priority: 1
+      type: string
+    - jsonPath: .status.artifactURL
+      name: URL
+      type: string
+    - jsonPath: .spec.suspend
+      name: Suspend
+      priority: 1
+      type: boolean
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1
+    schema:
+      openAPIV3Schema:
+        description: JsonnetSnippet is the published unit of Jsonnet evaluation.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: |-
+              JsonnetSnippetSpec describes a Jsonnet snippet whose evaluation result the
+              controller publishes as an ExternalArtifact for downstream Flux consumers.
+            properties:
+              entryFile:
+                default: main.jsonnet
+                description: |-
+                  EntryFile names the file (relative to the resolved snippet source
+                  root) that go-jsonnet evaluates. Defaults to "main.jsonnet" so
+                  existing snippets that omit the field keep working. Operators
+                  embedding a snippet inside a larger Flux source whose root has
+                  multiple .jsonnet files can point at a specific one — typical
+                  pattern for shared dashboards repos that publish many snippets
+                  from one tree.
+
+                  Restricted to relative `[A-Za-z0-9._/-]+` paths with no `..`
+                  segments at admission so a tenant can't push a tarball-extract
+                  or operator-pod-FS traversal through this field. The reconciler
+                  enforces the same shape as a fallback when admission is
+                  bypassed.
+                maxLength: 255
+                minLength: 1
+                pattern: ^[A-Za-z0-9._/-]+$
+                type: string
+                x-kubernetes-validations:
+                - message: entryFile must not contain '..'
+                  rule: '!self.contains(''..'')'
+              externalVariables:
+                additionalProperties:
+                  type: string
+                description: |-
+                  ExternalVariables seed std.extVar lookups for this snippet's evaluation.
+                  Keys conflicting with the operator's --ext-var set are rejected at
+                  admission; if the webhook is bypassed, the reconciler still refuses
+                  the conflicting key and reports Ready=False with reason
+                  ExternalVariableConflict.
+                type: object
+              files:
+                additionalProperties:
+                  type: string
+                description: |-
+                  Files is an inline map of filename to jsonnet source. Each filename is
+                  resolved verbatim; the snippet's top-level file is conventionally
+                  "main.jsonnet".
+                type: object
+              history:
+                default: 1
+                description: |-
+                  History caps how many past revisions of the published artifact
+                  the operator retains in storage. Default 1 keeps only the
+                  currently-published revision (the historical behavior). Setting
+                  to N > 1 lets downstream Flux consumers pin to an older
+                  revision via its sha256 — useful for rollback / blue-green
+                  flows. The reconciler tracks the keep-set in status.history.
+                format: int32
+                maximum: 50
+                minimum: 1
+                type: integer
+              interval:
+                description: |-
+                  Interval is the period between successful reconciles. When set,
+                  the controller re-renders the snippet on this cadence even with
+                  no watch event — picks up external-variable env drift, OCI
+                  library refreshes, and any other state outside the watched
+                  graph. Mirrors the Flux source-controller convention. Failed
+                  reconciles still use controller-runtime's exponential backoff;
+                  interval governs only the steady-state cadence.
+
+                  Bounded at admission: 30s ≤ interval ≤ 24h. A sub-30s cadence
+                  floods the apiserver + Publisher with churn for no observable
+                  gain (Flux source watches already wake the snippet on real
+                  changes); past 24h, a snippet may as well rely solely on watch
+                  events. The CEL rule converts the duration string to seconds
+                  for comparison so "1h", "60m", and "3600s" all parse uniformly.
+                type: string
+                x-kubernetes-validations:
+                - message: interval must be between 30s and 24h
+                  rule: duration(self) >= duration('30s') && duration(self) <= duration('24h')
+              libraries:
+                description: |-
+                  Libraries explicitly enumerates which JsonnetLibrary CRs are
+                  importable from this snippet. Resolved by import path at eval
+                  time; libraries not listed here are invisible to the snippet even
+                  when present in the cluster.
+                items:
+                  description: |-
+                    LibraryRef enumerates a single library available to a JsonnetSnippet at
+                    evaluation time. The K8s-native APIVersion+Kind+Name+Namespace shape lets
+                    the operator add new library kinds without reshaping the field.
+                  properties:
+                    apiVersion:
+                      description: APIVersion of the library CR. Defaults to jaas.metio.wtf/v1
+                        when empty.
+                      type: string
+                    importPath:
+                      description: |-
+                        ImportPath is the alias the snippet's Jsonnet source uses in `import`
+                        statements. Defaults to the referenced library's metadata.name.
+                      type: string
+                    kind:
+                      description: |-
+                        Kind of the library CR. Required. The namespaced JsonnetLibrary is the
+                        only library kind; OCI-mounted shared libraries (helm
+                        `additionalLibraries`) need no ref and are imported by alias directly.
+                      enum:
+                      - JsonnetLibrary
+                      type: string
+                    name:
+                      description: Name of the referenced library CR. Required.
+                      minLength: 1
+                      type: string
+                    namespace:
+                      description: |-
+                        Namespace of the referenced library CR. Cross-namespace references
+                        are rejected when the operator is started with --no-cross-namespace-refs.
+                      type: string
+                  required:
+                  - kind
+                  - name
+                  type: object
+                type: array
+              output:
+                default: rendered
+                description: |-
+                  Output selects what bytes the published ExternalArtifact carries. With
+                  "rendered" (the default) the artifact contains the evaluated JSON;
+                  with "source" it carries the snippet's raw .jsonnet/.libsonnet files,
+                  useful for downstream consumers that want to re-evaluate themselves.
+                enum:
+                - rendered
+                - source
+                type: string
+              serviceAccountName:
+                description: |-
+                  ServiceAccountName is the ServiceAccount the controller impersonates
+                  for every Kubernetes API call done on behalf of this snippet — source
+                  fetches and ExternalArtifact upserts. Empty means the operator's
+                  --default-service-account is used; missing both denies reconciliation.
+                  The SA must live in this snippet's namespace.
+                type: string
+              sourceRef:
+                description: |-
+                  SourceRef points at a Flux source CR (GitRepository, OCIRepository,
+                  Bucket, ExternalArtifact) whose status.artifact.url exposes a tarball
+                  the controller fetches and extracts.
+                properties:
+                  apiVersion:
+                    description: |-
+                      APIVersion of the referenced source. Defaults to
+                      source.toolkit.fluxcd.io/v1 when empty.
+                    type: string
+                  kind:
+                    description: |-
+                      Kind of the referenced source. Required. One of GitRepository,
+                      OCIRepository, Bucket, ExternalArtifact.
+                    enum:
+                    - GitRepository
+                    - OCIRepository
+                    - Bucket
+                    - ExternalArtifact
+                    type: string
+                  name:
+                    description: Name of the referenced source. Required.
+                    minLength: 1
+                    type: string
+                  namespace:
+                    description: |-
+                      Namespace of the referenced source. Optional for namespaced owners
+                      (defaults to the owner's namespace). Cross-namespace references are
+                      rejected when the operator is started with --no-cross-namespace-refs.
+                    type: string
+                  path:
+                    description: |-
+                      Path narrows extraction to a subdirectory of the artifact's tarball.
+                      Empty means the artifact root.
+                    type: string
+                required:
+                - kind
+                - name
+                type: object
+              suspend:
+                description: |-
+                  Suspend pauses reconciliation for this snippet without deleting it.
+                  While true, the operator skips the eval pipeline, leaves the
+                  existing ExternalArtifact in place, and flips Ready=False with
+                  reason "Suspended". Setting it back to false (or omitting the
+                  field) resumes reconciliation. Mirrors Flux's spec.suspend
+                  convention so operators familiar with Flux source CRs can pause
+                  JsonnetSnippets the same way.
+                type: boolean
+              tlas:
+                additionalProperties:
+                  items:
+                    type: string
+                  type: array
+                description: |-
+                  TLAs are top-level arguments passed to the snippet's outermost
+                  function. A single-element value becomes a string TLA; multiple values
+                  are passed as a JSON-encoded array, matching the HTTP query-param
+                  convention.
+                type: object
+            type: object
+            x-kubernetes-validations:
+            - message: exactly one of spec.files or spec.sourceRef must be set
+              rule: '(has(self.files) && size(self.files) > 0 ? 1 : 0) + (has(self.sourceRef)
+                ? 1 : 0) == 1'
+          status:
+            description: |-
+              SyncStatus is the common Conditions+ObservedGeneration shape every JaaS CR
+              uses for status reporting.
+            properties:
+              artifactURL:
+                description: |-
+                  ArtifactURL is the HTTP URL of the last-successfully-published
+                  artifact tarball. Downstream Flux consumers fetch this; surfaced
+                  on the snippet's own status so `kubectl describe jsonnetsnippet`
+                  answers "where can I download my rendered JSON?" without a
+                  second `kubectl get externalartifact`. Empty until the first
+                  successful publish; preserved across subsequent failures so the
+                  last-known-good URL stays observable even when the latest
+                  reconcile fails.
+                type: string
+              conditions:
+                description: |-
+                  Conditions follow the standard apimachinery shape. The Ready condition
+                  summarizes whether the most recent reconcile succeeded; per-stage
+                  failure detail is carried in Reason+Message.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              history:
+                description: |-
+                  History records the most-recent N revisions that the operator
+                  has retained in storage (the chronological keep-set). N comes
+                  from JsonnetSnippetSpec.History (default 1, max 50). Index 0 is
+                  the most recent revision (== Revision); higher indexes are
+                  older. Downstream consumers can pin to a specific historical
+                  rev via its sha256 — useful for rollback / blue-green flows.
+                  Only populated on JsonnetSnippet (libraries don't publish
+                  artifacts), but lives here so the generated DeepCopy covers it
+                  uniformly.
+                items:
+                  description: |-
+                    RevisionEntry is one row in SyncStatus.History — the revision string
+                    (sha256:hex) plus the wall-clock time the reconciler published it.
+                  properties:
+                    revision:
+                      description: |-
+                        Revision is the sha256-prefixed content hash, matching the
+                        format of SyncStatus.Revision.
+                      type: string
+                    time:
+                      description: Time the operator published this revision.
+                      format: date-time
+                      type: string
+                  required:
+                  - revision
+                  - time
+                  type: object
+                type: array
+              lastSyncTime:
+                description: LastSyncTime stamps the most recent successful reconcile.
+                format: date-time
+                type: string
+              observedGeneration:
+                description: |-
+                  ObservedGeneration is the .metadata.generation of the spec the
+                  controller last reconciled. Lets clients tell stale status apart from
+                  up-to-date.
+                format: int64
+                type: integer
+              revision:
+                description: |-
+                  Revision identifies the last successfully-reconciled source revision
+                  (the artifact checksum for SourceRef mode, or the inline files'
+                  content hash). Empty until the first successful reconcile.
+                type: string
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

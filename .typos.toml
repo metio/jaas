@@ -1,0 +1,16 @@
+# SPDX-FileCopyrightText: The jaas Authors
+# SPDX-License-Identifier: 0BSD
+[default.extend-words]
+# POSIX open(2) flag name, not a misspelling of "wrongly".
+wronly = "wronly"
+# Deliberate spelling used in comments and a test name.
+unparseable = "unparseable"
+# Valid prefix in hyphenated compounds (mis-deployed, mis-resolve, …).
+mis = "mis"
+
+[default.extend-identifiers]
+# Local variable: probe-read byte count.
+pn = "pn"
+
+[files]
+extend-exclude = ["LICENSES/", "go.sum"]

@@ -4,7 +4,7 @@
 name: Verify Commits
 on:
   pull_request:
-    branches: [ main ]
+    branches: [main]
 permissions:
   contents: read
 jobs:
@@ -28,6 +28,34 @@ jobs:
         run: |
           go install honnef.co/go/tools/cmd/staticcheck@latest
           staticcheck ./...
+      - id: gofumpt
+        name: Check formatting (gofumpt)
+        run: |
+          go install mvdan.cc/gofumpt@latest
+          unformatted="$(gofumpt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "::error::These files are not gofumpt-formatted:"
+            echo "$unformatted"
+            exit 1
+          fi
+      - id: gosec
+        name: Security scan (gosec)
+        run: |
+          go install github.com/securego/gosec/v2/cmd/gosec@latest
+          gosec ./...
+      - id: arch_go
+        name: Architecture rules (arch-go)
+        run: |
+          go install github.com/arch-go/arch-go@latest
+          arch-go
+      - id: govulncheck
+        name: Vulnerability scan (Go modules)
+        # Hard gate: a reachable-from-code advisory blocks merge.
+        # Resolution is usually a bump of the `toolchain` directive in
+        # go.mod (for stdlib advisories) or `go get -u` (for deps).
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
       - id: tests
         name: Run Tests
         run: go test -v -cover ./...
@@ -42,14 +70,49 @@ jobs:
           context: .
           file: ./Dockerfile
           push: false
+          load: true
           tags: |
-            docker.io/metio/jaas:${{ github.sha }}
-      - id: helm_unittest
-        name: Test Helm Chart
-        uses: d3adb5/helm-unittest-action@v2
+            ghcr.io/metio/jaas:${{ github.sha }}
+      - id: trivy_scan
+        name: Scan Image with Trivy
+        uses: aquasecurity/trivy-action@0.28.0
         with:
-          charts: helm
-          helm-version: v3.21.0  # see https://github.com/d3adb5/helm-unittest-action/issues/23
-          unittest-version: v1.0.3  # see https://github.com/helm-unittest/helm-unittest/issues/856
-          install-mode: if-not-present
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          image-ref: ghcr.io/metio/jaas:${{ github.sha }}
+          format: table
+          # Fail the build on any Critical/High finding. The distroless
+          # base is kept slim and patched; new findings should be rare
+          # and worth investigating before merge.
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
+  yaml:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Lint YAML (yamllint)
+        run: pipx install yamllint && yamllint .
+  github-actions:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Lint workflows (actionlint)
+        uses: reviewdog/action-actionlint@v1
+  markdown:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Lint Markdown (markdownlint)
+        uses: DavidAnson/markdownlint-cli2-action@v20
+        with:
+          globs: "**/*.md"
+  typos:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Spell check (typos)
+        uses: crate-ci/typos@v1

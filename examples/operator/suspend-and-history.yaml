@@ -1,0 +1,57 @@
+# SPDX-FileCopyrightText: The jaas Authors
+# SPDX-License-Identifier: 0BSD
+#
+# Demonstrates spec.suspend (pause without delete) and spec.history
+# (retain N revisions on disk so downstream consumers can pin to an
+# older sha256).
+#
+# Flow:
+#   1. Apply this manifest. The snippet publishes the rendered JSON.
+#   2. `kubectl get jsonnetsnippet retained -o yaml` shows
+#      .status.history filling up over time, capped at 5 entries.
+#   3. To pause, patch: kubectl patch jsonnetsnippet retained \
+#        --type=merge -p '{"spec":{"suspend":true}}'
+#   4. Ready flips to False/Suspended; the previously-published
+#      ExternalArtifact stays in place. Downstream Flux consumers
+#      keep serving it.
+#   5. To resume, set suspend back to false (or remove the field).
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: demo-tenant
+  namespace: default
+
+---
+apiVersion: jaas.metio.wtf/v1
+kind: JsonnetSnippet
+metadata:
+  name: retained
+  namespace: default
+spec:
+  serviceAccountName: demo-tenant
+  entryFile: main.jsonnet
+  files:
+    main.jsonnet: |
+      {
+        greeting: 'hello',
+        version: std.extVar('release_version'),
+      }
+  externalVariables:
+    release_version: "2026.6.10"
+
+  # Pause control. Defaults to false. Set true to freeze the
+  # reconciler — the previously-published artifact stays intact.
+  suspend: false
+
+  # Retain the last 5 published revisions in the storage backend.
+  # Downstream Flux consumers can address any of them by sha256;
+  # status.history exposes the list to operators.
+  history: 5
+
+  # Re-render every 10 minutes even when no watch event fires —
+  # picks up env-var drift, OCI library refreshes, anything outside
+  # the watched object graph. Mirrors the Flux source-controller
+  # convention. Omit the field (or set to 0s) to rely purely on
+  # watch-driven reconciles.
+  interval: 10m

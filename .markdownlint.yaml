@@ -1,0 +1,10 @@
+# SPDX-FileCopyrightText: The jaas Authors
+# SPDX-License-Identifier: 0BSD
+default: true
+MD010:
+  code_blocks: false # verbatim CLI --help / tool output legitimately uses tabs
+MD013: false # line length: tables and links exceed any sane limit
+MD024:
+  siblings_only: true
+MD033: false # inline HTML: needed for rendered docs
+MD060: false # table-column-style: pedantic; flags readable, valid tables

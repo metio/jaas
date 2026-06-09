@@ -3,6 +3,14 @@
 
 version = 1
 
+# renovate.json is JSON (no comment syntax) and follows Renovate's fixed schema;
+# it extends the org-wide preset at github.com/metio/renovate-config.
+[[annotations]]
+path = "renovate.json"
+precedence = "override"
+SPDX-FileCopyrightText = "The jaas Authors"
+SPDX-License-Identifier = "0BSD"
+
 [[annotations]]
 path = "examples/**"
 precedence = "override"
@@ -16,13 +24,31 @@ SPDX-FileCopyrightText = "The jaas Authors"
 SPDX-License-Identifier = "0BSD"
 
 [[annotations]]
-path = "helm/tests/__snapshot__/*.snap"
+path = "testdata/golden/*.json"
 precedence = "override"
 SPDX-FileCopyrightText = "The jaas Authors"
 SPDX-License-Identifier = "0BSD"
 
+# controller-gen rewrites this file on every regeneration; an inline SPDX
+# header would be clobbered.
 [[annotations]]
-path = "testdata/golden/*.json"
+path = "api/**/zz_generated.deepcopy.go"
+precedence = "override"
+SPDX-FileCopyrightText = "The jaas Authors"
+SPDX-License-Identifier = "0BSD"
+
+# Same reason for the controller-gen-emitted CRD manifests.
+[[annotations]]
+path = "config/crd/bases/*.yaml"
+precedence = "override"
+SPDX-FileCopyrightText = "The jaas Authors"
+SPDX-License-Identifier = "0BSD"
+
+# Go's fuzzer materializes interesting inputs under testdata/fuzz/ with
+# hash filenames and no extension. The corpus accumulates over time;
+# every entry is a seed for future runs. No inline header is possible.
+[[annotations]]
+path = "internal/**/testdata/fuzz/**"
 precedence = "override"
 SPDX-FileCopyrightText = "The jaas Authors"
 SPDX-License-Identifier = "0BSD"

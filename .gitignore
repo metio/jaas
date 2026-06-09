@@ -6,3 +6,12 @@ jb-test
 jaas
 .cache
 .config
+
+# Go test binaries — `go test -c`, `go test -cpuprofile=…`, etc. drop
+# `<package>.test` next to the package. Never source.
+*.test
+# rapid (pgregory.net/rapid) persists failing-case replay files under a
+# package's testdata/rapid/ when a property test fails. They are transient
+# debugging aids, not source — keep them out of the tree.
+**/testdata/rapid/
+.claude/settings.local.json

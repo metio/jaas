@@ -16,12 +16,25 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"runtime"
 	"runtime/debug"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
 
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
+	ctrl "sigs.k8s.io/controller-runtime"
+
+	"github.com/metio/jaas/internal/eval"
 	"github.com/metio/jaas/internal/handler"
+	"github.com/metio/jaas/internal/observability"
+	"github.com/metio/jaas/internal/operator"
+	"github.com/metio/jaas/internal/storage"
+	"github.com/metio/jaas/internal/webhook/selfsigned"
 )
 
 type stringArray []string
@@ -100,23 +113,72 @@ func run(args, env []string, stdout, stderr io.Writer, sigs <-chan os.Signal) in
 	var libraryPaths stringArray
 	var snippets stringArray
 	var snippetDirectories stringArray
-	var showVersion = fs.Bool("version", false, "Print version and exit")
-	var logLevel = fs.String("log-level", "info", "The log level to use (debug, info, warn, error)")
-	var listenAddress = fs.String("listen-address", "127.0.0.1", "The listen address to bind to for the Jsonnet server")
-	var port = fs.String("port", "8080", "The port to bind to for the Jsonnet server")
-	var jsonnetEndpointPath = fs.String("jsonnet-endpoint-path", "jsonnet", "The path to the jsonnet endpoint")
-	var writeTimeout = fs.Duration("write-timeout", 10*time.Second, "The maximum duration before timing out writes of the response in the Jsonnet server")
-	var readTimeout = fs.Duration("read-timeout", 10*time.Second, "maximum duration for reading the entire request, including the body in the Jsonnet server")
-	var managementListenAddress = fs.String("management-listen-address", "127.0.0.1", "The listen address to bind to for the management server")
-	var managementPort = fs.String("management-port", "8081", "The port to bind to for the management server")
-	var managementWriteTimeout = fs.Duration("management-write-timeout", 10*time.Second, "The maximum duration before timing out writes of the response in the management server")
-	var managementReadTimeout = fs.Duration("management-read-timeout", 10*time.Second, "maximum duration for reading the entire request, including the body in the management server")
-	var evaluationTimeout = fs.Duration("evaluation-timeout", 5*time.Second, "Maximum duration a single Jsonnet evaluation is allowed to take. Set to 0 to disable.")
-	var maxStack = fs.Int("max-stack", 500, "Maximum Jsonnet call-stack depth. Set to 0 to use go-jsonnet's default.")
-	var shutdownDelay = fs.Duration("shutdown-delay", 5*time.Second, "Time to wait after readiness flips to false before initiating graceful shutdown; gives Kubernetes time to propagate the not-ready status to endpoint controllers. Set to 0 to disable.")
+	var extVarFlags stringArray
+	showVersion := fs.Bool("version", false, "Print version and exit")
+	logLevel := fs.String("log-level", "info", "The log level to use (debug, info, warn, error)")
+	listenAddress := fs.String("listen-address", "127.0.0.1", "The listen address to bind to for the Jsonnet server")
+	port := fs.String("port", "8080", "The port to bind to for the Jsonnet server")
+	jsonnetEndpointPath := fs.String("jsonnet-endpoint-path", "jsonnet", "The path to the jsonnet endpoint")
+	writeTimeout := fs.Duration("write-timeout", 10*time.Second, "The maximum duration before timing out writes of the response in the Jsonnet server")
+	readTimeout := fs.Duration("read-timeout", 10*time.Second, "maximum duration for reading the entire request, including the body in the Jsonnet server")
+	managementListenAddress := fs.String("management-listen-address", "127.0.0.1", "The listen address to bind to for the management server")
+	managementPort := fs.String("management-port", "8081", "The port to bind to for the management server")
+	managementWriteTimeout := fs.Duration("management-write-timeout", 10*time.Second, "The maximum duration before timing out writes of the response in the management server")
+	managementReadTimeout := fs.Duration("management-read-timeout", 10*time.Second, "maximum duration for reading the entire request, including the body in the management server")
+	evaluationTimeout := fs.Duration("evaluation-timeout", 5*time.Second, "Maximum duration a single Jsonnet evaluation is allowed to take. Set to 0 to disable.")
+	maxStack := fs.Int("max-stack", 500, "Maximum Jsonnet call-stack depth. Set to 0 to use go-jsonnet's default.")
+	maxConcurrentEvals := fs.Int("max-concurrent-evals", defaultMaxConcurrentEvals(), "Maximum number of in-flight Jsonnet evaluations. Excess requests return 503 (HTTP) or RequeueAfter (operator). Set to 0 to disable. Defaults to max(GOMAXPROCS*4, 16).")
+	shutdownDelay := fs.Duration("shutdown-delay", 5*time.Second, "Time to wait after readiness flips to false before initiating graceful shutdown; gives Kubernetes time to propagate the not-ready status to endpoint controllers. Set to 0 to disable.")
 	fs.Var(&libraryPaths, "library-path", "The path of a directory containing jsonnet libraries (can be specified multiple times). Rightmost matching library will be used.")
 	fs.Var(&snippets, "snippet", "The path of a jsonnet file or directory containing snippets (can be specified multiple times). Snippets will be loaded from the given path, where the file name is the snippet name.")
 	fs.Var(&snippetDirectories, "snippet-directory", "The path of a directory containing snippets as subdirectories (can be specified multiple times). Snippets will be loaded from subdirectories of the given path, where the directory name is the snippet name.")
+	fs.Var(&extVarFlags, "ext-var", "External variable as KEY=VALUE for std.extVar lookups (can be specified multiple times). Takes precedence over JAAS_EXT_VAR_* env vars on conflict.")
+
+	enableFluxIntegration := fs.Bool("enable-flux-integration", false, "Boot the Kubernetes operator that watches JsonnetSnippet / JsonnetLibrary CRs and publishes evaluated results as Flux ExternalArtifacts.")
+	defaultServiceAccount := fs.String("default-service-account", "", "ServiceAccount the operator impersonates when a JsonnetSnippet has no spec.serviceAccountName. Empty rejects such snippets at reconcile time.")
+	noCrossNamespaceRefs := fs.Bool("no-cross-namespace-refs", true, "When true (default), reject JsonnetSnippet / library CRs that reference a SourceRef in a different namespace.")
+	labelSelector := fs.String("label-selector", "", "Narrow the operator's watch to CRs matching this label selector. Empty selects every CR in the watched scope.")
+	watchNamespaces := fs.String("watch-namespaces", "", "Comma-separated list of namespaces this operator watches. Empty (the default) means cluster-wide. When set, the manager's cache only observes CRs in these namespaces — multi-tenant operator-instances pattern. Falls back to JAAS_WATCH_NAMESPACES env var when the flag is empty.")
+	rerenderRate := fs.String("rerender-rate", "60/min", "Per-snippet steady-state re-render budget, as N/period (sec|min|hour). Token-bucket combined with -rerender-burst.")
+	rerenderBurst := fs.Int("rerender-burst", 120, "Per-snippet token-bucket depth for re-render rate limiting.")
+	kubeconfig := fs.String("kubeconfig", "", "Path to a kubeconfig file for the operator. Empty falls back to KUBECONFIG env, then to in-cluster service-account credentials.")
+	storagePath := fs.String("storage-path", "", "Directory the operator writes ExternalArtifact tarballs to. Required when -enable-flux-integration is set.")
+	storageBaseURL := fs.String("storage-base-url", "", "Public URL prefix the operator's storage HTTP server serves tarballs at. Required when -enable-flux-integration is set.")
+	storageListenAddress := fs.String("storage-listen-address", "0.0.0.0", "The listen address to bind to for the storage HTTP server")
+	storagePort := fs.String("storage-port", "8082", "The port to bind to for the storage HTTP server")
+	storageReadTimeout := fs.Duration("storage-read-timeout", 30*time.Second, "Maximum duration for reading the entire request on the storage server.")
+	storageWriteTimeout := fs.Duration("storage-write-timeout", 5*time.Minute, "Maximum duration before timing out writes of the response on the storage server. Tarballs can be MBs, so this is generous by default.")
+	enableWebhook := fs.Bool("enable-webhook", false, "Boot the validating admission webhook for JsonnetSnippet. Requires -enable-flux-integration and a TLS cert/key in -webhook-cert-dir.")
+	webhookCertDir := fs.String("webhook-cert-dir", "/tmp/k8s-webhook-server/serving-certs", "Directory holding the TLS cert (tls.crt) and key (tls.key) the webhook server presents.")
+	webhookPort := fs.Int("webhook-port", 9443, "Port the validating webhook server binds to.")
+	webhookCertMode := fs.String("webhook-cert-mode", "cert-manager", "How the webhook's TLS material is provisioned: cert-manager (chart renders a Certificate; cert injected via Secret mount), or self-signed (operator generates a CA + serving cert in-pod and patches the ValidatingWebhookConfiguration's caBundle).")
+	webhookServiceName := fs.String("webhook-service-name", "jaas-webhook", "Service name the webhook is reachable through. Used to build cert SANs when -webhook-cert-mode=self-signed.")
+	webhookServiceNamespace := fs.String("webhook-service-namespace", "", "Namespace the webhook Service lives in. Empty falls back to -leader-election-namespace, then to in-cluster downward API.")
+	webhookVWCName := fs.String("webhook-validating-config-name", "", "Name of the ValidatingWebhookConfiguration whose caBundle this operator patches. Required when -webhook-cert-mode=self-signed.")
+	webhookCertValidity := fs.Duration("webhook-cert-validity", 365*24*time.Hour, "Validity of the self-signed serving cert. Operators that want short-lived rotation should use cert-manager instead.")
+	leaderElection := fs.Bool("leader-election", true, "Enable controller-runtime leader election so only one operator replica reconciles at a time. Honored only when -enable-flux-integration is set.")
+	leaderElectionID := fs.String("leader-election-id", "jaas-operator", "Lease object name used for leader election. Must be unique across JaaS installations sharing a namespace.")
+	leaderElectionNamespace := fs.String("leader-election-namespace", "", "Namespace holding the leader-election Lease. Empty defaults to the operator pod's namespace.")
+	metricsBindAddress := fs.String("metrics-bind-address", ":8083", "Bind address for the controller-runtime Prometheus metrics endpoint. Use \"0\" to disable. The default avoids the conflict between controller-runtime's built-in :8080 and the jsonnet HTTP server.")
+	storageBackend := fs.String("storage-backend", "local", "Artifact backend the operator publishes ExternalArtifact tarballs through. local (default; emptyDir/PVC) or s3 (any S3-compatible object store; pairs with leader election for HA across replicas).")
+	s3Endpoint := fs.String("s3-endpoint", "", "S3 service host:port (e.g. s3.amazonaws.com or minio.minio.svc:9000). Required when -storage-backend=s3.")
+	s3Bucket := fs.String("s3-bucket", "", "S3 bucket the artifacts live in. Must already exist. Required when -storage-backend=s3.")
+	s3Prefix := fs.String("s3-prefix", "", "Optional object-key prefix prepended under the bucket, so jaas can coexist with other tenants in one bucket.")
+	s3Region := fs.String("s3-region", "", "S3 region the bucket lives in. Required for AWS multi-region setups; ignored by most S3-compatible servers.")
+	s3UseSSL := fs.Bool("s3-use-ssl", true, "Talk HTTPS to the S3 endpoint. Set to false only for local MinIO over HTTP.")
+	s3AccessKey := fs.String("s3-access-key", "", "Static AWS_ACCESS_KEY_ID. Empty triggers the IAM/IRSA discovery chain (AWS_*, web-identity, EC2 metadata).")
+	s3SecretKey := fs.String("s3-secret-key", "", "Static AWS_SECRET_ACCESS_KEY. Pairs with -s3-access-key.")
+	s3SessionToken := fs.String("s3-session-token", "", "Optional AWS_SESSION_TOKEN, paired with -s3-access-key/-s3-secret-key for temporary credentials.")
+	s3Anonymous := fs.Bool("s3-anonymous", false, "Skip request signing entirely. Only useful against a public bucket — test/dev only.")
+	runbookBaseURL := fs.String("runbook-base-url", "", "Optional URL prefix appended to every Ready condition Message as (runbook: <base>/<reason>.md). Empty disables.")
+	maxWithdrawWait := fs.Duration("max-withdraw-wait", 1*time.Hour, "Bound the time a deleted JsonnetSnippet's finalizer can hold while Publisher.Withdraw keeps failing. Past this, the operator emits a Warning WithdrawForced event, drops the finalizer, and lets the snippet be garbage-collected — possibly leaving an orphan tarball in storage. Required so a permanently-broken backend doesn't block namespace teardown.")
+	maxArtifactBytes := fs.Int64("max-artifact-bytes", 0, "Cap the rendered artifact size in bytes. Snippets whose rendered output exceeds this fail with ReasonArtifactTooLarge. Zero disables.")
+	artifactGCGrace := fs.Duration("artifact-gc-grace", 5*time.Minute, "Minimum time a superseded artifact revision is retained after being evicted from the keep-set. Closes the pin→fetch race in which a Flux consumer reads status.artifact a moment before the operator garbage-collects the superseded revision. Zero disables and restores eager pruning. The deletion path (snippet teardown) is unaffected.")
+	storageSweepInterval := fs.Duration("storage-sweep-interval", 10*time.Minute, "How often the operator sweeps orphaned <rev>.tar.gz.tmp residue left by Puts whose process died mid-rename. Zero disables.")
+	storageSweepMaxTmpAge := fs.Duration("storage-sweep-max-tmp-age", 30*time.Minute, "Minimum age before an orphaned .tmp file is eligible for sweep. Wider than the longest plausible in-flight Put to avoid racing live writers.")
+	tracingEndpoint := fs.String("tracing-endpoint", "", "OTLP gRPC collector host:port (e.g. otel-collector.observability.svc:4317). Empty disables tracing entirely.")
+	tracingInsecure := fs.Bool("tracing-insecure", false, "Skip TLS when dialing the OTLP collector. Use only for in-cluster collectors that don't terminate TLS themselves.")
+	tracingSampleRatio := fs.Float64("tracing-sample-ratio", 1.0, "TraceID-ratio sampling (0.0..1.0). 1.0 samples every trace.")
 
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -126,14 +188,47 @@ func run(args, env []string, stdout, stderr io.Writer, sigs <-chan os.Signal) in
 	}
 
 	if *showVersion {
-		fmt.Fprintf(stdout, "version: %s\ncommit:  %s\n", version, commit)
+		// Single Fprintln per line so an empty commit (or version)
+		// doesn't leave behind the "label:  \n" double-space artifact
+		// the old %s format produced when -ldflags set the value to
+		// "".
+		fmt.Fprintln(stdout, "version:", version)
+		fmt.Fprintln(stdout, "commit:", commit)
 		return 0
+	}
+
+	// The webhook server is wired only inside the operator boot path, so
+	// -enable-webhook without -enable-flux-integration would silently
+	// boot an HTTP-only evaluator with no admission validation — a
+	// security-relevant no-op. Reject it as a flag error rather than
+	// ignore it.
+	if *enableWebhook && !*enableFluxIntegration {
+		fmt.Fprintln(stderr, "jaas: -enable-webhook requires -enable-flux-integration")
+		return 2
 	}
 
 	configureLogger(stdout, *logLevel)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	tracingShutdown, err := observability.InitTracer(ctx, observability.TracingConfig{
+		Endpoint:       *tracingEndpoint,
+		Insecure:       *tracingInsecure,
+		ServiceVersion: version,
+		SampleRatio:    *tracingSampleRatio,
+	})
+	if err != nil {
+		slog.ErrorContext(ctx, "Cannot init tracer", slog.Any("error", err))
+		return 1
+	}
+	defer func() {
+		// Bounded shutdown so a slow collector doesn't hang the
+		// process — five seconds is generous for a flush.
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = tracingShutdown(shutdownCtx)
+	}()
 
 	slog.InfoContext(ctx, "Starting JaaS",
 		slog.String("version", version),
@@ -155,10 +250,144 @@ func run(args, env []string, stdout, stderr io.Writer, sigs <-chan os.Signal) in
 		slog.Duration("management-read-timeout", *managementReadTimeout),
 		slog.Duration("evaluation-timeout", *evaluationTimeout),
 		slog.Int("max-stack", *maxStack),
-		slog.Duration("shutdown-delay", *shutdownDelay))
+		slog.Int("max-concurrent-evals", *maxConcurrentEvals),
+		slog.Duration("shutdown-delay", *shutdownDelay),
+		slog.Bool("enable-flux-integration", *enableFluxIntegration),
+		slog.String("default-service-account", *defaultServiceAccount),
+		slog.Bool("no-cross-namespace-refs", *noCrossNamespaceRefs),
+		slog.String("label-selector", *labelSelector),
+		slog.String("rerender-rate", *rerenderRate),
+		slog.Int("rerender-burst", *rerenderBurst))
 
+	eval.SetMaxConcurrentEvals(*maxConcurrentEvals)
+
+	cliExtVars, err := operator.ParseExtVars(extVarFlags)
+	if err != nil {
+		fmt.Fprintf(stderr, "Invalid -ext-var: %v\n", err)
+		return 1
+	}
+
+	// CLI -ext-var overlays env-derived JAAS_EXT_VAR_* on key conflicts;
+	// the env mechanism predates the flag and is kept for the HTTP-only path.
 	extVars := handler.ParseExtVars(env)
-	slog.InfoContext(ctx, "External variables loaded", slog.Int("count", len(extVars)))
+	for k, v := range cliExtVars {
+		extVars[k] = v
+	}
+	slog.InfoContext(ctx, "External variables loaded",
+		slog.Int("count", len(extVars)),
+		slog.Int("from-cli", len(cliExtVars)))
+
+	var (
+		opCfg     operator.Config
+		opRestCfg *rest.Config
+		opStore   storage.Backend
+		// webhookRenewerDone is closed when the self-signed cert renewer
+		// goroutine exits; the shutdown path awaits it so a rotation in
+		// flight during SIGTERM isn't abandoned mid-patch. Stays nil when
+		// the renewer never starts, in which case the await is skipped.
+		webhookRenewerDone <-chan struct{}
+	)
+	if *enableFluxIntegration {
+		rerenderRatePerSec, err := operator.ParseRerenderRate(*rerenderRate)
+		if err != nil {
+			fmt.Fprintf(stderr, "Invalid -rerender-rate: %v\n", err)
+			return 1
+		}
+		if *rerenderBurst < 1 {
+			fmt.Fprintf(stderr, "Invalid -rerender-burst: must be >= 1, got %d\n", *rerenderBurst)
+			return 1
+		}
+		if *storageBaseURL == "" {
+			fmt.Fprintln(stderr, "Invalid -storage-base-url: required when -enable-flux-integration is set")
+			return 1
+		}
+		var ok bool
+		opStore, ok = newStorageBackend(ctx, stderr, *storageBackend, *storagePath, storage.S3Config{
+			Endpoint:        *s3Endpoint,
+			Bucket:          *s3Bucket,
+			Prefix:          *s3Prefix,
+			Region:          *s3Region,
+			UseSSL:          *s3UseSSL,
+			AccessKeyID:     *s3AccessKey,
+			SecretAccessKey: *s3SecretKey,
+			SessionToken:    *s3SessionToken,
+			UseAnonymous:    *s3Anonymous,
+			ReadTimeout:     *storageReadTimeout,
+		})
+		if !ok {
+			return 1
+		}
+		defer func() { _ = opStore.Close() }()
+
+		opCfg = operator.Config{
+			DefaultServiceAccount:   *defaultServiceAccount,
+			NoCrossNamespaceRefs:    *noCrossNamespaceRefs,
+			LabelSelector:           *labelSelector,
+			WatchNamespaces:         parseWatchNamespaces(*watchNamespaces, env),
+			RerenderRate:            rerenderRatePerSec,
+			RerenderBurst:           *rerenderBurst,
+			ExtVars:                 extVars,
+			EvaluationTimeout:       *evaluationTimeout,
+			MaxStack:                *maxStack,
+			Store:                   opStore,
+			StorageBaseURL:          *storageBaseURL,
+			EnableWebhook:           *enableWebhook,
+			WebhookCertDir:          *webhookCertDir,
+			WebhookPort:             *webhookPort,
+			LeaderElection:          *leaderElection,
+			LeaderElectionID:        *leaderElectionID,
+			LeaderElectionNamespace: *leaderElectionNamespace,
+			KnownLibraryAliases:     ociLibraryAliasesFromPaths(libraryPaths),
+			OCILibraries:            loadOCILibraries(ctx, libraryPaths),
+			MetricsBindAddress:      *metricsBindAddress,
+			RunbookBaseURL:          *runbookBaseURL,
+			MaxWithdrawWait:         *maxWithdrawWait,
+			MaxArtifactBytes:        *maxArtifactBytes,
+			ArtifactGCGrace:         *artifactGCGrace,
+			// OnReady is wired below once state is constructed so the
+			// probe only flips ready after the manager is reconcile-ready.
+		}
+		opRestCfg, err = loadKubeconfig(*kubeconfig)
+		if err != nil {
+			slog.ErrorContext(ctx, "Cannot load kubeconfig", slog.String("kubeconfig", *kubeconfig), slog.Any("error", err))
+			return 1
+		}
+
+		if *enableWebhook {
+			switch *webhookCertMode {
+			case "cert-manager":
+				// External tooling provisions tls.crt/tls.key under
+				// WebhookCertDir. Nothing to do here.
+			case "self-signed":
+				if *webhookVWCName == "" {
+					fmt.Fprintln(stderr, "Invalid -webhook-validating-config-name: required when -webhook-cert-mode=self-signed")
+					return 1
+				}
+				ns := *webhookServiceNamespace
+				if ns == "" {
+					ns = *leaderElectionNamespace
+				}
+				done, err := provisionSelfSignedWebhookCert(ctx, opRestCfg, selfsignedConfig{
+					Namespace:   ns,
+					ServiceName: *webhookServiceName,
+					CertDir:     *webhookCertDir,
+					Validity:    *webhookCertValidity,
+					VWCName:     *webhookVWCName,
+				})
+				if err != nil {
+					slog.ErrorContext(ctx, "Cannot provision self-signed webhook cert", slog.Any("error", err))
+					return 1
+				}
+				webhookRenewerDone = done
+				slog.InfoContext(ctx, "Self-signed webhook cert provisioned",
+					slog.String("certDir", *webhookCertDir),
+					slog.String("vwc", *webhookVWCName))
+			default:
+				fmt.Fprintf(stderr, "Invalid -webhook-cert-mode %q: must be \"cert-manager\" or \"self-signed\"\n", *webhookCertMode)
+				return 1
+			}
+		}
+	}
 
 	jsonnetMux := http.NewServeMux()
 	jsonnetMux.HandleFunc(fmt.Sprintf("/%s/{snippet...}", *jsonnetEndpointPath), handler.JsonnetHandler(handler.Config{
@@ -172,7 +401,7 @@ func run(args, env []string, stdout, stderr io.Writer, sigs <-chan os.Signal) in
 	slog.DebugContext(ctx, "Jsonnet handler configured")
 
 	jsonnetServer := &http.Server{
-		Addr:         fmt.Sprintf("%s:%s", *listenAddress, *port),
+		Addr:         net.JoinHostPort(*listenAddress, *port),
 		WriteTimeout: *writeTimeout,
 		ReadTimeout:  *readTimeout,
 		Handler:      jsonnetMux,
@@ -180,6 +409,12 @@ func run(args, env []string, stdout, stderr io.Writer, sigs <-chan os.Signal) in
 	slog.DebugContext(ctx, "Jsonnet server created")
 
 	state := handler.NewHealthState()
+	if *enableFluxIntegration {
+		// Capture state.SetReady so the operator manager flips the pod's
+		// readiness probe only after mgr.Elected() closes (cache synced,
+		// leader elected — or LE off). Set here, post-state-construction.
+		opCfg.OnReady = func() { state.SetReady(true) }
+	}
 	managementMux := http.NewServeMux()
 	managementMux.HandleFunc("/start", handler.StartupHandler(state))
 	managementMux.HandleFunc("/ready", handler.ReadinessHandler(state))
@@ -187,7 +422,7 @@ func run(args, env []string, stdout, stderr io.Writer, sigs <-chan os.Signal) in
 	slog.DebugContext(ctx, "Management handlers configured")
 
 	managementServer := &http.Server{
-		Addr:         fmt.Sprintf("%s:%s", *managementListenAddress, *managementPort),
+		Addr:         net.JoinHostPort(*managementListenAddress, *managementPort),
 		WriteTimeout: *managementWriteTimeout,
 		ReadTimeout:  *managementReadTimeout,
 		Handler:      managementMux,
@@ -207,10 +442,40 @@ func run(args, env []string, stdout, stderr io.Writer, sigs <-chan os.Signal) in
 		return 1
 	}
 
-	state.MarkStarted()
-	state.SetReady(true)
+	var (
+		storageServer   *http.Server
+		storageListener net.Listener
+	)
+	if *enableFluxIntegration {
+		storageServer = &http.Server{
+			Addr:         net.JoinHostPort(*storageListenAddress, *storagePort),
+			WriteTimeout: *storageWriteTimeout,
+			ReadTimeout:  *storageReadTimeout,
+			Handler:      opStore.HTTPHandler(),
+		}
+		storageListener, err = net.Listen("tcp", storageServer.Addr)
+		if err != nil {
+			_ = managementListener.Close()
+			_ = jsonnetListener.Close()
+			slog.ErrorContext(ctx, "Cannot bind storage listener", slog.String("addr", storageServer.Addr), slog.Any("error", err))
+			return 1
+		}
+	}
 
-	serverErrs := make(chan error, 2)
+	state.MarkStarted()
+	// In HTTP-only mode the pod is ready as soon as the listeners
+	// are bound. In operator mode the readiness probe must stay 503
+	// until the manager has been elected (or LE is off — Elected closes
+	// immediately) and its cache has synced; otherwise traffic flows to
+	// a pod whose operator goroutine may have already failed startup,
+	// and no reconciles are happening. opCfg.OnReady (wired below
+	// when --enable-flux-integration is set) flips the probe once
+	// mgr.Elected() closes.
+	if !*enableFluxIntegration {
+		state.SetReady(true)
+	}
+
+	serverErrs := make(chan error, 4)
 
 	go func() {
 		if err := jsonnetServer.Serve(jsonnetListener); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -226,6 +491,50 @@ func run(args, env []string, stdout, stderr io.Writer, sigs <-chan os.Signal) in
 	}()
 	slog.DebugContext(ctx, "Management server started")
 
+	if storageServer != nil {
+		go func() {
+			if err := storageServer.Serve(storageListener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				serverErrs <- fmt.Errorf("storage server: %w", err)
+			}
+		}()
+		slog.DebugContext(ctx, "Storage server started", slog.String("addr", storageServer.Addr))
+	}
+
+	operatorDone := make(chan struct{})
+	// sweepDone gates the deferred opStore.Close() on any in-flight
+	// Sweep finishing: cancel() stops the ticker between passes but does
+	// not interrupt a synchronous Sweep already walking the *os.Root, so
+	// without this await the deferred Close() could pull the root out
+	// from under an active walk (ErrClosed, a spurious sweep-failure
+	// metric, possibly a half-completed removal pass).
+	sweepDone := make(chan struct{})
+	if *enableFluxIntegration {
+		go func() {
+			defer close(operatorDone)
+			if err := operator.Run(ctx, opCfg, opRestCfg); err != nil && !errors.Is(err, context.Canceled) {
+				select {
+				case serverErrs <- fmt.Errorf("operator: %w", err):
+				default:
+				}
+			}
+		}()
+		slog.DebugContext(ctx, "Operator manager started")
+
+		// Periodic storage GC: sweep orphaned .tmp residue left by Puts
+		// that died after writing the tmpfile but before the rename.
+		if *storageSweepInterval > 0 {
+			go func() {
+				defer close(sweepDone)
+				runStorageSweep(ctx, opStore, *storageSweepInterval, *storageSweepMaxTmpAge)
+			}()
+		} else {
+			close(sweepDone)
+		}
+	} else {
+		close(operatorDone)
+		close(sweepDone)
+	}
+
 	exitCode := 0
 	select {
 	case sig := <-sigs:
@@ -235,7 +544,7 @@ func run(args, env []string, stdout, stderr io.Writer, sigs <-chan os.Signal) in
 		exitCode = 1
 	}
 
-	drainBeforeShutdown(state, *shutdownDelay, slog.Default())
+	drainBeforeShutdown(sigs, state, *shutdownDelay, slog.Default())
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer shutdownCancel()
@@ -248,9 +557,163 @@ func run(args, env []string, stdout, stderr io.Writer, sigs <-chan os.Signal) in
 		slog.ErrorContext(ctx, "Cannot shut down management server", slog.Any("error", err))
 		exitCode = 1
 	}
+	if storageServer != nil {
+		if err := storageServer.Shutdown(shutdownCtx); err != nil {
+			slog.ErrorContext(ctx, "Cannot shut down storage server", slog.Any("error", err))
+			exitCode = 1
+		}
+	}
+
+	// Cancel the operator's context so mgr.Start returns and the sweep +
+	// renewer goroutines drain. The deferred cancel above would do the
+	// same, but only after run() returns — cancelling here keeps the
+	// graceful-shutdown window predictable. All three were signalled
+	// together and drain concurrently, so one shared 30s window covers
+	// the set. Awaiting the sweep before run() returns matters: the
+	// deferred opStore.Close() must not run while a sweep walk is in
+	// flight, or it would pull the *os.Root out from under it.
+	cancel()
+	if !awaitGoroutines(ctx, 30*time.Second, map[string]<-chan struct{}{
+		"operator":             operatorDone,
+		"storage sweep":        sweepDone,
+		"webhook cert renewer": webhookRenewerDone,
+	}) {
+		exitCode = 1
+	}
 
 	slog.InfoContext(ctx, "JaaS service has shut down")
 	return exitCode
+}
+
+// awaitGoroutines waits for every named done-channel to close, bounded by a
+// single timeout shared across the set: they are all signalled by the same
+// ctx cancel() and drain concurrently, so one window covers them. A nil
+// channel is skipped (the goroutine was never started). Returns true iff
+// every channel closed before the deadline; each that didn't is logged by
+// name so a hung component is identifiable.
+func awaitGoroutines(ctx context.Context, timeout time.Duration, dones map[string]<-chan struct{}) bool {
+	deadline := time.Now().Add(timeout)
+	allStopped := true
+	for name, done := range dones {
+		if done == nil {
+			continue
+		}
+		select {
+		case <-done:
+		case <-time.After(time.Until(deadline)):
+			slog.ErrorContext(ctx, "Goroutine did not stop before shutdown deadline",
+				slog.String("goroutine", name))
+			allStopped = false
+		}
+	}
+	return allStopped
+}
+
+// defaultMaxConcurrentEvals scales the eval-semaphore cap with available
+// parallelism: GOMAXPROCS*4 floor 16. Each in-flight eval pins ~one CPU
+// for its working set, so going far above this just queues without
+// throughput gain; the cap exists to bound worst-case goroutine
+// pile-up under a runaway snippet, not to clip steady-state throughput.
+func defaultMaxConcurrentEvals() int {
+	n := runtime.GOMAXPROCS(0) * 4
+	if n < 16 {
+		n = 16
+	}
+	return n
+}
+
+// parseWatchNamespaces splits a comma-separated list into namespace
+// names, falling back to JAAS_WATCH_NAMESPACES in env when the flag is
+// empty. Empty inputs from both sources yield nil — the operator's
+// historical cluster-wide watch behaviour.
+//
+// Each entry is trimmed; empty entries (from a trailing comma, double
+// comma, etc.) are dropped. The Kubernetes-level namespace-name
+// validation (DNS-1123 label) is left to the apiserver, which
+// rejects malformed names when the cache tries to list them.
+func parseWatchNamespaces(flagValue string, env []string) []string {
+	raw := strings.TrimSpace(flagValue)
+	if raw == "" {
+		for _, e := range env {
+			if k, v, ok := strings.Cut(e, "="); ok && k == "JAAS_WATCH_NAMESPACES" {
+				raw = strings.TrimSpace(v)
+				break
+			}
+		}
+	}
+	if raw == "" {
+		return nil
+	}
+	var out []string
+	for _, part := range strings.Split(raw, ",") {
+		if p := strings.TrimSpace(part); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// loadKubeconfig resolves a *rest.Config for the operator. An explicit
+// --kubeconfig path is used verbatim; the empty default chains through
+// KUBECONFIG env, the default kubeconfig path, and finally in-cluster
+// service-account credentials via controller-runtime's resolver.
+func loadKubeconfig(path string) (*rest.Config, error) {
+	if path != "" {
+		return clientcmd.BuildConfigFromFlags("", path)
+	}
+	return ctrl.GetConfig()
+}
+
+// newStorageBackend selects and constructs the operator's artifact store from
+// the backend flags. A flag-validation problem (missing path / endpoint /
+// unknown backend) is written to stderr; a construction failure is logged via
+// slog. Either way it returns ok=false so the caller can exit non-zero.
+func newStorageBackend(ctx context.Context, stderr io.Writer, backend, localPath string, s3cfg storage.S3Config) (storage.Backend, bool) {
+	switch backend {
+	case "local":
+		if localPath == "" {
+			fmt.Fprintln(stderr, "Invalid -storage-path: required when -storage-backend=local")
+			return nil, false
+		}
+		store, err := storage.New(localPath)
+		if err != nil {
+			slog.ErrorContext(ctx, "Cannot open storage", slog.String("path", localPath), slog.Any("error", err))
+			return nil, false
+		}
+		return store, true
+	case "s3":
+		if s3cfg.Endpoint == "" || s3cfg.Bucket == "" {
+			fmt.Fprintln(stderr, "Invalid S3 config: -s3-endpoint and -s3-bucket are required when -storage-backend=s3")
+			return nil, false
+		}
+		b, err := storage.NewS3(s3cfg)
+		if err != nil {
+			slog.ErrorContext(ctx, "Cannot init S3 backend", slog.Any("error", err))
+			return nil, false
+		}
+		return b, true
+	default:
+		fmt.Fprintf(stderr, "Invalid -storage-backend %q: must be \"local\" or \"s3\"\n", backend)
+		return nil, false
+	}
+}
+
+// loadOCILibraries scans the operator's -library-path mounts for shared
+// libraries and logs the discovered alias set. Folded out of the operator
+// Config literal so the field assignment stays a single readable call.
+func loadOCILibraries(ctx context.Context, libraryPaths []string) map[string]eval.Library {
+	libs := ociLibrariesFromPaths(libraryPaths)
+	if len(libs) > 0 {
+		aliases := make([]string, 0, len(libs))
+		for a := range libs {
+			aliases = append(aliases, a)
+		}
+		sort.Strings(aliases)
+		slog.InfoContext(ctx, "Loaded OCI libraries for operator eval path",
+			slog.Int("count", len(libs)),
+			slog.Any("aliases", aliases))
+	}
+	return libs
 }
 
 func configureLogger(out io.Writer, logLevel string) {
@@ -262,14 +725,265 @@ func configureLogger(out io.Writer, logLevel string) {
 
 // drainBeforeShutdown flips readiness off and (if delay > 0) blocks for `delay`
 // so Kubernetes can propagate the not-ready status to its endpoint controllers
-// before in-flight requests start being aborted by Shutdown.
-func drainBeforeShutdown(state *handler.HealthState, delay time.Duration, logger *slog.Logger) {
+// before in-flight requests start being aborted by Shutdown. A second signal
+// on sigs cuts the wait short — a frustrated user hitting Ctrl-C twice gets
+// what they asked for without waiting out the full delay.
+func drainBeforeShutdown(sigs <-chan os.Signal, state *handler.HealthState, delay time.Duration, logger *slog.Logger) {
 	state.SetReady(false)
 	if delay <= 0 {
 		return
 	}
 	logger.Info("Draining: waiting for readiness to propagate before shutdown", slog.Duration("delay", delay))
-	time.Sleep(delay)
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+	case sig := <-sigs:
+		logger.Info("Second signal received; cutting drain short", slog.String("signal", sig.String()))
+	}
+}
+
+// runStorageSweep periodically invokes opStore.Sweep, dropping orphaned
+// .tmp residue. Returns when ctx is canceled. Each pass's count is logged
+// at debug; non-zero passes log at info so operators see actual cleanup.
+func runStorageSweep(ctx context.Context, opStore storage.Backend, interval, maxTmpAge time.Duration) {
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			n, err := opStore.Sweep(ctx, maxTmpAge)
+			if err != nil {
+				operator.RecordSweepFailure()
+				slog.WarnContext(ctx, "Storage sweep failed", slog.Any("error", err))
+				continue
+			}
+			if n > 0 {
+				slog.InfoContext(ctx, "Storage sweep removed orphaned .tmp files",
+					slog.Int("count", n))
+			} else {
+				slog.DebugContext(ctx, "Storage sweep clean", slog.Int("count", 0))
+			}
+		}
+	}
+}
+
+// selfsignedConfig is the local glue between main.go's flag parsing
+// and the internal/webhook/selfsigned package — kept here so main.go
+// stays the single source of "operator wiring" knobs.
+type selfsignedConfig struct {
+	Namespace   string
+	ServiceName string
+	CertDir     string
+	Validity    time.Duration
+	VWCName     string
+}
+
+// provisionSelfSignedWebhookCert generates the in-pod CA + serving cert,
+// stamps the CA into the VWC's caBundle, and starts the background
+// renewer. The returned channel is closed when the renewer goroutine
+// exits; run() awaits it on shutdown so a rotation in flight during
+// SIGTERM isn't abandoned mid-patch.
+func provisionSelfSignedWebhookCert(ctx context.Context, restCfg *rest.Config, cfg selfsignedConfig) (<-chan struct{}, error) {
+	if cfg.Namespace == "" {
+		return nil, fmt.Errorf("webhook self-signed: service namespace is required (set -webhook-service-namespace or -leader-election-namespace)")
+	}
+	if err := os.MkdirAll(cfg.CertDir, 0o750); err != nil {
+		return nil, fmt.Errorf("webhook self-signed: mkdir cert dir %q: %w", cfg.CertDir, err)
+	}
+	input := selfsigned.Input{
+		ServiceName: cfg.ServiceName,
+		Namespace:   cfg.Namespace,
+		Validity:    cfg.Validity,
+	}
+	bundle, err := selfsigned.Generate(input)
+	if err != nil {
+		return nil, fmt.Errorf("webhook self-signed: generate: %w", err)
+	}
+	if err := bundle.WriteTo(cfg.CertDir); err != nil {
+		return nil, fmt.Errorf("webhook self-signed: write cert: %w", err)
+	}
+	clientset, err := kubernetes.NewForConfig(restCfg)
+	if err != nil {
+		return nil, fmt.Errorf("webhook self-signed: clientset: %w", err)
+	}
+	vwcs := clientset.AdmissionregistrationV1().ValidatingWebhookConfigurations()
+	// Union this pod's fresh CA into the existing caBundle rather than
+	// overwriting it: other already-running replicas (multi-replica HA,
+	// rolling update) must stay trusted across the rollout, and
+	// CombineCABundles also prunes expired CA blocks so the bundle stays
+	// bounded. UpdateVWCCABundle does this read-merge-write under
+	// optimistic concurrency — so several pods bootstrapping at once
+	// during a rolling update converge instead of clobbering each other's
+	// CAs — and retries transient apiserver errors so a brief hiccup
+	// during restart doesn't fail the bootstrap.
+	if err := selfsigned.UpdateVWCCABundle(ctx, vwcs, cfg.VWCName, func(cur []byte) []byte {
+		return selfsigned.CombineCABundles(cur, bundle.CABundle)
+	}); err != nil {
+		return nil, fmt.Errorf("webhook self-signed: %w", err)
+	}
+
+	// Start the in-process renewer. controller-runtime's webhook server
+	// polls the cert files via fsnotify (certwatcher), so writing fresh
+	// tls.crt/tls.key is enough to hot-reload TLS without restarting the
+	// pod. CurrentCA seeds the renewer with this pod's bootstrap CA so its
+	// trim step drops exactly this block on the next rotation, never a
+	// peer replica's.
+	renewer := &selfsigned.Renewer{
+		Input:     input,
+		CertDir:   cfg.CertDir,
+		VWCName:   cfg.VWCName,
+		VWCClient: vwcs,
+		CurrentCA: bundle.CABundle,
+		// Wire the operator-side counter so renewal failures surface as
+		// Prometheus signal, not just slog.Warn.
+		OnFailure: func(_ error) { operator.RecordWebhookCertRenewalFailure() },
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		// Recover a panic in the renewer so it can't kill the goroutine
+		// silently and stop all future rotation; the existing cert keeps
+		// working until expiry either way, but the failure is logged.
+		defer func() {
+			if p := recover(); p != nil {
+				operator.RecordWebhookCertRenewalFailure()
+				slog.ErrorContext(ctx, "Self-signed webhook cert renewer panicked",
+					slog.Any("panic", p))
+			}
+		}()
+		if err := renewer.Run(ctx); err != nil {
+			slog.WarnContext(ctx, "Self-signed webhook cert renewer exited",
+				slog.Any("error", err))
+		}
+	}()
+	return done, nil
+}
+
+// ociLibraryAliasesFromPaths walks every -library-path entry and
+// returns the basenames of the subdirectories it contains. Each
+// subdirectory name is the alias a snippet would `import "<name>/..."`
+// against — the same alias the operator's admission webhook + reconciler
+// reject if a LibraryRef tries to shadow it.
+//
+// Missing or unreadable dirs are silently skipped: at startup we don't
+// want to crash the binary just because one optional mount is empty.
+func ociLibraryAliasesFromPaths(paths []string) []string {
+	seen := map[string]struct{}{}
+	var out []string
+	for _, dir := range paths {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			if !e.IsDir() {
+				continue
+			}
+			name := e.Name()
+			if _, dup := seen[name]; dup {
+				continue
+			}
+			seen[name] = struct{}{}
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
+// ociLibrariesFromPaths walks every -library-path entry and loads
+// every `.libsonnet` / `.jsonnet` / `.json` file under each
+// subdirectory into an eval.Library, keyed by the subdirectory name.
+// First write wins on duplicate aliases (matching
+// ociLibraryAliasesFromPaths's order), so later -library-path entries
+// don't silently override earlier ones — operators see whichever was
+// declared first.
+//
+// Returns an empty map when no paths are readable; the reconciler
+// treats nil and empty as equivalent. Path-level errors are logged at
+// Warn so operators see a partially-broken mount on startup; the
+// scan continues so the binary doesn't fail to boot for one bad lib.
+func ociLibrariesFromPaths(paths []string) map[string]eval.Library {
+	out := map[string]eval.Library{}
+	for _, root := range paths {
+		entries, err := os.ReadDir(root)
+		if err != nil {
+			if !os.IsNotExist(err) {
+				slog.Warn("Skipping unreadable -library-path entry",
+					slog.String("path", root), slog.Any("error", err))
+			}
+			continue
+		}
+		for _, e := range entries {
+			if !e.IsDir() {
+				continue
+			}
+			alias := e.Name()
+			if _, dup := out[alias]; dup {
+				continue
+			}
+			libDir := filepath.Join(root, alias)
+			files, err := readOCILibraryFiles(libDir)
+			if err != nil {
+				slog.Warn("Skipping OCI library with unreadable files",
+					slog.String("alias", alias),
+					slog.String("dir", libDir),
+					slog.Any("error", err))
+				continue
+			}
+			if len(files) == 0 {
+				slog.Info("OCI library directory has no importable files",
+					slog.String("alias", alias),
+					slog.String("dir", libDir))
+				continue
+			}
+			out[alias] = eval.Library{Files: files}
+		}
+	}
+	return out
+}
+
+// readOCILibraryFiles recursively reads every importable file under
+// libDir into a map keyed by the path relative to libDir. Returns
+// (nil, err) when libDir cannot be walked at all. Individual file
+// read failures are silently skipped so a single bad file doesn't
+// disqualify the whole library; the resulting map will just miss
+// those files (a subsequent `import` resolution fails noisily).
+func readOCILibraryFiles(libDir string) (map[string]string, error) {
+	files := map[string]string{}
+	err := filepath.WalkDir(libDir, func(p string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		switch filepath.Ext(p) {
+		case ".libsonnet", ".jsonnet", ".json":
+		default:
+			return nil
+		}
+		// #nosec G304,G122 -- p is enumerated by WalkDir over the
+		// operator-configured -library-path, never request input.
+		body, err := os.ReadFile(p)
+		if err != nil {
+			return nil // skip unreadable individual files
+		}
+		rel, err := filepath.Rel(libDir, p)
+		if err != nil {
+			return nil
+		}
+		// Normalize path separators to "/" so the eval.Importer's
+		// lookups (which always use "/") work on Windows too.
+		files[filepath.ToSlash(rel)] = string(body)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return files, nil
 }
 
 func parseLogLevel(s string) slog.Level {

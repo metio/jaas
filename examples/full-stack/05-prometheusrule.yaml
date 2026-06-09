@@ -1,0 +1,89 @@
+# SPDX-FileCopyrightText: The jaas Authors
+# SPDX-License-Identifier: 0BSD
+#
+# Drop-in PrometheusRule for the JaaS operator's custom metrics. Pair
+# with the chart's ServiceMonitor:
+#   operator.metrics.serviceMonitor.enabled: true
+#
+# The alerts are conservative — they fire on sustained failure
+# patterns, not individual failed reconciles (which the
+# notification-controller story handles with finer granularity).
+
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: jaas-operator
+  namespace: jaas-system
+spec:
+  groups:
+    - name: jaas-operator-health
+      interval: 30s
+      rules:
+
+        - alert: JaaSSnippetReconcileErrorsHigh
+          expr: |
+            sum by (namespace, name, reason) (
+              rate(jaas_snippet_reconcile_total{status="False"}[5m])
+            ) > 0.1
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: 'JsonnetSnippet {{ $labels.namespace }}/{{ $labels.name }} failing'
+            description: |
+              Snippet has been flipping to Ready=False (reason: {{ $labels.reason }})
+              for >10 minutes. Check the runbook at
+              https://github.com/metio/jaas/blob/main/docs/runbooks/{{ $labels.reason | toLower }}.md
+
+        - alert: JaaSSnippetArtifactGrowing
+          expr: |
+            histogram_quantile(0.99,
+              sum by (namespace, name, le) (
+                rate(jaas_snippet_rendered_bytes_bucket[15m])
+              )
+            ) > 16777216
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: 'JsonnetSnippet {{ $labels.namespace }}/{{ $labels.name }} artifact >16 MiB'
+            description: |
+              The p99 rendered artifact for this snippet exceeded 16 MiB
+              over the last 15 minutes. Tune -max-artifact-bytes or
+              project the snippet's output.
+
+    - name: jaas-operator-availability
+      interval: 30s
+      rules:
+
+        # The standard controller-runtime workqueue metrics are
+        # exposed automatically — alert when the queue can't drain.
+        - alert: JaaSControllerWorkqueueDepthHigh
+          expr: |
+            workqueue_depth{controller="jsonnetsnippet"} > 50
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: 'JaaS controller workqueue >50 items for 15m'
+            description: |
+              The operator can't drain its reconcile queue. Likely
+              causes: apiserver slowness, a slow Publisher backend
+              (S3 throttling), or per-snippet rate-limiter exhaustion.
+
+        - alert: JaaSReconcileLatencyHigh
+          expr: |
+            histogram_quantile(0.99,
+              sum by (le, controller) (
+                rate(controller_runtime_reconcile_time_seconds_bucket{controller="jsonnetsnippet"}[10m])
+              )
+            ) > 30
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: 'JaaS reconcile p99 >30s for 15m'
+            description: |
+              Reconcile p99 latency for the JsonnetSnippet controller
+              has been above 30 seconds for the past 15 minutes.
+              Inspect operator logs and the OTLP traces if enabled.

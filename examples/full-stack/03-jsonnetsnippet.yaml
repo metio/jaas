@@ -1,0 +1,43 @@
+# SPDX-FileCopyrightText: The jaas Authors
+# SPDX-License-Identifier: 0BSD
+#
+# The JaaS workload: read the GitRepository, evaluate the entry file,
+# publish the resulting JSON as an ExternalArtifact downstream
+# consumers (grafana-operator below) can fetch.
+
+apiVersion: jaas.metio.wtf/v1
+kind: JsonnetSnippet
+metadata:
+  name: api-latency
+  namespace: monitoring
+spec:
+  serviceAccountName: dashboards-tenant
+  entryFile: dashboards/api-latency.jsonnet
+
+  # Pull the snippet bytes from Flux's GitRepository.
+  sourceRef:
+    kind: GitRepository
+    name: dashboards-source
+    # Only walk the dashboards/ subtree of the artifact.
+    path: dashboards/
+
+  # Operator-level ext-vars (set via --ext-var on the operator) flow
+  # through automatically. Snippet-level extras land in
+  # std.extVar("...") inside the jsonnet.
+  externalVariables:
+    severity: warn
+    datasource_uid: prom
+
+  # Retain five revisions on disk. Downstream consumers can pin to a
+  # specific sha256 for rollback (status.history exposes the list).
+  history: 5
+
+  # Re-render every five minutes even with no watch event — catches
+  # env-var drift, OCI library refreshes, or anything else outside the
+  # watched graph.
+  interval: 5m
+
+  # Output mode. "rendered" (the default) publishes the evaluated
+  # JSON; "source" would publish the .jsonnet files for downstream
+  # consumers that want to re-evaluate themselves.
+  output: rendered

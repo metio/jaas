@@ -1,0 +1,87 @@
+# SPDX-FileCopyrightText: The jaas Authors
+# SPDX-License-Identifier: 0BSD
+#
+# A JsonnetSnippet that imports from a JsonnetLibrary published in the
+# same namespace. The snippet uses `import "grafana/dashboard.libsonnet"`
+# — the prefix "grafana" matches the LibraryRef's `as` field.
+#
+# Library lookup happens through the tenant's impersonating client, so
+# the snippet's ServiceAccount needs `get` on the library kind.
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: grafana-tenant
+  namespace: default
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: grafana-tenant
+  namespace: default
+rules:
+  - apiGroups: [jaas.metio.wtf]
+    resources: [jsonnetlibraries]
+    verbs: [get]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: grafana-tenant
+  namespace: default
+subjects:
+  - kind: ServiceAccount
+    name: grafana-tenant
+    namespace: default
+roleRef:
+  kind: Role
+  name: grafana-tenant
+  apiGroup: rbac.authorization.k8s.io
+
+---
+apiVersion: jaas.metio.wtf/v1
+kind: JsonnetLibrary
+metadata:
+  name: grafana-helpers
+  namespace: default
+spec:
+  files:
+    dashboard.libsonnet: |
+      {
+        new(title): {
+          title: title,
+          panels: [],
+          schemaVersion: 38,
+        },
+      }
+    panel.libsonnet: |
+      {
+        graph(title): { type: 'graph', title: title },
+        stat(title):  { type: 'stat',  title: title },
+      }
+
+---
+apiVersion: jaas.metio.wtf/v1
+kind: JsonnetSnippet
+metadata:
+  name: my-dashboard
+  namespace: default
+spec:
+  serviceAccountName: grafana-tenant
+  entryFile: main.jsonnet
+  files:
+    main.jsonnet: |
+      local dashboard = import 'grafana/dashboard.libsonnet';
+      local panel = import 'grafana/panel.libsonnet';
+      dashboard.new('API Latency') + {
+        panels: [
+          panel.graph('p99 by route'),
+          panel.stat('error rate'),
+        ],
+      }
+  libraries:
+    - kind: JsonnetLibrary
+      name: grafana-helpers
+      as: grafana

@@ -1,15 +1,47 @@
 # SPDX-FileCopyrightText: The jaas Authors
 # SPDX-License-Identifier: 0BSD
 
-FROM docker.io/library/golang:latest
+# Pinned to 1.26.4 (over `latest`) so the stdlib has the
+# GO-2026-503x advisories patched. Bump as new advisories land.
+FROM docker.io/library/golang:1.26.4
+
+# Recent golang base images default GOTOOLCHAIN=local, which blocks
+# auto-download of the toolchain directive in go.mod. Switching to
+# `auto` lets `go.mod` keep a higher toolchain pin than this base
+# image without forcing a Containerfile change at every advisory.
+ENV GOTOOLCHAIN=auto
 
 RUN apt-get update && apt-get install -y git curl reuse
+
+# markdownlint-cli2 mirrors the DavidAnson/markdownlint-cli2-action used in
+# verify.yml, so `markdownlint-cli2 '**/*.md'` reproduces the CI markdown gate
+# locally against .markdownlint.yaml. Node comes from the upstream tarball
+# rather than Debian's `npm` package, which drags in ~600 MB of eslint/webpack/
+# X11 transitive deps the dev shell has no use for.
+ARG NODE_VERSION=22.11.0
+RUN ARCH="$(dpkg --print-architecture)" \
+    && case "$ARCH" in amd64) N=x64 ;; arm64) N=arm64 ;; armhf) N=armv7l ;; *) N="$ARCH" ;; esac \
+    && curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${N}.tar.gz" \
+       | tar -xz -C /usr/local --strip-components=1 \
+    && npm install -g markdownlint-cli2
+
 RUN go install honnef.co/go/tools/cmd/staticcheck@latest
-RUN curl -fsSL https://get.helm.sh/helm-v3.21.0-linux-amd64.tar.gz | tar -xz -C /tmp \
-    && mv /tmp/linux-amd64/helm /usr/local/bin/helm \
-    && rm -rf /tmp/linux-amd64
-ENV HELM_PLUGINS=/usr/local/share/helm/plugins
-RUN mkdir -p ${HELM_PLUGINS} \
-    && chmod -R a+rwX ${HELM_PLUGINS} \
-    && helm plugin install https://github.com/helm-unittest/helm-unittest --version v1.0.3 \
-    && chmod -R a+rX ${HELM_PLUGINS}
+# Standalone static-analysis tools (the CI verify gate runs these directly —
+# golangci-lint is deliberately not used). gofumpt: strict formatting check;
+# gosec: security scanner; arch-go: architecture rules (arch-go.yml);
+# actionlint: GitHub Actions workflow linter.
+RUN go install mvdan.cc/gofumpt@latest
+RUN go install github.com/securego/gosec/v2/cmd/gosec@latest
+RUN go install github.com/arch-go/arch-go@latest
+RUN go install github.com/rhysd/actionlint/cmd/actionlint@latest
+RUN go install sigs.k8s.io/controller-tools/cmd/controller-gen@latest
+RUN go install sigs.k8s.io/controller-runtime/tools/setup-envtest@latest
+
+# Pre-stage an envtest asset bundle so unit tests under internal/operator can
+# spin up a real kube-apiserver+etcd without network calls. The bundle path is
+# stable across image rebuilds via the `assets` symlink, exposed through
+# KUBEBUILDER_ASSETS for controller-runtime's envtest package.
+ARG ENVTEST_K8S_VERSION=1.31.0
+RUN setup-envtest use ${ENVTEST_K8S_VERSION} --bin-dir /usr/local/kubebuilder/bin \
+    && ln -s "$(setup-envtest use ${ENVTEST_K8S_VERSION} --bin-dir /usr/local/kubebuilder/bin -p path)" /usr/local/kubebuilder/assets
+ENV KUBEBUILDER_ASSETS=/usr/local/kubebuilder/assets

@@ -1,0 +1,30 @@
+# SPDX-FileCopyrightText: The jaas Authors
+# SPDX-License-Identifier: 0BSD
+#
+# Flux source-controller polls this Git repo every interval and
+# publishes the result as a tarball at status.artifact.url. JaaS
+# downloads the tarball, extracts the entry-file Jsonnet, and
+# evaluates it.
+#
+# REPLACE-ME ─────────────────────────────────────────────────────────
+# `url:` below is a placeholder. Point it at your own dashboards
+# repository. See README.md ("Shape your dashboards repo needs to
+# match") for the required layout.
+# ────────────────────────────────────────────────────────────────────
+
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: dashboards-source
+  namespace: monitoring
+spec:
+  interval: 1m
+  url: https://github.com/REPLACE-ME/grafana-dashboards
+  ref:
+    branch: main
+  # Optional: narrow the artifact to a single subdirectory so the
+  # extracted tarball is smaller and the JaaS MaxArchiveBytes (default
+  # 64 MiB) is harder to trip.
+  ignore: |
+    /*
+    !/dashboards

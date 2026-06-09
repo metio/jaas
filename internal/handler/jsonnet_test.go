@@ -14,16 +14,16 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/google/go-jsonnet"
+
+	"github.com/metio/jaas/internal/eval"
 )
 
 type ctxCaptureHandler struct {
@@ -345,41 +345,6 @@ func TestResolveSnippet_EmptyNameNotFound(t *testing.T) {
 	}
 }
 
-func TestApplyTLAVars(t *testing.T) {
-	tests := map[string]struct {
-		params  url.Values
-		wantSub []string
-	}{
-		"single value becomes string TLA": {
-			params:  url.Values{"s": {"hello"}, "n": {"single"}},
-			wantSub: []string{`"s": "hello"`, `"n": "single"`},
-		},
-		"bare key (empty string value) becomes empty string TLA": {
-			params:  url.Values{"s": {""}, "n": {""}},
-			wantSub: []string{`"s": ""`, `"n": ""`},
-		},
-		"multi value becomes JSON-array TLA": {
-			params:  url.Values{"s": {"only"}, "n": {"a", "b"}},
-			wantSub: []string{`"s": "only"`, `"n":`, `"a"`, `"b"`},
-		},
-	}
-	for name, tc := range tests {
-		t.Run(name, func(t *testing.T) {
-			vm := jsonnet.MakeVM()
-			applyTLAVars(vm, tc.params)
-			out, err := vm.EvaluateAnonymousSnippet("tla.jsonnet", `function(s, n) { s: s, n: n }`)
-			if err != nil {
-				t.Fatalf("evaluate: %v", err)
-			}
-			for _, sub := range tc.wantSub {
-				if !strings.Contains(out, sub) {
-					t.Errorf("output %q missing %q", out, sub)
-				}
-			}
-		})
-	}
-}
-
 func TestJsonnetHandler_SetsJSONContentTypeOnSuccess(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, "hello"), 0o755); err != nil {
@@ -504,71 +469,6 @@ func TestJsonnetHandler_NotFound(t *testing.T) {
 	}
 }
 
-func TestEvaluateWithDeadline_Success(t *testing.T) {
-	out, err := evaluateWithDeadline(context.Background(), func() (string, error) {
-		return "ok", nil
-	}, time.Second)
-	if err != nil {
-		t.Fatalf("err = %v, want nil", err)
-	}
-	if out != "ok" {
-		t.Errorf("out = %q, want %q", out, "ok")
-	}
-}
-
-func TestEvaluateWithDeadline_PropagatesEvalError(t *testing.T) {
-	sentinel := errors.New("eval failed")
-	_, err := evaluateWithDeadline(context.Background(), func() (string, error) {
-		return "", sentinel
-	}, time.Second)
-	if !errors.Is(err, sentinel) {
-		t.Errorf("err = %v, want %v", err, sentinel)
-	}
-}
-
-func TestEvaluateWithDeadline_TimesOut(t *testing.T) {
-	start := time.Now()
-	_, err := evaluateWithDeadline(context.Background(), func() (string, error) {
-		time.Sleep(2 * time.Second)
-		return "late", nil
-	}, 50*time.Millisecond)
-	elapsed := time.Since(start)
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Errorf("err = %v, want context.DeadlineExceeded", err)
-	}
-	if elapsed > 500*time.Millisecond {
-		t.Errorf("took %v, want well under the eval's 2s sleep", elapsed)
-	}
-}
-
-func TestEvaluateWithDeadline_RespectsContextCancel(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	go func() {
-		time.Sleep(20 * time.Millisecond)
-		cancel()
-	}()
-	_, err := evaluateWithDeadline(ctx, func() (string, error) {
-		time.Sleep(2 * time.Second)
-		return "late", nil
-	}, time.Hour)
-	if !errors.Is(err, context.Canceled) {
-		t.Errorf("err = %v, want context.Canceled", err)
-	}
-}
-
-func TestEvaluateWithDeadline_ZeroTimeoutMeansNoTimeout(t *testing.T) {
-	out, err := evaluateWithDeadline(context.Background(), func() (string, error) {
-		time.Sleep(20 * time.Millisecond)
-		return "ok", nil
-	}, 0)
-	if err != nil {
-		t.Fatalf("err = %v, want nil", err)
-	}
-	if out != "ok" {
-		t.Errorf("out = %q, want %q", out, "ok")
-	}
-}
-
 func TestJsonnetHandler_TimeoutReturns504(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, "slow"), 0o755); err != nil {
@@ -591,6 +491,41 @@ func TestJsonnetHandler_TimeoutReturns504(t *testing.T) {
 
 	if got, want := rr.Code, http.StatusGatewayTimeout; got != want {
 		t.Errorf("status = %d, want %d (body: %s)", got, want, rr.Body.String())
+	}
+}
+
+func TestJsonnetHandler_ReturnsServiceUnavailableWhenEvalCapFull(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "ok"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "ok", "main.jsonnet"), []byte(`{"ok": true}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	eval.SetMaxConcurrentEvals(1)
+	t.Cleanup(func() { eval.SetMaxConcurrentEvals(0) })
+	// Pin the single slot so the handler's eval call sees a full gate.
+	release, ok := eval.Reserve()
+	if !ok {
+		t.Fatal("could not reserve the baseline slot")
+	}
+	defer release()
+
+	h := JsonnetHandler(Config{
+		SnippetDirectories: []string{dir},
+	})
+	req := httptest.NewRequest(http.MethodGet, "/jsonnet/ok", nil)
+	req.SetPathValue("snippet", "ok")
+	rr := httptest.NewRecorder()
+	h(rr, req)
+
+	if got, want := rr.Code, http.StatusServiceUnavailable; got != want {
+		t.Fatalf("status = %d, want %d (body: %s)", got, want, rr.Body.String())
+	}
+	body := decodeError(t, rr)
+	if body.Error != ErrCodeEvaluationUnavailable {
+		t.Errorf("Error code = %q, want %q", body.Error, ErrCodeEvaluationUnavailable)
 	}
 }
 
@@ -2371,534 +2306,19 @@ func TestJsonnetHandler_LogsErrorWhenResponseWriteFails(t *testing.T) {
 
 // evalTLA wires applyTLAVars + an anonymous-snippet evaluation. Returns the
 // evaluated JSON string for inspection by the caller.
-func evalTLA(t *testing.T, snippet string, params url.Values) string {
-	t.Helper()
-	vm := jsonnet.MakeVM()
-	applyTLAVars(vm, params)
-	out, err := vm.EvaluateAnonymousSnippet("tla.jsonnet", snippet)
-	if err != nil {
-		t.Fatalf("evaluate(%q, %+v): %v", snippet, params, err)
-	}
-	return out
-}
-
-func TestApplyTLAVars_NilMap_DoesNotPanic(t *testing.T) {
-	vm := jsonnet.MakeVM()
-	defer func() {
-		if r := recover(); r != nil {
-			t.Errorf("panicked on nil queryParams: %v", r)
-		}
-	}()
-	applyTLAVars(vm, nil)
-}
-
-func TestApplyTLAVars_EmptyMap_DoesNotPanic(t *testing.T) {
-	vm := jsonnet.MakeVM()
-	defer func() {
-		if r := recover(); r != nil {
-			t.Errorf("panicked on empty queryParams: %v", r)
-		}
-	}()
-	applyTLAVars(vm, url.Values{})
-}
-
-func TestApplyTLAVars_NilMapLeavesNoTLAs(t *testing.T) {
-	out := evalTLA(t, `{ ok: true }`, nil)
-	if !strings.Contains(out, `"ok": true`) {
-		t.Errorf("output = %q, want it to contain 'ok: true'", out)
-	}
-}
-
-func TestApplyTLAVars_EmptyMapLeavesNoTLAs(t *testing.T) {
-	out := evalTLA(t, `{ ok: true }`, url.Values{})
-	if !strings.Contains(out, `"ok": true`) {
-		t.Errorf("output = %q, want it to contain 'ok: true'", out)
-	}
-}
-
 // --- single-value dispatch (→ TLAVar / string) ---
-
-func TestApplyTLAVars_SingleValue_RoundTrips(t *testing.T) {
-	tests := map[string]string{
-		"plain string":          "hello",
-		"empty string":          "",
-		"single space":          " ",
-		"unicode latin":         "café",
-		"unicode emoji":         "🚀",
-		"unicode mixed":         "café 🚀",
-		"newline":               "a\nb",
-		"carriage return":       "a\rb",
-		"tab":                   "a\tb",
-		"crlf":                  "a\r\nb",
-		"null byte tolerated":   "a\x00b",
-		"double quote":          `say "hi"`,
-		"single quote":          "it's",
-		"backslash":             `C:\Users\x`,
-		"backslash and quote":   `\"`,
-		"numeric-looking":       "123",
-		"negative-looking":      "-42",
-		"float-looking":         "3.14",
-		"boolean-looking true":  "true",
-		"boolean-looking false": "false",
-		"null-looking":          "null",
-		"json-object-looking":   `{"x":1}`,
-		"json-array-looking":    `[1,2]`,
-		"whitespace only":       "   ",
-		"leading whitespace":    "   x",
-		"trailing whitespace":   "x   ",
-		"surrounded whitespace": "  x  ",
-		"very long (10000)":     strings.Repeat("x", 10000),
-		"control character":     "a\x01b",
-		"high unicode":          string([]rune{0x1F600}), // 😀
-	}
-	for name, val := range tests {
-		t.Run(name, func(t *testing.T) {
-			out := evalTLA(t, `function(v) { v: v }`, url.Values{"v": {val}})
-			var payload struct {
-				V string `json:"v"`
-			}
-			if err := json.Unmarshal([]byte(out), &payload); err != nil {
-				t.Fatalf("parse %q: %v", out, err)
-			}
-			if payload.V != val {
-				t.Errorf("v = %q, want %q", payload.V, val)
-			}
-		})
-	}
-}
-
-func TestApplyTLAVars_SingleValueIsStringNotCode(t *testing.T) {
-	// Crucial dispatch property: with len==1 we use TLAVar (string), not
-	// TLACode (jsonnet-evaluated). So a value like "true" must arrive as the
-	// 5-character string "true", not the boolean true.
-	tests := map[string]string{
-		"keyword true":           "true",
-		"keyword false":          "false",
-		"keyword null":           "null",
-		"integer":                "42",
-		"object-literal-looking": `{"x":1}`,
-		"array-literal-looking":  `[1,2,3]`,
-	}
-	for name, val := range tests {
-		t.Run(name, func(t *testing.T) {
-			out := evalTLA(t, `function(v) { kind: std.type(v), raw: v }`, url.Values{"v": {val}})
-			var payload struct {
-				Kind string `json:"kind"`
-				Raw  string `json:"raw"`
-			}
-			if err := json.Unmarshal([]byte(out), &payload); err != nil {
-				t.Fatalf("parse %q: %v", out, err)
-			}
-			if payload.Kind != "string" {
-				t.Errorf("kind = %q, want \"string\"; this value was evaluated as code, not passed as a string TLA", payload.Kind)
-			}
-			if payload.Raw != val {
-				t.Errorf("raw = %q, want %q", payload.Raw, val)
-			}
-		})
-	}
-}
 
 // --- multi-value dispatch (→ TLACode / JSON array) ---
 
-func TestApplyTLAVars_MultiValue_RoundTrips(t *testing.T) {
-	tests := map[string][]string{
-		"two distinct":         {"a", "b"},
-		"two identical":        {"x", "x"},
-		"three distinct":       {"a", "b", "c"},
-		"five strings":         {"1", "2", "3", "4", "5"},
-		"ten strings":          {"a", "b", "c", "d", "e", "f", "g", "h", "i", "j"},
-		"mix of empty":         {"", "value", ""},
-		"all empty":            {"", "", ""},
-		"unicode entries":      {"café", "🚀", "naïve"},
-		"special chars":        {`a"b`, `c\d`, "e\nf"},
-		"numeric-looking":      {"1", "2", "3"},
-		"boolean-looking":      {"true", "false", "true"},
-		"long values":          {strings.Repeat("a", 1000), strings.Repeat("b", 1000)},
-		"single element slice": {"only"},
-	}
-	for name, vals := range tests {
-		t.Run(name, func(t *testing.T) {
-			out := evalTLA(t, `function(v) { v: v }`, url.Values{"v": vals})
-			if len(vals) == 1 {
-				// Single-element slice → still uses TLAVar (string), per the
-				// len==1 branch. We verify the round-trip is the string itself,
-				// not a single-element JSON array.
-				var payload struct {
-					V string `json:"v"`
-				}
-				if err := json.Unmarshal([]byte(out), &payload); err != nil {
-					t.Fatalf("parse %q: %v", out, err)
-				}
-				if payload.V != vals[0] {
-					t.Errorf("v = %q, want %q", payload.V, vals[0])
-				}
-				return
-			}
-			var payload struct {
-				V []string `json:"v"`
-			}
-			if err := json.Unmarshal([]byte(out), &payload); err != nil {
-				t.Fatalf("parse %q: %v", out, err)
-			}
-			if !slices.Equal(payload.V, vals) {
-				t.Errorf("v = %v, want %v", payload.V, vals)
-			}
-		})
-	}
-}
-
-func TestApplyTLAVars_MultiValueIsArrayNotConcatenated(t *testing.T) {
-	// Multi-value TLA must arrive as a *jsonnet array*, not a comma-joined
-	// string or anything else. We check std.type and array length explicitly.
-	out := evalTLA(t,
-		`function(v) { kind: std.type(v), len: std.length(v), zero: v[0], one: v[1] }`,
-		url.Values{"v": {"alpha", "beta"}})
-
-	var payload struct {
-		Kind string `json:"kind"`
-		Len  int    `json:"len"`
-		Zero string `json:"zero"`
-		One  string `json:"one"`
-	}
-	if err := json.Unmarshal([]byte(out), &payload); err != nil {
-		t.Fatalf("parse %q: %v", out, err)
-	}
-	if payload.Kind != "array" {
-		t.Errorf("kind = %q, want \"array\"", payload.Kind)
-	}
-	if payload.Len != 2 {
-		t.Errorf("len = %d, want 2", payload.Len)
-	}
-	if payload.Zero != "alpha" {
-		t.Errorf("v[0] = %q, want \"alpha\"", payload.Zero)
-	}
-	if payload.One != "beta" {
-		t.Errorf("v[1] = %q, want \"beta\"", payload.One)
-	}
-}
-
 // --- dispatch boundary at exactly 1 vs 2 values ---
-
-func TestApplyTLAVars_DispatchBoundary(t *testing.T) {
-	t.Run("one value → string", func(t *testing.T) {
-		out := evalTLA(t,
-			`function(v) { kind: std.type(v) }`,
-			url.Values{"v": {"only"}})
-		var payload struct {
-			Kind string `json:"kind"`
-		}
-		if err := json.Unmarshal([]byte(out), &payload); err != nil {
-			t.Fatalf("parse %q: %v", out, err)
-		}
-		if payload.Kind != "string" {
-			t.Errorf("kind = %q, want \"string\" at len==1", payload.Kind)
-		}
-	})
-	t.Run("two values → array", func(t *testing.T) {
-		out := evalTLA(t,
-			`function(v) { kind: std.type(v) }`,
-			url.Values{"v": {"a", "b"}})
-		var payload struct {
-			Kind string `json:"kind"`
-		}
-		if err := json.Unmarshal([]byte(out), &payload); err != nil {
-			t.Fatalf("parse %q: %v", out, err)
-		}
-		if payload.Kind != "array" {
-			t.Errorf("kind = %q, want \"array\" at len==2", payload.Kind)
-		}
-	})
-}
 
 // --- multi-key scenarios ---
 
-func TestApplyTLAVars_DistinctKeysAreIndependent(t *testing.T) {
-	out := evalTLA(t,
-		`function(a, b, c) { a: a, b: b, c: c }`,
-		url.Values{
-			"a": {"alpha"},
-			"b": {"bravo"},
-			"c": {"charlie"},
-		})
-	var payload struct {
-		A, B, C string
-	}
-	if err := json.Unmarshal([]byte(out), &payload); err != nil {
-		t.Fatalf("parse %q: %v", out, err)
-	}
-	if payload.A != "alpha" || payload.B != "bravo" || payload.C != "charlie" {
-		t.Errorf("payload = %+v, want a=alpha b=bravo c=charlie", payload)
-	}
-}
-
-func TestApplyTLAVars_MixedSingleAndMultiKeys(t *testing.T) {
-	out := evalTLA(t,
-		`function(s, m) { s: s, m: m }`,
-		url.Values{
-			"s": {"only"},
-			"m": {"x", "y", "z"},
-		})
-
-	var payload struct {
-		S string   `json:"s"`
-		M []string `json:"m"`
-	}
-	if err := json.Unmarshal([]byte(out), &payload); err != nil {
-		t.Fatalf("parse %q: %v", out, err)
-	}
-	if payload.S != "only" {
-		t.Errorf("s = %q, want \"only\"", payload.S)
-	}
-	if !slices.Equal(payload.M, []string{"x", "y", "z"}) {
-		t.Errorf("m = %v, want [x y z]", payload.M)
-	}
-}
-
-func TestApplyTLAVars_ManyKeysAllApplied(t *testing.T) {
-	const N = 50
-	params := make(url.Values, N)
-	for i := 0; i < N; i++ {
-		params[fmt.Sprintf("k%d", i)] = []string{fmt.Sprintf("v%d", i)}
-	}
-
-	var b strings.Builder
-	b.WriteString("function(")
-	for i := 0; i < N; i++ {
-		if i > 0 {
-			b.WriteString(", ")
-		}
-		fmt.Fprintf(&b, "k%d", i)
-	}
-	b.WriteString(") { ")
-	for i := 0; i < N; i++ {
-		if i > 0 {
-			b.WriteString(", ")
-		}
-		fmt.Fprintf(&b, "k%d: k%d", i, i)
-	}
-	b.WriteString(" }")
-
-	out := evalTLA(t, b.String(), params)
-	var payload map[string]string
-	if err := json.Unmarshal([]byte(out), &payload); err != nil {
-		t.Fatalf("parse %q: %v", out, err)
-	}
-	for i := 0; i < N; i++ {
-		want := fmt.Sprintf("v%d", i)
-		key := fmt.Sprintf("k%d", i)
-		if payload[key] != want {
-			t.Errorf("%s = %q, want %q", key, payload[key], want)
-		}
-	}
-}
-
-func TestApplyTLAVars_VeryLargeMultiValue(t *testing.T) {
-	const N = 200
-	vals := make([]string, N)
-	for i := 0; i < N; i++ {
-		vals[i] = fmt.Sprintf("entry-%d", i)
-	}
-	out := evalTLA(t, `function(v) { len: std.length(v), first: v[0], last: v[std.length(v)-1] }`,
-		url.Values{"v": vals})
-	var payload struct {
-		Len   int    `json:"len"`
-		First string `json:"first"`
-		Last  string `json:"last"`
-	}
-	if err := json.Unmarshal([]byte(out), &payload); err != nil {
-		t.Fatalf("parse %q: %v", out, err)
-	}
-	if payload.Len != N {
-		t.Errorf("len = %d, want %d", payload.Len, N)
-	}
-	if payload.First != "entry-0" {
-		t.Errorf("first = %q, want \"entry-0\"", payload.First)
-	}
-	if payload.Last != fmt.Sprintf("entry-%d", N-1) {
-		t.Errorf("last = %q, want \"entry-%d\"", payload.Last, N-1)
-	}
-}
-
 // --- behavioural properties ---
-
-func TestApplyTLAVars_DoesNotMutateInputMap(t *testing.T) {
-	params := url.Values{
-		"single": {"a"},
-		"multi":  {"x", "y", "z"},
-	}
-	cp := url.Values{
-		"single": append([]string{}, params["single"]...),
-		"multi":  append([]string{}, params["multi"]...),
-	}
-
-	vm := jsonnet.MakeVM()
-	applyTLAVars(vm, params)
-
-	if !slices.Equal(params["single"], cp["single"]) {
-		t.Errorf("params[single] mutated: %v vs %v", params["single"], cp["single"])
-	}
-	if !slices.Equal(params["multi"], cp["multi"]) {
-		t.Errorf("params[multi] mutated: %v vs %v", params["multi"], cp["multi"])
-	}
-	if len(params) != len(cp) {
-		t.Errorf("params length changed: %d vs %d", len(params), len(cp))
-	}
-}
-
-func TestApplyTLAVars_SecondCallOverwritesFirst(t *testing.T) {
-	vm := jsonnet.MakeVM()
-	applyTLAVars(vm, url.Values{"v": {"first"}})
-	applyTLAVars(vm, url.Values{"v": {"second"}})
-	out, err := vm.EvaluateAnonymousSnippet("t.jsonnet", `function(v) { v: v }`)
-	if err != nil {
-		t.Fatalf("evaluate: %v", err)
-	}
-	if !strings.Contains(out, `"v": "second"`) {
-		t.Errorf("output = %q, want \"v\": \"second\" after second call", out)
-	}
-}
-
-func TestApplyTLAVars_SecondCallSwitchesSingleToMulti(t *testing.T) {
-	vm := jsonnet.MakeVM()
-	applyTLAVars(vm, url.Values{"v": {"single"}})
-	applyTLAVars(vm, url.Values{"v": {"a", "b", "c"}})
-	out, err := vm.EvaluateAnonymousSnippet("t.jsonnet", `function(v) { kind: std.type(v), v: v }`)
-	if err != nil {
-		t.Fatalf("evaluate: %v", err)
-	}
-	if !strings.Contains(out, `"kind": "array"`) {
-		t.Errorf("output = %q, want kind:array after switch from single to multi", out)
-	}
-}
-
-func TestApplyTLAVars_SecondCallSwitchesMultiToSingle(t *testing.T) {
-	vm := jsonnet.MakeVM()
-	applyTLAVars(vm, url.Values{"v": {"a", "b", "c"}})
-	applyTLAVars(vm, url.Values{"v": {"single"}})
-	out, err := vm.EvaluateAnonymousSnippet("t.jsonnet", `function(v) { kind: std.type(v), v: v }`)
-	if err != nil {
-		t.Fatalf("evaluate: %v", err)
-	}
-	if !strings.Contains(out, `"kind": "string"`) {
-		t.Errorf("output = %q, want kind:string after switch from multi to single", out)
-	}
-}
-
-func TestApplyTLAVars_KeyShapes(t *testing.T) {
-	tests := []string{
-		"x",
-		"longishKey",
-		"snake_case_key",
-		"camelCaseKey",
-		"PascalCaseKey",
-		"with123digits",
-		strings.Repeat("k", 200),
-	}
-	for _, key := range tests {
-		t.Run(key, func(t *testing.T) {
-			snippet := fmt.Sprintf(`function(%s) { v: %s }`, key, key)
-			out := evalTLA(t, snippet, url.Values{key: {"value"}})
-			if !strings.Contains(out, `"v": "value"`) {
-				t.Errorf("key %q: output = %q, want \"v\": \"value\"", key, out)
-			}
-		})
-	}
-}
 
 // --- concurrency ---
 
-func TestApplyTLAVars_ParallelOnDistinctVMs(t *testing.T) {
-	// Each goroutine builds its own VM and runs applyTLAVars on it. Since the
-	// function is a pure local-mutation helper, this should be race-free even
-	// without internal locking.
-	var wg sync.WaitGroup
-	const workers = 100
-	for i := 0; i < workers; i++ {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			vm := jsonnet.MakeVM()
-			applyTLAVars(vm, url.Values{"v": {fmt.Sprintf("value-%d", i)}})
-			out, err := vm.EvaluateAnonymousSnippet("t.jsonnet", `function(v) { v: v }`)
-			if err != nil {
-				t.Errorf("worker %d: evaluate: %v", i, err)
-				return
-			}
-			want := fmt.Sprintf(`"v": "value-%d"`, i)
-			if !strings.Contains(out, want) {
-				t.Errorf("worker %d: output %q missing %q", i, out, want)
-			}
-		}(i)
-	}
-	wg.Wait()
-}
-
 // --- exotic edge cases that the URL parser can produce ---
-
-func TestApplyTLAVars_BareKeyFromParsedURL(t *testing.T) {
-	// `?v` arrives as url.Values{"v": [""]} — a single-element slice, hence
-	// the string-TLA branch.
-	parsed, err := url.ParseQuery("v")
-	if err != nil {
-		t.Fatalf("parse: %v", err)
-	}
-	out := evalTLA(t, `function(v) { kind: std.type(v), v: v }`, parsed)
-	var payload struct {
-		Kind string `json:"kind"`
-		V    string `json:"v"`
-	}
-	if err := json.Unmarshal([]byte(out), &payload); err != nil {
-		t.Fatalf("parse %q: %v", out, err)
-	}
-	if payload.Kind != "string" {
-		t.Errorf("kind = %q, want \"string\"", payload.Kind)
-	}
-	if payload.V != "" {
-		t.Errorf("v = %q, want empty string", payload.V)
-	}
-}
-
-func TestApplyTLAVars_RepeatedKeyFromParsedURL(t *testing.T) {
-	// `?v=a&v=b` arrives as url.Values{"v": ["a", "b"]} — multi-value branch.
-	parsed, err := url.ParseQuery("v=a&v=b")
-	if err != nil {
-		t.Fatalf("parse: %v", err)
-	}
-	out := evalTLA(t, `function(v) { kind: std.type(v), len: std.length(v) }`, parsed)
-	var payload struct {
-		Kind string `json:"kind"`
-		Len  int    `json:"len"`
-	}
-	if err := json.Unmarshal([]byte(out), &payload); err != nil {
-		t.Fatalf("parse %q: %v", out, err)
-	}
-	if payload.Kind != "array" || payload.Len != 2 {
-		t.Errorf("payload = %+v, want kind:array len:2", payload)
-	}
-}
-
-func TestApplyTLAVars_EmptySliceValue_TreatedAsCode(t *testing.T) {
-	// url.Values normally produces []string{""} for a present key, never
-	// []string{}. Defensive: if someone hand-constructs url.Values with an
-	// empty slice, the function falls into the multi-value branch and emits
-	// an empty JSON array TLA, not a string.
-	out := evalTLA(t, `function(v) { kind: std.type(v), len: std.length(v) }`,
-		url.Values{"v": {}})
-	var payload struct {
-		Kind string `json:"kind"`
-		Len  int    `json:"len"`
-	}
-	if err := json.Unmarshal([]byte(out), &payload); err != nil {
-		t.Fatalf("parse %q: %v", out, err)
-	}
-	if payload.Kind != "array" {
-		t.Errorf("kind = %q, want \"array\"", payload.Kind)
-	}
-	if payload.Len != 0 {
-		t.Errorf("len = %d, want 0", payload.Len)
-	}
-}
 
 // ---- JSON error bodies on non-2xx responses -------------------------------
 
@@ -3033,6 +2453,7 @@ func (f *failingWriter) Header() http.Header {
 	}
 	return f.header
 }
+
 func (f *failingWriter) Write([]byte) (int, error) { return 0, errors.New("simulated write failure") }
 func (f *failingWriter) WriteHeader(s int)         { f.status = s }
 
@@ -3538,16 +2959,18 @@ func TestErrorResponse_AllPaths_ConformToContract(t *testing.T) {
 // Renaming a constant value is a breaking change — fix the consumer first.
 func TestErrorResponse_StableCodeValues(t *testing.T) {
 	want := map[string]string{
-		"ErrCodeMethodNotAllowed":  "method_not_allowed",
-		"ErrCodeSnippetNotFound":   "snippet_not_found",
-		"ErrCodeEvaluationTimeout": "evaluation_timeout",
-		"ErrCodeEvaluationFailed":  "evaluation_failed",
+		"ErrCodeMethodNotAllowed":      "method_not_allowed",
+		"ErrCodeSnippetNotFound":       "snippet_not_found",
+		"ErrCodeEvaluationTimeout":     "evaluation_timeout",
+		"ErrCodeEvaluationUnavailable": "evaluation_unavailable",
+		"ErrCodeEvaluationFailed":      "evaluation_failed",
 	}
 	got := map[string]string{
-		"ErrCodeMethodNotAllowed":  ErrCodeMethodNotAllowed,
-		"ErrCodeSnippetNotFound":   ErrCodeSnippetNotFound,
-		"ErrCodeEvaluationTimeout": ErrCodeEvaluationTimeout,
-		"ErrCodeEvaluationFailed":  ErrCodeEvaluationFailed,
+		"ErrCodeMethodNotAllowed":      ErrCodeMethodNotAllowed,
+		"ErrCodeSnippetNotFound":       ErrCodeSnippetNotFound,
+		"ErrCodeEvaluationTimeout":     ErrCodeEvaluationTimeout,
+		"ErrCodeEvaluationUnavailable": ErrCodeEvaluationUnavailable,
+		"ErrCodeEvaluationFailed":      ErrCodeEvaluationFailed,
 	}
 	for k, v := range want {
 		if got[k] != v {

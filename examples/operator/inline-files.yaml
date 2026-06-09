@@ -1,0 +1,43 @@
+# SPDX-FileCopyrightText: The jaas Authors
+# SPDX-License-Identifier: 0BSD
+#
+# A JsonnetSnippet whose source is inline `spec.files`. The reconciler
+# evaluates `main.jsonnet` (the file named in `spec.entryFile`), writes
+# the rendered JSON into a tar.gz, and upserts an ExternalArtifact CR
+# pointing at the operator's storage HTTP server.
+#
+# Downstream Flux consumers reference the ExternalArtifact by name to
+# read the rendered output:
+#
+#   apiVersion: kustomize.toolkit.fluxcd.io/v1
+#   kind: Kustomization
+#   spec:
+#     sourceRef:
+#       kind: ExternalArtifact
+#       name: hello-world
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: hello-world-tenant
+  namespace: default
+
+---
+apiVersion: jaas.metio.wtf/v1
+kind: JsonnetSnippet
+metadata:
+  name: hello-world
+  namespace: default
+spec:
+  serviceAccountName: hello-world-tenant
+  entryFile: main.jsonnet
+  files:
+    main.jsonnet: |
+      {
+        greeting: 'hello',
+        recipient: std.extVar('audience'),
+        timestamp: std.extVar('now'),
+      }
+  externalVariables:
+    audience: world
+    now: "2026-06-09T12:00:00Z"

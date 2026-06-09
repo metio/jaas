@@ -1,0 +1,73 @@
+# SPDX-FileCopyrightText: The jaas Authors
+# SPDX-License-Identifier: 0BSD
+#
+# A JsonnetSnippet whose source is a Flux GitRepository. When the
+# GitRepository's artifact updates (new commit pushed), the operator's
+# watch on Flux source kinds re-queues the snippet and re-renders.
+#
+# Requires: Flux source-controller installed and watching the
+# referenced GitRepository. The tenant ServiceAccount needs:
+#   - get on gitrepositories.source.toolkit.fluxcd.io
+#   - the ability to fetch the GitRepository's status.artifact.url
+#     (which is in-cluster HTTP from source-controller; no extra RBAC
+#     beyond network reachability).
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: dashboards-tenant
+  namespace: default
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: dashboards-tenant
+  namespace: default
+rules:
+  - apiGroups: [source.toolkit.fluxcd.io]
+    resources: [gitrepositories]
+    verbs: [get]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: dashboards-tenant
+  namespace: default
+subjects:
+  - kind: ServiceAccount
+    name: dashboards-tenant
+    namespace: default
+roleRef:
+  kind: Role
+  name: dashboards-tenant
+  apiGroup: rbac.authorization.k8s.io
+
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: dashboards-source
+  namespace: default
+spec:
+  interval: 5m
+  url: https://github.com/example-org/grafana-dashboards
+  ref:
+    branch: main
+
+---
+apiVersion: jaas.metio.wtf/v1
+kind: JsonnetSnippet
+metadata:
+  name: api-latency-dashboard
+  namespace: default
+spec:
+  serviceAccountName: dashboards-tenant
+  entryFile: dashboards/api-latency.jsonnet
+  sourceRef:
+    kind: GitRepository
+    name: dashboards-source
+    # Optional sub-path filter: only files under this prefix in the
+    # source tree are fetched. Omit to pull the whole repository.
+    path: dashboards/

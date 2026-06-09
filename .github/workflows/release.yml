@@ -27,7 +27,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - id: commits
         name: Count Commits
-        run: echo "count=$(git rev-list --count ${{ steps.last_release.outputs.tag }}..HEAD -- go.mod main.go internal helm)" >> $GITHUB_OUTPUT
+        run: echo "count=$(git rev-list --count ${{ steps.last_release.outputs.tag }}..HEAD -- go.mod main.go internal api config Dockerfile)" >> $GITHUB_OUTPUT
       - id: release
         name: Create Release Version
         if: steps.commits.outputs.count > 0 || steps.last_release.outputs.tag == ''
@@ -95,7 +95,15 @@ jobs:
           path: ${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_${{ matrix.goos }}_${{ matrix.goarch }}.tar.gz
   github:
     name: GitHub Release
-    needs: [prepare, build]
+    # Gate the release on a green image build too: the release notes advertise
+    # ghcr.io/metio/jaas:<version>, so that tag must exist before the release is
+    # published. `build` supplies the attached binaries/checksums; `container`
+    # serializes the release after the image build+push+sign (job order in this
+    # file is irrelevant — `needs` drives execution), so a failed build skips
+    # the release instead of leaving a published release that points at a
+    # non-existent image. The cost is a longer wall-clock release; the benefit
+    # is no dangling releases.
+    needs: [prepare, build, container]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -156,8 +164,8 @@ jobs:
           prerelease: false
           body: |
             ## Usage
-            
-            Pull latest container from `docker.io/metio/jaas:${{ needs.prepare.outputs.release_version }}`. Check the [migration guide](https://github.com/metio/jaas/blob/main/MIGRATIONS.md) for any required actions on your part.
+
+            Pull latest container from `ghcr.io/metio/jaas:${{ needs.prepare.outputs.release_version }}`. Check the [migration guide](https://github.com/metio/jaas/blob/main/MIGRATIONS.md) for any required actions on your part.
           generate_release_notes: true
           files: |
             dist/${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_linux_amd64.tar.gz
@@ -189,13 +197,14 @@ jobs:
         if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
         name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
-      - id: dockerhub_login
+      - id: registry_login
         if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
-        name: Login to Dockerhub
+        name: Login to GHCR
         uses: docker/login-action@v4
         with:
-          username: ${{ vars.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - id: timestamp
         if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
         name: Create Timestamp
@@ -209,12 +218,15 @@ jobs:
           context: .
           file: ./Dockerfile
           push: true
+          # Same arch set every metio image ships. The Dockerfile cross-compiles
+          # via Go (builder pinned to $BUILDPLATFORM), so no QEMU is needed.
+          platforms: linux/amd64,linux/arm64,linux/arm/v7,linux/ppc64le,linux/riscv64,linux/s390x
           build-args: |
             VERSION=${{ needs.prepare.outputs.release_version }}
             COMMIT=${{ github.sha }}
           tags: |
-            docker.io/metio/jaas:latest
-            docker.io/metio/jaas:${{ needs.prepare.outputs.release_version }}
+            ghcr.io/metio/jaas:latest
+            ghcr.io/metio/jaas:${{ needs.prepare.outputs.release_version }}
           labels: |
             org.opencontainers.image.title=jaas
             org.opencontainers.image.licenses=0BSD
@@ -225,8 +237,8 @@ jobs:
             org.opencontainers.image.version=${{ needs.prepare.outputs.release_version }}
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.created=${{ steps.timestamp.outputs.date }}
-          cache-from: type=registry,ref=metio/jaas:buildcache
-          cache-to: type=registry,ref=metio/jaas:buildcache,mode=max
+          cache-from: type=registry,ref=ghcr.io/metio/jaas:buildcache
+          cache-to: type=registry,ref=ghcr.io/metio/jaas:buildcache,mode=max
           sbom: true
           provenance: true
       - id: sign_image
@@ -238,28 +250,4 @@ jobs:
             --annotations "repo=${{ github.repository }}" \
             --annotations "workflow=${{ github.workflow }}" \
             --annotations "ref=${{ github.sha }}" \
-            docker.io/metio/jaas@${{ steps.publish.outputs.digest }}
-      - id: documentation_image
-        name: Docker Hub Description for Container Image
-        if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
-        uses: peter-evans/dockerhub-description@v5
-        with:
-          username: ${{ vars.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
-          repository: metio/jaas
-          short-description: ${{ github.event.repository.description }}
-          readme-filepath: ./README.md
-      - id: ghcr_login
-        if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
-        name: Login to GHCR
-        uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - id: helm
-        if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
-        name: Publish Helm Chart
-        run: |
-          helm package ./helm --version ${{ needs.prepare.outputs.release_version }} --app-version ${{ needs.prepare.outputs.release_version }}
-          helm push jaas-${{ needs.prepare.outputs.release_version }}.tgz oci://ghcr.io/metio
+            ghcr.io/metio/jaas@${{ steps.publish.outputs.digest }}
