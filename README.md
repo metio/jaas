@@ -118,18 +118,14 @@ JaaS evaluates Jsonnet on the server and serves the result over HTTP. Before exp
 
 ### Operator Mode
 
-> **Support tier: GA** since release `2026.6.15`. CRDs are at `jaas.metio.wtf/v1`. The wire contracts in scope — `Reason*` constants, `ErrCode*` HTTP error codes, `ExternalArtifact` spec/status shape, chart values keys under `operator.*`, and the `JsonnetSnippet` / `JsonnetLibrary` field set — are committed. Breaking changes require a new CRD version + deprecation window, never an in-place rename. Known limits at GA are documented in [`MIGRATIONS.md`](MIGRATIONS.md).
-
 Set `--enable-flux-integration` (or `operator.enabled: true` in the Helm chart) to boot JaaS as a Kubernetes operator alongside its HTTP path. The operator watches two CRDs in the `jaas.metio.wtf/v1` group and publishes evaluated snippets as Flux `ExternalArtifact` resources:
 
-| Kind | Scope | Purpose |
-|---|---|---|
-| `JsonnetSnippet` | Namespaced | A snippet to evaluate and publish. |
+| Kind             | Scope      | Purpose                                                                   |
+|------------------|------------|---------------------------------------------------------------------------|
+| `JsonnetSnippet` | Namespaced | A snippet to evaluate and publish.                                        |
 | `JsonnetLibrary` | Namespaced | Reusable `.libsonnet` files referenced by snippets in the same namespace. |
 
-Cluster-wide shared libraries (typings, organization standards) are mounted via the chart's `additionalLibraries` map — they live in the operator's filesystem rather than as a CR, which keeps the cluster-scoped CRUD surface smaller and ties the library lifecycle to the operator's release cycle.
-
-Downstream Flux consumers (kustomize-controller, helm-controller) point a `sourceRef` at the published `ExternalArtifact` to consume the rendered JSON. Every snippet reconcile uses an **impersonating client** — the operator mints a Bearer token via the snippet's `spec.serviceAccountName` (TokenRequest API) and uses that to read libraries and Flux sources, so a tenant snippet can only reach what its own ServiceAccount can.
+Downstream Flux consumers (kustomize-controller, helm-controller, stageset-controller) point a `sourceRef` at the published `ExternalArtifact` to consume the rendered JSON. Every snippet reconcile uses an **impersonating client** — the operator mints a Bearer token via the snippet's `spec.serviceAccountName` (TokenRequest API) and uses that to read libraries and Flux sources, so a tenant snippet can only reach what its own ServiceAccount can.
 
 #### Tenant ServiceAccount RBAC
 
@@ -164,12 +160,12 @@ For namespace-scoped multitenancy, bind this Role to each tenant SA in its own n
 
 End-to-end examples live under [`examples/operator/`](examples/operator/):
 
-| Example | What it shows |
-|---|---|
-| [`inline-files.yaml`](examples/operator/inline-files.yaml) | Snippet whose source is `spec.files` (inline). Simplest case. |
-| [`source-gitrepository.yaml`](examples/operator/source-gitrepository.yaml) | Snippet whose source is a Flux `GitRepository`. Snippet rerenders when the source republishes. |
-| [`with-library.yaml`](examples/operator/with-library.yaml) | Snippet that `import`s a `JsonnetLibrary` from the same namespace. |
-| [`chained-snippets.yaml`](examples/operator/chained-snippets.yaml) | Snippet B's source is the `ExternalArtifact` snippet A publishes. Cycles are detected at reconcile time. |
+| Example                                                                    | What it shows                                                                                            |
+|----------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------|
+| [`inline-files.yaml`](examples/operator/inline-files.yaml)                 | Snippet whose source is `spec.files` (inline). Simplest case.                                            |
+| [`source-gitrepository.yaml`](examples/operator/source-gitrepository.yaml) | Snippet whose source is a Flux `GitRepository`. Snippet rerenders when the source republishes.           |
+| [`with-library.yaml`](examples/operator/with-library.yaml)                 | Snippet that `import`s a `JsonnetLibrary` from the same namespace.                                       |
+| [`chained-snippets.yaml`](examples/operator/chained-snippets.yaml)         | Snippet B's source is the `ExternalArtifact` snippet A publishes. Cycles are detected at reconcile time. |
 
 **Storage backend.** Two production backends:
 
