@@ -90,6 +90,10 @@ operator:
         release: kube-prom                # match your Prometheus's serviceMonitorSelector
     prometheusRule:
       enabled: true                       # opt-in; ships a starter alert set
+      labels:
+        release: kube-prom                # match your Prometheus's ruleSelector
+                                          # (the selector for PrometheusRule CRs —
+                                          # distinct from serviceMonitorSelector above)
       # extraAlertLabels merge onto every alert — route all jaas pages
       # to one Alertmanager receiver:
       extraAlertLabels:
@@ -100,6 +104,12 @@ operator:
         reconcileLatencySeconds: 30
         workqueueDepth: 50
 ```
+
+There are three independent label knobs here, easily confused:
+
+- `serviceMonitor.labels` — copied onto the **ServiceMonitor** object; Prometheus selects it via `serviceMonitorSelector`.
+- `prometheusRule.labels` — copied onto the **PrometheusRule** object; Prometheus selects it via `ruleSelector`. Set this or your Prometheus simply won't load the alerts — it's the rule-CR counterpart of `serviceMonitor.labels`, not something `extraAlertLabels` covers.
+- `prometheusRule.extraAlertLabels` — merged onto every individual **alert** (for Alertmanager routing), not onto the rule object, so they have no effect on rule selection.
 
 The shipped alerts: `JaaSSnippetReconcileErrorsHigh`, `JaaSSnippetArtifactGrowing`, `JaaSControllerWorkqueueDepthHigh`, `JaaSReconcileLatencyHigh`, `JaaSOperatorPodDown`, `JaaSStorageSweepFailures`. Each has a `runbook_url` annotation pointing at [`docs/runbooks/`](runbooks/).
 
@@ -265,6 +275,8 @@ operator:
         release: kube-prom         # TODO: match your Prometheus selector
     prometheusRule:
       enabled: true
+      labels:
+        release: kube-prom         # TODO: match your Prometheus ruleSelector
       extraAlertLabels:
         team: platform             # TODO: your Alertmanager routing label
 
