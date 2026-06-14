@@ -75,7 +75,7 @@ jobs:
             ghcr.io/metio/jaas:${{ github.sha }}
       - id: trivy_scan
         name: Scan Image with Trivy
-        uses: aquasecurity/trivy-action@v0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ghcr.io/metio/jaas:${{ github.sha }}
           format: table
