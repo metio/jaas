@@ -15,3 +15,6 @@ jaas
 # debugging aids, not source — keep them out of the tree.
 **/testdata/rapid/
 .claude/settings.local.json
+
+# Local-only audit/review scratch ledger; not part of the published repo.
+open-items.md
