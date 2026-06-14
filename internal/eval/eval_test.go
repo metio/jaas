@@ -86,7 +86,34 @@ func TestEvaluateAnonymousSnippet_TimeoutHonored(t *testing.T) {
 // observes the elevated value. White-box: drive evaluateWithDeadline
 // directly with a controllable eval function so the timing is fully
 // in the test's hands.
+// waitForLeakedEvals polls the package-global leakedEvals counter until pred is
+// satisfied or the timeout elapses, returning the last observed value and
+// whether pred held. It exists because leakedEvals is shared across every eval
+// in this package, so assertions on it must wait for an expected transition
+// rather than read it once.
+func waitForLeakedEvals(pred func(int64) bool, timeout time.Duration) (int64, bool) {
+	deadline := time.Now().Add(timeout)
+	for {
+		v := leakedEvals.Load()
+		if pred(v) {
+			return v, true
+		}
+		if !time.Now().Before(deadline) {
+			return v, false
+		}
+		time.Sleep(1 * time.Millisecond)
+	}
+}
+
 func TestEvaluateWithDeadline_AccountsLeakedEvalThenDrains(t *testing.T) {
+	// leakedEvals is a package-global counter, and a leak from an earlier test
+	// drains asynchronously on its own goroutine. Wait for it to settle to zero
+	// before sampling the baseline, otherwise a late sibling drain perturbs the
+	// exact-transition assertions below (the leak floor for this package is
+	// zero: every leaking test unblocks its eval and drains).
+	if v, ok := waitForLeakedEvals(func(v int64) bool { return v == 0 }, 2*time.Second); !ok {
+		t.Fatalf("leakedEvals did not settle to 0 before test start; got %d", v)
+	}
 	baseline := leakedEvals.Load()
 
 	started := make(chan struct{})
@@ -106,23 +133,15 @@ func TestEvaluateWithDeadline_AccountsLeakedEvalThenDrains(t *testing.T) {
 	// to hit its ctx.Done branch. By that point leakedEvals must be
 	// >= baseline+1; if not, the accounting is missing.
 	<-started
-	deadline := time.Now().Add(2 * time.Second)
-	for leakedEvals.Load() < baseline+1 && time.Now().Before(deadline) {
-		time.Sleep(1 * time.Millisecond)
-	}
-	if got := leakedEvals.Load(); got < baseline+1 {
-		t.Fatalf("leakedEvals = %d, want >= %d (parent timed out but leak was not counted)", got, baseline+1)
+	if v, ok := waitForLeakedEvals(func(v int64) bool { return v >= baseline+1 }, 2*time.Second); !ok {
+		t.Fatalf("leakedEvals = %d, want >= %d (parent timed out but leak was not counted)", v, baseline+1)
 	}
 
 	// Let the eval finally complete; the drain goroutine must
 	// decrement the counter back to baseline.
 	close(release)
-	deadline = time.Now().Add(2 * time.Second)
-	for leakedEvals.Load() > baseline && time.Now().Before(deadline) {
-		time.Sleep(1 * time.Millisecond)
-	}
-	if got := leakedEvals.Load(); got != baseline {
-		t.Errorf("after drain: leakedEvals = %d, want %d (drain goroutine never ran)", got, baseline)
+	if v, ok := waitForLeakedEvals(func(v int64) bool { return v <= baseline }, 2*time.Second); !ok {
+		t.Errorf("after drain: leakedEvals = %d, want <= %d (drain goroutine never ran)", v, baseline)
 	}
 	<-done
 }
