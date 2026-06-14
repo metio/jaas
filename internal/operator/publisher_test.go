@@ -139,7 +139,7 @@ func readyConditionOf(t *testing.T, ea *unstructured.Unstructured) map[string]in
 		if !ok {
 			continue
 		}
-		if tpe, _ := m["type"].(string); tpe == "Ready" {
+		if condType, _ := m["type"].(string); condType == "Ready" {
 			return m
 		}
 	}
