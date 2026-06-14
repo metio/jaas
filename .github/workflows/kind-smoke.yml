@@ -3,18 +3,12 @@
 
 name: Kind smoke test
 on:
+  # Runs on every PR (no paths filter) so the `all-green` aggregate always
+  # reports a status and can be a required check. The expensive kind jobs are
+  # gated internally on `discover.outputs.relevant` (did this PR touch operator
+  # code / smoke scripts?), so cost stays the same as the old paths filter.
   pull_request:
-    paths:
-      - api/**
-      - config/**
-      - internal/operator/**
-      - internal/storage/**
-      - internal/sources/**
-      - internal/webhook/**
-      - main.go
-      - Dockerfile
-      - hack/smoke/**
-      - .github/workflows/kind-smoke.yml
+    branches: [main]
   workflow_dispatch:
 
 # Angle 1 of the two-angle e2e strategy: the DEV jaas binary (HEAD build) tested
@@ -50,7 +44,27 @@ jobs:
       flux_versions: ${{ steps.versions.outputs.flux }}
       k8s_latest: ${{ steps.versions.outputs.k8s_latest }}
       flux_latest: ${{ steps.versions.outputs.flux_latest }}
+      relevant: ${{ steps.scope.outputs.relevant }}
     steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          fetch-depth: 0
+      - id: scope
+        name: Did this PR touch operator code or smoke scripts?
+        run: |
+          # Replaces the old `paths:` trigger: the heavy kind jobs run only when
+          # something they exercise changed. workflow_dispatch always counts.
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "relevant=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          base="${{ github.event.pull_request.base.sha }}"
+          if git diff --name-only "$base" HEAD | grep -qE \
+               '^(api|config)/|^internal/(operator|storage|sources|webhook)/|^main\.go$|^Dockerfile$|^hack/smoke/|^\.github/workflows/kind-smoke\.yml$'; then
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "relevant=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No operator/smoke changes in this PR — kind jobs skip (gate stays green)."
+          fi
       - id: find
         name: Find newest jaas chart release in metio/helm-charts
         env:
@@ -105,7 +119,7 @@ jobs:
   smoke:
     name: ${{ matrix.k8s_version }} / Flux ${{ matrix.flux_version }}
     needs: discover
-    if: needs.discover.outputs.chart_version != ''
+    if: needs.discover.outputs.chart_version != '' && needs.discover.outputs.relevant == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -187,7 +201,7 @@ jobs:
   selfsigned:
     name: self-signed webhook (cert-manager-free)
     needs: discover
-    if: needs.discover.outputs.chart_version != ''
+    if: needs.discover.outputs.chart_version != '' && needs.discover.outputs.relevant == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Clone Git Repository
@@ -245,7 +259,7 @@ jobs:
   new-fields:
     name: spec.suspend + spec.history + Events
     needs: discover
-    if: needs.discover.outputs.chart_version != ''
+    if: needs.discover.outputs.chart_version != '' && needs.discover.outputs.relevant == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Clone Git Repository
@@ -300,7 +314,7 @@ jobs:
   source-chain:
     name: sourceRef chain (Bucket → Snippet)
     needs: discover
-    if: needs.discover.outputs.chart_version != ''
+    if: needs.discover.outputs.chart_version != '' && needs.discover.outputs.relevant == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Clone Git Repository
@@ -359,7 +373,7 @@ jobs:
   scale-smoke:
     name: scale-smoke (N=50 snippets converge)
     needs: discover
-    if: needs.discover.outputs.chart_version != ''
+    if: needs.discover.outputs.chart_version != '' && needs.discover.outputs.relevant == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Clone Git Repository
@@ -418,3 +432,32 @@ jobs:
           kubectl -n jaas-system get all || true
           kubectl -n jaas-system logs deploy/jaas --tail=500 || true
           kubectl get jsonnetsnippet -n default -o wide || true
+
+  # Single stably-named aggregate — the only check to mark "required". It always
+  # runs (if: always()) so it reports on every PR, including ones where the kind
+  # jobs skip (not operator-relevant, or no released chart yet) — those pass.
+  all-green:
+    name: Kind smoke — all checks passed
+    needs:
+      - discover
+      - smoke
+      - selfsigned
+      - new-fields
+      - source-chain
+      - scale-smoke
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail unless every dependency succeeded or was skipped
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          echo "$NEEDS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          bad=$(echo "$NEEDS" | jq -r '
+            to_entries[]
+            | select(.value.result != "success" and .value.result != "skipped")
+            | "\(.key)=\(.value.result)"')
+          if [ -n "$bad" ]; then
+            echo "::error::Required jobs did not pass:"; echo "$bad"; exit 1
+          fi
+          echo "All required jobs passed (or were intentionally skipped)."
