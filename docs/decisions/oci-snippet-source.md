@@ -72,7 +72,7 @@ no; reference the artifact instead.
 
 A `JsonnetSnippet` is the **published unit**, and the value of publishing it as
 an `ExternalArtifact` is that downstream Flux consumers — `kustomize-controller`,
-`helm-controller`, `flux-stageset-controller` — get a versioned, digest-addressed
+`helm-controller`, `stageset-controller` — get a versioned, digest-addressed
 input whose revision is traceable to a source. Three properties of the mount-scan
 alternative break that:
 
@@ -135,7 +135,7 @@ provenance-free model into the one place it does not belong.
 No code change: this records that the existing `sourceRef → OCIRepository` path
 is the intended way to publish OCI-delivered snippets, and that a snippet-side
 mount-scan is deliberately not offered. The producer→artifact→consumer
-invariant the `flux-stageset-controller` integration depends on is preserved —
+invariant the `stageset-controller` integration depends on is preserved —
 snippets keep publishing namespaced `ExternalArtifact`s from traceable sources.
 
 The `snippets` OCI mount remains supported for its actual purpose: serving

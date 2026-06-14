@@ -29,7 +29,7 @@ ilo bash -c 'go test -bench=BenchmarkReconcile -benchmem -run=^$ ./internal/oper
 
 To add a tool, edit `dev/Containerfile`; the next `ilo bash` invocation rebuilds the image.
 
-**Static analysis is the standalone tools above — never golangci-lint** (it is banned project-wide). The Go gate is `go vet` + `staticcheck` (`staticcheck.conf`, `checks = ["all"]`) + `gofumpt` + `gosec` + `arch-go` (`arch-go.yml`). Separate CI jobs run `yamllint` (`.yamllint.yaml`), `actionlint`, `markdownlint` (`.markdownlint.yaml`), and `typos` (`.typos.toml`). gosec false positives are silenced with inline `// #nosec <rule> -- <invariant>` comments, not config-wide exclusions. These configs are kept identical to the `flux-stageset-controller` repo so both projects lint the same way.
+**Static analysis is the standalone tools above — never golangci-lint** (it is banned project-wide). The Go gate is `go vet` + `staticcheck` (`staticcheck.conf`, `checks = ["all"]`) + `gofumpt` + `gosec` + `arch-go` (`arch-go.yml`). Separate CI jobs run `yamllint` (`.yamllint.yaml`), `actionlint`, `markdownlint` (`.markdownlint.yaml`), and `typos` (`.typos.toml`). gosec false positives are silenced with inline `// #nosec <rule> -- <invariant>` comments, not config-wide exclusions. These configs are kept identical to the `stageset-controller` repo so both projects lint the same way.
 
 Container image (`gcr.io/distroless/static:nonroot` runtime base, built for `linux/amd64,arm64,arm/v7,ppc64le,riscv64,s390x` — the builder is pinned to `$BUILDPLATFORM` and cross-compiles via Go's `GOARCH`, so the multi-arch build needs no QEMU; `VERSION` / `COMMIT` are build args, defaulting to `development` / `unknown`):
 
