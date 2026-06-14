@@ -28,20 +28,28 @@ on:
 # is nothing to test against, so `discover` emits an empty version and every
 # smoke job skips (green). They activate automatically once a chart is released.
 #
-# Matrix: the `smoke` job sweeps k8s × Flux (ExternalArtifact landed in Flux
-# v2.3.x); the other jobs run once because their concern (webhook cert mode,
-# new CR fields, sourceRef chaining, fan-out throughput) is orthogonal to those
-# versions. fail-fast is off so one bad combo doesn't mask others.
+# Versions: the `discover` job finds the newest Kubernetes (kindest/node) and
+# Flux releases at runtime — nothing is hardcoded, so new releases are tested
+# automatically and a regression against one surfaces as a failure. The `smoke`
+# job sweeps the full k8s × Flux matrix; the other jobs run once on the newest of
+# each because their concern (webhook cert mode, new CR fields, sourceRef
+# chaining, fan-out throughput) is orthogonal to those versions. Flux is floored
+# at v2.7.0, where the ExternalArtifact CRD lands. fail-fast is off so one bad
+# combo doesn't mask others.
 
 permissions:
   contents: read
 
 jobs:
   discover:
-    name: Discover latest released chart
+    name: Discover chart + test versions
     runs-on: ubuntu-latest
     outputs:
       chart_version: ${{ steps.find.outputs.version }}
+      k8s_versions: ${{ steps.versions.outputs.k8s }}
+      flux_versions: ${{ steps.versions.outputs.flux }}
+      k8s_latest: ${{ steps.versions.outputs.k8s_latest }}
+      flux_latest: ${{ steps.versions.outputs.flux_latest }}
     steps:
       - id: find
         name: Find newest jaas chart release in metio/helm-charts
@@ -60,6 +68,39 @@ jobs:
             echo "latest released chart version: $v"
           fi
           echo "version=$v" >> "$GITHUB_OUTPUT"
+      - id: versions
+        name: Discover newest Kubernetes + Flux versions to test against
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -uo pipefail
+          # Newest 4 kindest/node minors, latest patch each. New k8s releases are
+          # tested automatically; if kind can't run a brand-new minor yet, that
+          # surfaces as a failure — the signal to bump kind, not silent staleness.
+          k8s=$(curl -fsSL "https://hub.docker.com/v2/repositories/kindest/node/tags?page_size=100" \
+            | jq -r '.results[].name' | grep -E '^v1\.[0-9]+\.[0-9]+$' \
+            | awk -F. '{print $1"."$2" "$0}' | sort -k1,1V -k2,2V \
+            | awk '{l[$1]=$2} END{for(m in l)print l[m]}' | sort -V | tail -4 \
+            | jq -R . | jq -cs . 2>/dev/null || echo '[]')
+          [ "$(jq 'length' <<<"$k8s" 2>/dev/null || echo 0)" -gt 0 ] || k8s='["v1.33.1"]'
+          # Newest 3 Flux minors at or above the ExternalArtifact floor (v2.7.0 /
+          # source-controller v1.7.0); below that the publish path has no CRD. The
+          # major>2 clause keeps a future v3.x in range without a manual edit.
+          flux=$(gh release list --repo fluxcd/flux2 --limit 60 --json tagName,isPrerelease \
+                   --jq '.[] | select(.isPrerelease==false) | .tagName' \
+            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+            | awk -F. '{m=$1;sub(/^v/,"",m); if(m>2||(m==2&&$2>=7))print}' \
+            | awk -F. '{print $1"."$2" "$0}' | sort -k1,1V -k2,2V \
+            | awk '{l[$1]=$2} END{for(m in l)print l[m]}' | sort -V | tail -3 \
+            | jq -R . | jq -cs . 2>/dev/null || echo '[]')
+          [ "$(jq 'length' <<<"$flux" 2>/dev/null || echo 0)" -gt 0 ] || flux='["v2.7.0"]'
+          {
+            echo "k8s=$k8s"
+            echo "flux=$flux"
+            echo "k8s_latest=$(jq -r '.[-1]' <<<"$k8s")"
+            echo "flux_latest=$(jq -r '.[-1]' <<<"$flux")"
+          } >> "$GITHUB_OUTPUT"
+          echo "k8s=$k8s  flux=$flux"
 
   smoke:
     name: ${{ matrix.k8s_version }} / Flux ${{ matrix.flux_version }}
@@ -68,16 +109,12 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
+      # Swept across the newest Kubernetes × Flux versions the discover job
+      # found — no hardcoded versions, so a new k8s or Flux release is tested
+      # automatically and a regression against it surfaces as a failure.
       matrix:
-        k8s_version:
-          - v1.31.4
-          - v1.32.2
-          - v1.33.1
-          - v1.34.0
-        flux_version:
-          - v2.4.0
-          - v2.5.1
-          - v2.6.0
+        k8s_version: ${{ fromJSON(needs.discover.outputs.k8s_versions) }}
+        flux_version: ${{ fromJSON(needs.discover.outputs.flux_versions) }}
     steps:
       - name: Clone Git Repository
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
@@ -159,12 +196,12 @@ jobs:
         uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1
         with:
           cluster_name: jaas-smoke-ss
-          node_image: kindest/node:v1.33.1
+          node_image: kindest/node:${{ needs.discover.outputs.k8s_latest }}
           wait: 180s
       - name: Load image into kind
         run: kind load docker-image jaas:smoke --name jaas-smoke-ss
       - name: Cluster prereqs (Flux)
-        run: hack/smoke/setup-flux.sh v2.5.1
+        run: hack/smoke/setup-flux.sh ${{ needs.discover.outputs.flux_latest }}
       - name: Install released chart (self-signed cert mode) with the dev image
         run: |
           kubectl create namespace jaas-system
@@ -210,12 +247,12 @@ jobs:
         uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1
         with:
           cluster_name: jaas-fields
-          node_image: kindest/node:v1.33.1
+          node_image: kindest/node:${{ needs.discover.outputs.k8s_latest }}
           wait: 180s
       - name: Load image into kind
         run: kind load docker-image jaas:smoke --name jaas-fields
       - name: Cluster prereqs (Flux)
-        run: hack/smoke/setup-flux.sh v2.5.1
+        run: hack/smoke/setup-flux.sh ${{ needs.discover.outputs.flux_latest }}
       - name: Install released chart (no webhook) with the dev image
         run: |
           kubectl create namespace jaas-system
@@ -258,13 +295,13 @@ jobs:
         uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1
         with:
           cluster_name: jaas-chain
-          node_image: kindest/node:v1.33.1
+          node_image: kindest/node:${{ needs.discover.outputs.k8s_latest }}
           wait: 180s
       - name: Load image into kind
         run: kind load docker-image jaas:smoke --name jaas-chain
       - name: Cluster prereqs (Flux + MinIO bucket)
         run: |
-          hack/smoke/setup-flux.sh v2.6.0
+          hack/smoke/setup-flux.sh ${{ needs.discover.outputs.flux_latest }}
           hack/smoke/setup-minio.sh
       - name: Install released chart (no webhook) with the dev image
         run: |
@@ -310,12 +347,12 @@ jobs:
         uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1
         with:
           cluster_name: jaas-scale
-          node_image: kindest/node:v1.33.1
+          node_image: kindest/node:${{ needs.discover.outputs.k8s_latest }}
           wait: 180s
       - name: Load image into kind
         run: kind load docker-image jaas:smoke --name jaas-scale
       - name: Cluster prereqs (Flux)
-        run: hack/smoke/setup-flux.sh v2.6.0
+        run: hack/smoke/setup-flux.sh ${{ needs.discover.outputs.flux_latest }}
       - name: Install released chart (no webhook) with the dev image
         run: |
           kubectl create namespace jaas-system

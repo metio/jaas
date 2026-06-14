@@ -574,6 +574,41 @@ func TestFetch_HappyPath_HTTPServedTarball(t *testing.T) {
 	}
 }
 
+// TestFetch_IPv6Loopback_HTTPServedTarball exercises the whole fetch path over
+// IPv6: a bracketed-IPv6 artifact URL must parse, pass the URL check, dial
+// through the Control hook (which sees an IPv6 address), and download. Skips
+// where IPv6 loopback is unavailable so it never flakes on IPv4-only runners.
+func TestFetch_IPv6Loopback_HTTPServedTarball(t *testing.T) {
+	ln, err := net.Listen("tcp", "[::1]:0")
+	if err != nil {
+		t.Skipf("IPv6 loopback unavailable: %v", err)
+	}
+	tarball := buildTarGz(t, map[string]string{"main.jsonnet": `{ from: "ipv6" }`})
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(tarball)
+	}))
+	_ = srv.Listener.Close()
+	srv.Listener = ln
+	srv.Start()
+	defer srv.Close()
+	// srv.URL is now http://[::1]:<port>.
+	src := newFluxSourceUnstructured(t, "GitRepository", "configs", "team-a", srv.URL, sha256Hex(tarball))
+	c := fake.NewClientBuilder().
+		WithScheme(schemeWithGVK(t, "GitRepository")).
+		WithObjects(src).
+		Build()
+
+	f := newTestFetcher()
+	got, err := f.Fetch(context.Background(), c,
+		&jaasv1.SourceRef{Kind: "GitRepository", Name: "configs", Namespace: "team-a"}, "team-a")
+	if err != nil {
+		t.Fatalf("IPv6 fetch failed: %v", err)
+	}
+	if got.Files["main.jsonnet"] != `{ from: "ipv6" }` {
+		t.Errorf("main.jsonnet = %q", got.Files["main.jsonnet"])
+	}
+}
+
 func TestFetch_NotFoundSurfacesAsError(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(schemeWithGVK(t, "GitRepository")).Build()
 	f := newTestFetcher()
@@ -869,15 +904,40 @@ func TestNew_InstallsCheckRedirect_ValidatesEveryHop(t *testing.T) {
 	}
 }
 
-// TestSafeDialContext_RejectsForbiddenResolvedIP pins the connection-time
-// half of the SSRF defence: even if a host passes the string-level URL
-// check, the dialer must refuse to connect when the address it resolves
-// to is on the denylist (loopback here; the same applies to a rebind to
-// link-local / cloud-metadata). New() installs the production IPValidator.
-func TestSafeDialContext_RejectsForbiddenResolvedIP(t *testing.T) {
+// TestControlConn_IPFamilies pins the connection-time half of the SSRF
+// defence across BOTH address families: even if a host passes the string-level
+// URL check, the dialer's Control hook must refuse the connect when the
+// address it resolved to is on the denylist (loopback, link-local,
+// unspecified) — and must allow routable addresses — for IPv4 and IPv6 alike.
+// The hook receives the concrete IP:port the kernel is about to dial and
+// ignores the RawConn, so a nil is fine here. New() installs the production
+// IPValidator.
+func TestControlConn_IPFamilies(t *testing.T) {
 	f := New()
-	if _, err := f.safeDialContext(context.Background(), "tcp", "127.0.0.1:80"); !errors.Is(err, urlguard.ErrForbiddenHost) {
-		t.Errorf("safeDialContext to loopback: got %v, want ErrForbiddenHost", err)
+	cases := []struct {
+		name      string
+		addr      string
+		forbidden bool
+	}{
+		{"ipv4 loopback", "127.0.0.1:80", true},
+		{"ipv6 loopback", "[::1]:80", true},
+		{"ipv4 link-local metadata", "169.254.169.254:80", true},
+		{"ipv6 link-local", "[fe80::1]:80", true},
+		{"ipv4 unspecified", "0.0.0.0:80", true},
+		{"ipv6 unspecified", "[::]:80", true},
+		{"ipv4 routable", "8.8.8.8:443", false},
+		{"ipv6 routable", "[2001:db8::1]:443", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := f.controlConn("tcp", tc.addr, nil)
+			switch {
+			case tc.forbidden && !errors.Is(err, urlguard.ErrForbiddenHost):
+				t.Errorf("controlConn(%q) = %v, want ErrForbiddenHost", tc.addr, err)
+			case !tc.forbidden && err != nil:
+				t.Errorf("controlConn(%q) = %v, want nil (routable)", tc.addr, err)
+			}
+		})
 	}
 }
 

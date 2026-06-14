@@ -10,6 +10,9 @@ set -euo pipefail
 DIR="$(cd "$(dirname "$0")" && pwd)"; . "$DIR/lib.sh"
 NS="${NS:-default}"; N="${N:-50}"
 
+log "grant the tenant SA the RBAC the operator needs to publish (impersonated)"
+grant_tenant_publish_rbac "$NS"
+
 log "apply $N inline-files snippets"
 for i in $(seq 1 "$N"); do
   cat <<EOF
@@ -42,7 +45,10 @@ while [ "$(date +%s)" -lt "$deadline" ]; do
   fi
   sleep 5
 done
-log "convergence timeout — laggards:"
-kubectl -n "$NS" get jsonnetsnippet \
-  -o jsonpath='{range .items[?(@.status.conditions[?(@.type=="Ready")].status!="True")]}{.metadata.name}{"\t"}{.status.conditions[?(@.type=="Ready")].reason}{"\n"}{end}'
+log "convergence timeout — per-snippet Ready status (non-True rows are the laggards):"
+# kubectl's jsonpath can't nest filters, so list every snippet through a single
+# Ready-condition filter; the non-True rows stand out and their reason+message
+# name why they're stuck (RBAC denial, missing ExternalArtifact CRD, eval, …).
+kubectl -n "$NS" get jsonnetsnippet -o custom-columns=\
+'NAME:.metadata.name,READY:.status.conditions[?(@.type=="Ready")].status,REASON:.status.conditions[?(@.type=="Ready")].reason,MESSAGE:.status.conditions[?(@.type=="Ready")].message' || true
 die "not all snippets converged within the window"

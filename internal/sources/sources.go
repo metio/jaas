@@ -37,6 +37,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -199,14 +200,21 @@ func New() *Fetcher {
 	// in-cluster service) and Go's default redirect-follower would
 	// dial it. Bound at 10 hops to match Go's default.
 	//
-	// safeDialContext adds the connection-time half: it re-resolves the
-	// host and rejects/pins the dialed IP through IPValidator, so a host
-	// that passes the string check but resolves to a forbidden address —
-	// or rebinds to one between validation and dial — never connects.
-	// The two together close the DNS-rebinding gap the string-only check
-	// leaves open.
+	// The dialer's Control hook adds the connection-time half: the standard
+	// library resolves the host and, immediately before the kernel connects,
+	// Control validates the concrete IP it chose through IPValidator. A host
+	// that passes the string check but resolves (or rebinds) to a forbidden
+	// address is refused before the socket opens — there is no second
+	// resolution between the check and the connect. Leaving resolution to the
+	// standard dialer means real cluster FQDNs (including Flux's trailing-dot
+	// advertised addresses) and IPv6 resolve exactly as they do for any other
+	// client; TLS still verifies against the original hostname.
 	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.DialContext = f.safeDialContext
+	transport.DialContext = (&net.Dialer{
+		Timeout:   30 * time.Second,
+		KeepAlive: 30 * time.Second,
+		Control:   f.controlConn,
+	}).DialContext
 	f.HTTPClient = &http.Client{
 		Timeout:       30 * time.Second,
 		CheckRedirect: f.checkRedirect,
@@ -238,40 +246,22 @@ func defaultIPValidator(ip net.IP) error {
 	return nil
 }
 
-// safeDialContext resolves addr's host once, rejects the connection if
-// any resolved IP is on the denylist, and dials a validated IP directly
-// — pinning it so the dialer can't re-resolve to a different (forbidden)
-// address between the check and the connect (DNS rebinding). TLS still
-// verifies against the original hostname: the transport derives ServerName
-// from addr, not from the IP we hand back.
-func (f *Fetcher) safeDialContext(ctx context.Context, network, addr string) (net.Conn, error) {
-	host, port, err := net.SplitHostPort(addr)
+// controlConn runs as the dialer's Control hook: address is the concrete
+// IP:port the kernel is about to connect to (post-resolution, per attempt),
+// so rejecting a forbidden IP here closes the DNS-rebinding window — there is
+// no second resolution between this check and the connect. TLS still verifies
+// against the original hostname; the transport derives ServerName from the URL,
+// not from the dialed address.
+func (f *Fetcher) controlConn(_, address string, _ syscall.RawConn) error {
+	host, _, err := net.SplitHostPort(address)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
-	if err != nil {
-		return nil, err
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return fmt.Errorf("sources: dial address %q has no parseable IP", address)
 	}
-	if len(ips) == 0 {
-		return nil, fmt.Errorf("sources: no addresses for %q", host)
-	}
-	check := f.ipValidator()
-	for _, ipa := range ips {
-		if err := check(ipa.IP); err != nil {
-			return nil, err
-		}
-	}
-	var d net.Dialer
-	var firstErr error
-	for _, ipa := range ips {
-		conn, err := d.DialContext(ctx, network, net.JoinHostPort(ipa.IP.String(), port))
-		if err == nil {
-			return conn, nil
-		}
-		firstErr = err
-	}
-	return nil, firstErr
+	return f.ipValidator()(ip)
 }
 
 // Fetch resolves ref against the supplied client (which should impersonate

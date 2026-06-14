@@ -11,6 +11,9 @@ set -euo pipefail
 DIR="$(cd "$(dirname "$0")" && pwd)"; . "$DIR/lib.sh"
 NS="${NS:-default}"; NAME="${NAME:-smoke-ss}"; VWC="${VWC:-jaas-jsonnetsnippet}"
 
+log "grant the tenant SA the RBAC the operator needs to publish (impersonated)"
+grant_tenant_publish_rbac "$NS"
+
 log "wait for the operator to patch the VWC's caBundle"
 CA=""
 for i in $(seq 1 30); do
@@ -26,7 +29,9 @@ done
 [ -n "$CA" ] || die "operator never patched the VWC caBundle"
 
 log "apply a snippet — proves admission works against the self-signed cert"
-cat <<EOF | kubectl apply -f -
+# The caBundle is patched before the webhook server is listening, so retry the
+# apply across that startup window instead of failing on a transient refusal.
+apply_retry <<EOF
 apiVersion: jaas.metio.wtf/v1
 kind: JsonnetSnippet
 metadata: { name: ${NAME}, namespace: ${NS} }

@@ -10,6 +10,9 @@ set -euo pipefail
 DIR="$(cd "$(dirname "$0")" && pwd)"; . "$DIR/lib.sh"
 NS="${NS:-default}"; NAME="${NAME:-fields-demo}"
 
+log "grant the tenant SA the RBAC the operator needs to publish (impersonated)"
+grant_tenant_publish_rbac "$NS"
+
 log "apply snippet $NAME (entryFile + history + interval)"
 cat <<EOF | kubectl apply -f -
 apiVersion: jaas.metio.wtf/v1

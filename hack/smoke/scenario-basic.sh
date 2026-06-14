@@ -9,8 +9,14 @@ set -euo pipefail
 DIR="$(cd "$(dirname "$0")" && pwd)"; . "$DIR/lib.sh"
 NS="${NS:-default}"; NAME="${NAME:-smoke}"
 
+log "grant the tenant SA the RBAC the operator needs to publish (impersonated)"
+grant_tenant_publish_rbac "$NS"
+
 log "apply snippet $NAME"
-cat <<EOF | kubectl apply -f -
+# Some deployments enable the admission webhook (cert-manager mode); retry the
+# apply across the webhook server's startup window rather than failing on a
+# transient refusal. Without a webhook the first attempt simply succeeds.
+apply_retry <<EOF
 apiVersion: jaas.metio.wtf/v1
 kind: JsonnetSnippet
 metadata: { name: ${NAME}, namespace: ${NS} }

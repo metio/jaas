@@ -41,6 +41,9 @@ roleRef:
   name: jaas-tenant-sources
 EOF
 
+log "grant the tenant SA the RBAC the operator needs to publish (impersonated)"
+grant_tenant_publish_rbac "$NS"
+
 log "apply Bucket + snippet referencing it"
 cat <<EOF | kubectl apply -f -
 apiVersion: source.toolkit.fluxcd.io/v1

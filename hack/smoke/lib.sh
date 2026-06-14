@@ -17,6 +17,32 @@ set -euo pipefail
 log() { printf '\n=== %s ===\n' "$*" >&2; }
 die() { printf 'SMOKE FAIL: %s\n' "$*" >&2; exit 1; }
 
+# grant_tenant_publish_rbac <ns> [sa] — grant the tenant ServiceAccount (default
+# "default") the RBAC the operator needs while impersonating it to publish: get
+# / create / update the snippet's ExternalArtifact and write its status, plus
+# delete for the finalizer's Withdraw. The operator acts AS the tenant SA (no
+# `impersonate` verb on its own SA), so without this every reconcile fails
+# RBACDenied at the publish step and the snippet never goes Ready.
+grant_tenant_publish_rbac() {
+  local ns=$1 sa=${2:-default}
+  kubectl apply -f - <<EOF
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: { namespace: ${ns}, name: jaas-tenant-publish }
+rules:
+  - apiGroups: ["source.toolkit.fluxcd.io"]
+    resources: ["externalartifacts", "externalartifacts/status"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: { namespace: ${ns}, name: jaas-tenant-publish }
+subjects:
+  - { kind: ServiceAccount, name: ${sa}, namespace: ${ns} }
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: Role, name: jaas-tenant-publish }
+EOF
+}
+
 # ready_status <kind> <name> <ns> — echoes the Ready condition's status (or "").
 ready_status() {
   kubectl -n "$3" get "$1" "$2" \
@@ -50,6 +76,30 @@ wait_reason() {
   done
   kubectl -n "$ns" describe "$kind" "$name" >&2 || true
   die "$kind/$name Ready reason never became $want"
+}
+
+# apply_retry [polls] [sleep] — kubectl apply from stdin, retrying while the
+# admission webhook is still coming up. The operator patches its VWC caBundle at
+# startup (so the caBundle appears early), but its webhook server only starts
+# listening once the manager is running and has won leader election — an apply in
+# that window fails with "failed calling webhook … connection refused". Those are
+# retried; any other error fails immediately so real rejections aren't masked.
+apply_retry() {
+  local polls=${1:-30} s=${2:-2} i out manifest
+  manifest="$(cat)"
+  for i in $(seq 1 "$polls"); do
+    if out="$(printf '%s' "$manifest" | kubectl apply -f - 2>&1)"; then
+      printf '%s\n' "$out" >&2
+      return 0
+    fi
+    if printf '%s' "$out" | grep -qiE 'failed calling webhook|connection refused|no endpoints available|EOF|i/o timeout'; then
+      sleep "$s"; continue
+    fi
+    printf '%s\n' "$out" >&2
+    return 1
+  done
+  printf '%s\n' "$out" >&2
+  die "kubectl apply never succeeded (webhook admission did not come up in time)"
 }
 
 # ea_url <name> <ns> — echoes the snippet's ExternalArtifact URL (or "").
