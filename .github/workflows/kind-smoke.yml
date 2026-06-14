@@ -140,6 +140,10 @@ jobs:
           hack/smoke/setup-selfsigned-issuer.sh
       - name: Install released chart with the dev image
         run: |
+          # The chart's default JOI library image-volumes (volumes[].image) need
+          # the ImageVolume feature gate, which kind does not enable by default —
+          # without it the pod wedges in ContainerCreating. These scenarios use
+          # inline files / a Bucket source, not the libraries, so disable them.
           helm upgrade --install jaas oci://ghcr.io/metio/helm-charts/jaas \
             --version "${{ needs.discover.outputs.chart_version }}" \
             --namespace jaas-system \
@@ -148,6 +152,9 @@ jobs:
             --set-string image.tag=smoke \
             --set operator.enabled=true \
             --set operator.defaultServiceAccount=default \
+            --set libraries.grafonnet.enabled=false \
+            --set libraries.docsonnet.enabled=false \
+            --set libraries.xtd.enabled=false \
             --set operator.webhook.enabled=true \
             --set operator.webhook.certManager.issuerRef.kind=Issuer \
             --set operator.webhook.certManager.issuerRef.name=jaas-selfsigned \
@@ -205,6 +212,10 @@ jobs:
       - name: Install released chart (self-signed cert mode) with the dev image
         run: |
           kubectl create namespace jaas-system
+          # The chart's default JOI library image-volumes (volumes[].image) need
+          # the ImageVolume feature gate, which kind does not enable by default —
+          # without it the pod wedges in ContainerCreating. These scenarios use
+          # inline files / a Bucket source, not the libraries, so disable them.
           helm upgrade --install jaas oci://ghcr.io/metio/helm-charts/jaas \
             --version "${{ needs.discover.outputs.chart_version }}" \
             --namespace jaas-system \
@@ -213,6 +224,9 @@ jobs:
             --set-string image.tag=smoke \
             --set operator.enabled=true \
             --set operator.defaultServiceAccount=default \
+            --set libraries.grafonnet.enabled=false \
+            --set libraries.docsonnet.enabled=false \
+            --set libraries.xtd.enabled=false \
             --set operator.webhook.enabled=true \
             --set operator.webhook.certMode=self-signed \
             --set operator.webhook.selfSignedValidity=24h \
@@ -256,6 +270,10 @@ jobs:
       - name: Install released chart (no webhook) with the dev image
         run: |
           kubectl create namespace jaas-system
+          # The chart's default JOI library image-volumes (volumes[].image) need
+          # the ImageVolume feature gate, which kind does not enable by default —
+          # without it the pod wedges in ContainerCreating. These scenarios use
+          # inline files / a Bucket source, not the libraries, so disable them.
           helm upgrade --install jaas oci://ghcr.io/metio/helm-charts/jaas \
             --version "${{ needs.discover.outputs.chart_version }}" \
             --namespace jaas-system \
@@ -264,6 +282,9 @@ jobs:
             --set-string image.tag=smoke \
             --set operator.enabled=true \
             --set operator.defaultServiceAccount=default \
+            --set libraries.grafonnet.enabled=false \
+            --set libraries.docsonnet.enabled=false \
+            --set libraries.xtd.enabled=false \
             --wait --timeout 5m
           kubectl apply --server-side --force-conflicts -f config/crd/bases/
       - name: Operator scenario — new CR fields
@@ -306,6 +327,10 @@ jobs:
       - name: Install released chart (no webhook) with the dev image
         run: |
           kubectl create namespace jaas-system
+          # The chart's default JOI library image-volumes (volumes[].image) need
+          # the ImageVolume feature gate, which kind does not enable by default —
+          # without it the pod wedges in ContainerCreating. These scenarios use
+          # inline files / a Bucket source, not the libraries, so disable them.
           helm upgrade --install jaas oci://ghcr.io/metio/helm-charts/jaas \
             --version "${{ needs.discover.outputs.chart_version }}" \
             --namespace jaas-system \
@@ -314,6 +339,9 @@ jobs:
             --set-string image.tag=smoke \
             --set operator.enabled=true \
             --set operator.defaultServiceAccount=default \
+            --set libraries.grafonnet.enabled=false \
+            --set libraries.docsonnet.enabled=false \
+            --set libraries.xtd.enabled=false \
             --wait --timeout 5m
           kubectl apply --server-side --force-conflicts -f config/crd/bases/
       - name: Operator scenario — sourceRef chain
@@ -356,6 +384,10 @@ jobs:
       - name: Install released chart (no webhook) with the dev image
         run: |
           kubectl create namespace jaas-system
+          # The chart's default JOI library image-volumes (volumes[].image) need
+          # the ImageVolume feature gate, which kind does not enable by default —
+          # without it the pod wedges in ContainerCreating. These scenarios use
+          # inline files / a Bucket source, not the libraries, so disable them.
           helm upgrade --install jaas oci://ghcr.io/metio/helm-charts/jaas \
             --version "${{ needs.discover.outputs.chart_version }}" \
             --namespace jaas-system \
@@ -364,6 +396,9 @@ jobs:
             --set-string image.tag=smoke \
             --set operator.enabled=true \
             --set operator.defaultServiceAccount=default \
+            --set libraries.grafonnet.enabled=false \
+            --set libraries.docsonnet.enabled=false \
+            --set libraries.xtd.enabled=false \
             --wait --timeout 5m
           kubectl apply --server-side --force-conflicts -f config/crd/bases/
       - name: Operator scenario — scale (N=50 converge)
