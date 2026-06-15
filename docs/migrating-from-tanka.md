@@ -47,7 +47,7 @@ Tanka object — so the consuming Flux `Kustomization` applies every resource.
 | `tk show` / `tk export` (render) | the JaaS operator, continuously → `ExternalArtifact` |
 | `tk apply` (push) | Flux kustomize-/helm-controller (pull) |
 | `tk diff` | Flux drift detection; stageset verification between stages |
-| _(no equivalent)_ | ordered, gated, multi-stage rollout via stageset-controller |
+| *(no equivalent)* | ordered, gated, multi-stage rollout via stageset-controller |
 | `tk env list` | `kubectl get jsonnetsnippets -A` |
 
 ## Step by step
