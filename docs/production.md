@@ -206,6 +206,8 @@ Each `JsonnetSnippet` runs against its `spec.serviceAccountName` (or `--default-
 
 The minimum `Role` + `RoleBinding` shape is in [`README.md`'s "Tenant ServiceAccount RBAC"](../README.md#tenant-serviceaccount-rbac). Apply per-tenant-namespace.
 
+**`spec.sourceRef` also needs network reach, not just RBAC.** Fetching a Flux source means an HTTP GET against source-controller's artifact server (port `9090`) in `flux-system`. Flux's default `allow-egress` NetworkPolicy admits ingress to its controllers only from inside `flux-system`, so on a cluster whose CNI enforces NetworkPolicies the operator is blocked and the snippet stalls on `SourceFetchFailed` / `context deadline exceeded while awaiting headers` — RBAC is fine, the SYN is dropped. Open the artifact port to the operator's namespace with a kustomize patch on the Flux-managed policy (keeps the rule under Flux's own GitOps); the patch is in the chart's [`README.md` → "Consuming Flux sources"](https://github.com/metio/helm-charts/tree/main/charts/jaas#consuming-flux-sources-specsourceref). Snippets that render only from inline `spec.files` never touch source-controller and need none of this.
+
 **Single shared tenant (not recommended for multi-tenant):** Bind the chart's operator SA to itself in the tenant namespace. Works but every snippet shares the same blast radius.
 
 **Per-tenant SAs (recommended):** One `ServiceAccount` per tenant team, bound to a Role with only the verbs that tenant's snippets need. Compromised snippet → bounded to that team's namespace.
