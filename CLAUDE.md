@@ -155,9 +155,44 @@ Non-2xx responses carry a JSON body produced by `writeJSONError(ctx, logger, w, 
 
 `Dockerfile` accepts `VERSION` and `COMMIT` build args and threads them through `-ldflags`. `release.yml` passes them via `build-args:` on `docker/build-push-action`.
 
+### Release pipeline (`release.yml`)
+
+Releases are **calendar-based and automated** — `release.yml` runs on a Monday cron (plus manual `workflow_dispatch`), and the version is the run date via `date +'%Y.%-m.%-d'` (e.g. `2026.6.15`). There is no semver tag to bump by hand. A `prepare` job computes the version and counts commits since the last release touching the build-relevant paths (`go.mod main.go internal api config Dockerfile`); every downstream job `if:`-gates on that count being non-zero (or there being no prior release), so an empty week publishes nothing. When calculating the next version for a `MIGRATIONS.md` entry, use the upcoming Monday's date in this format.
+
+The pipeline is **hand-rolled — no goreleaser, no GPG** (both banned project-wide). Three jobs do the work:
+
+- `build` — a cross-compile matrix (`go build` with `CGO_ENABLED=0`, `-trimpath`, `-ldflags="-s -w -X main.version=… -X main.commit=…"`) over the **six linux arches the container image ships** (`amd64`, `arm`/v7, `arm64`, `ppc64le`, `riscv64`, `s390x`) plus windows and darwin on `amd64`/`arm64` — the desktop binaries exist because jaas doubles as a cluster-free local Jsonnet renderer. Each platform is archived (`tar.gz` for linux/darwin, `zip` for windows, bundling `LICENSE` + `README.md`) and uploaded as an artifact.
+- `container` — a single `docker buildx` multi-arch push to `ghcr.io/metio/jaas:{latest,<version>}` over the same six linux arches. The `Dockerfile` builder is pinned to `$BUILDPLATFORM` and cross-compiles via Go's `GOARCH`, so the multi-arch build needs **no QEMU**. SBOM + provenance are attached, and the pushed image is signed with **cosign keyless** (Fulcio OIDC, `id-token: write`) by digest.
+- `github` — `needs: [prepare, build, container]` so the release is only cut after the image exists (the notes advertise `ghcr.io/metio/jaas:<version>`). It downloads the archives, computes one `SHA256SUMS` over them all, signs that file with **cosign keyless** (`sign-blob`, emitting `.sig` + `.pem`), and publishes the GitHub Release with the archives, checksums, and signature artifacts attached. The release body documents the `cosign verify` / `cosign verify-blob` commands — identity is proven by the workflow's OIDC certificate, there is no key to distribute.
+
+**CRD-vendoring handshake.** This repo owns the binary and the CRDs under `config/crd/bases/`; it does **not** publish the Helm chart. The chart in metio/helm-charts vendors these CRDs into `charts/jaas` at each release tag (its `hack/vendor-crds.sh` + a CRD-sync gate), and discovers this repo's released chart-less binary via `appVersion`. The kind-smoke workflow exists precisely because the released chart's vendored CRDs lag HEAD — it overlays `config/crd/bases/` so the dev binary runs against its own current schema.
+
 ## Helm chart
 
 The Helm chart lives in the [metio/helm-charts](https://github.com/metio/helm-charts/tree/main/charts/jaas) monorepo (`charts/jaas`, published at `oci://ghcr.io/metio/helm-charts/jaas`) — not this repo. Its templates, `values.yaml`, `values.schema.json`, helm-unittest suite, and kube-score gate all live and run there. This repo owns the binary and the CRDs (`config/crd/bases/`), which helm-charts vendors into the chart at each release tag via its `hack/vendor-crds.sh` + CRD-sync gate. The binary's config surface the chart drives — the `JAAS_EXT_VAR_*` env prefix, the bind-address flags, `--watch-namespaces`, `--max-concurrent-evals`, the webhook/cert flags — is documented per-flag in the sections above and in `README.md`.
+
+## Test layers
+
+The suite spans several layers; all run via `go test` and all are exercised by the `test` job in `verify.yml` (`go test -v -cover ./...`). Locally, run them through the dev shell:
+
+```shell
+ilo bash -c 'go test -count=1 -race -cover ./...'                       # everything, race detector on
+ilo bash -c 'go test -count=1 -v -run TestName ./internal/handler/'     # a single test
+ilo bash -c 'go test -bench=. -benchmem -run=^$ ./internal/operator/'   # benchmarks (skip tests)
+ilo bash -c 'go test -fuzz=FuzzName -fuzztime=30s ./internal/urlguard/' # one fuzz target
+```
+
+- **Unit tests** — the bulk of the suite, table-driven, no external state. They live next to the code they cover across `internal/...` and `api/v1/`. Several pin wire-stable contracts and act as drift gates: `conditions_test.go` (every `Reason*` has a matching `docs/runbooks/<reason>.md`; constant count must match `AllReasons`), `TestErrorResponse_StableCodeValues` (the `ErrCode*` strings). Property-based tests (rapid) cover the storage tar-determinism and history keep-set invariants; treat a failing property test as a real bug, not flakiness.
+
+- **envtest-backed operator tests** — files named `envtest_*_test.go` (in `internal/operator/`, plus `internal/webhook/selfsigned/envtest_test.go` and the top-level `main_envtest_test.go`) boot a **real kube-apiserver + etcd** via controller-runtime's `envtest` and run the reconciler / webhook / `run(...)` against it. They share one apiserver per test binary (`sync.Once`-guarded, lazy) so the cost stays off runs that don't select them. **Each one `t.Skip`s when `KUBEBUILDER_ASSETS` is unset** — there is no build tag; selection is by asset availability. The dev shell's `dev/Containerfile` pre-stages the asset bundle (`setup-envtest`, pinned `ENVTEST_K8S_VERSION`) and exports `KUBEBUILDER_ASSETS`, so these tests run by default inside `ilo bash`; on a host without the bundle they silently skip. The envtest harness sets `Config.SkipImpersonation` (the only place that's allowed) and defaults `MetricsBindAddress` to `"0"` so parallel test cases don't fight over the metrics port. `chaos_test.go` is also envtest-backed.
+
+- **Golden / example e2e** — `examples_test.go` boots the whole binary via `runInBackground` and asserts HTTP responses against `testdata/golden/`. See the [Examples & golden tests](#examples--golden-tests) section below for the `-update` regen flow and the per-snippet feature matrix.
+
+- **Fuzz tests** — `FuzzXxx` targets in `internal/handler/`, `internal/sources/`, and `internal/urlguard/` harden the request/snippet path, the tar/gzip artifact unpacker, and the SSRF URL/IP parser against adversarial input. CI exercises their seed corpus as ordinary unit tests; run `-fuzz` explicitly to fuzz for real.
+
+- **Benchmarks** — `Benchmark*` in `internal/eval/`, `internal/storage/`, and `internal/operator/` (reconcile throughput, watch mapping, tenant-client cache). They are throughput baselines, not gates; `-run=^$` skips the tests so only benchmarks run. The reconcile benchmark is envtest-backed and therefore skips without `KUBEBUILDER_ASSETS`.
+
+- **Kind operator smoke** — the cluster-level layer, not part of `go test`. Pure-`kubectl` bash scenarios in `hack/smoke/` run against a real kind cluster in `kind-smoke.yml` (two-angle strategy, documented under CI). Run a scenario locally against any reachable cluster by deploying jaas and invoking `hack/smoke/scenario-*.sh`.
 
 ## Examples & golden tests
 
@@ -196,8 +231,22 @@ The repo is REUSE-compliant (0BSD). Every source file carries an SPDX header. `R
 
 ## CI
 
-`.github/workflows/verify.yml` is the PR gate. The `verify` job runs the Go gates: `go vet ./...`, `staticcheck ./...` (`checks=all`), `gofumpt -l .`, `gosec ./...`, `arch-go`, `govulncheck ./...`, `go test -v -cover ./...`, and a Docker buildx image build + Trivy scan. Separate parallel jobs run the text linters — `yamllint` (`.yamllint.yaml`), `actionlint`, `markdownlint` (`.markdownlint.yaml`), and `typos` (`.typos.toml`). golangci-lint is **not** used anywhere (banned project-wide); the Go gate is the standalone tools above. Chart gates (helm-unittest, helm-schema drift, kube-score) run in the metio/helm-charts repo, which owns the chart.
+`.github/workflows/verify.yml` is the PR gate. It fans out into one job per concern so a failure points straight at the offending gate, and CI installs each tool fresh via `go run <tool>@latest` (the dev shell pre-installs the same tools in `dev/Containerfile`, so local and CI runs agree):
 
-`kind-smoke.yml` is the operator end-to-end gate, and it's **angle 1 of a two-angle strategy**: the dev binary (HEAD build) is tested against the **latest released chart** (`oci://ghcr.io/metio/helm-charts/jaas`, version discovered from helm-charts' `jaas-*` GitHub releases). It builds the HEAD image, loads it into kind, installs the released chart with `--set image.*` pointing at the dev image, and overlays HEAD's CRDs (`kubectl apply --server-side -f config/crd/bases/`) since the released chart's vendored CRDs lag HEAD. **Angle 2** lives in helm-charts (`operator-smoke.yml`): the dev chart deploys the **released binary** (its `appVersion`) and runs the identical scenarios. Each angle holds one moving part and tests it against the released counterpart, so neither couples to the other repo's `main`.
+- `test` — `go build ./...` then `go test -v -cover ./...`.
+- `lint-go` — `go vet ./...`, `staticcheck ./...` (`staticcheck.conf`, `checks=all`), `gosec ./...`, and a `gofumpt -l .` check that fails on any non-empty output.
+- `vulnerabilities` — `govulncheck ./...`. A reachable-from-code advisory is a hard merge gate; the usual fix is bumping the `toolchain` directive in `go.mod` (stdlib) or `go get -u` (deps).
+- `architecture` — `arch-go` against `arch-go.yml`.
+- `reuse` — the `fsfe/reuse-action` enforces SPDX headers on every file (see Licensing / REUSE).
+- Text linters, one job each — `yaml` (`yamllint` against `.yamllint.yaml`), `github-actions` (`actionlint`), `markdown` (`markdownlint-cli2` against `.markdownlint.yaml`), `typos` (`.typos.toml`).
+- `container-image` — a Docker buildx image build (load, no push) followed by a Trivy scan that hard-fails on any fixable `CRITICAL`/`HIGH` (`ignore-unfixed: true`); the distroless base is slim, so findings are rare and worth investigating before merge.
 
-The operator scenarios themselves are **shared bash scripts in `hack/smoke/`** (`lib.sh` helpers + `setup-*.sh` cluster prereqs + `scenario-*.sh` assertions), pure `kubectl`, agnostic to how jaas was deployed. Both repos run them: the jaas workflow calls them from the HEAD checkout; the helm-charts workflow `actions/checkout`s `metio/jaas` at the released tag (so the scenarios match the released binary's contract) and calls them from there. Only the `helm install` differs between angles. Both angles **skip (green) until the first release exists** — a `discover` job emits an empty version and `if:`-gates the smoke jobs; they activate automatically once helm-charts releases the chart (angle 1) / the chart's `appVersion` advances past `0.0.0` (angle 2).
+golangci-lint is **not** used anywhere (banned project-wide); the Go gate is the standalone tools above. Chart gates (helm-unittest, helm-schema drift, kube-score) run in the metio/helm-charts repo, which owns the chart.
+
+**All-green aggregate convention.** Both `verify.yml` and `kind-smoke.yml` end in a single `all-green` job that `needs` every other job, runs `if: always()`, and fails unless each dependency `result` is `success` or `skipped`. That one job is the **only** check marked required in branch protection — new jobs are covered automatically, and dynamic matrix names (kind smoke) don't have to be enumerated as required checks. Don't add a new required check; add the job to the `needs` list of the relevant `all-green`.
+
+`kind-smoke.yml` is the operator end-to-end gate, and it's **angle 1 of a two-angle strategy**: the dev binary (HEAD build) is tested against the **latest released chart** (`oci://ghcr.io/metio/helm-charts/jaas`, version discovered from helm-charts' `jaas-*` GitHub releases). A `discover` job finds the chart version plus the newest Kubernetes (`kindest/node`), Flux (floored at v2.7.0, where the `ExternalArtifact` CRD lands), and kind versions at runtime — nothing is hardcoded, so a regression against a new release surfaces as a failure rather than silent staleness. The `smoke` job sweeps the full k8s × Flux matrix; the orthogonal jobs (`selfsigned`, `new-fields`, `source-chain`, `scale-smoke`) run once on the newest of each. Each job builds the HEAD image, loads it into kind, installs the released chart with `--set image.*` pointing at the dev image, and overlays HEAD's CRDs (`kubectl apply --server-side -f config/crd/bases/`) since the released chart's vendored CRDs lag HEAD. **Angle 2** lives in helm-charts (`operator-smoke.yml`): the dev chart deploys the **released binary** (its `appVersion`) and runs the identical scenarios. Each angle holds one moving part and tests it against the released counterpart, so neither couples to the other repo's `main`.
+
+The workflow has **no `paths:` filter** (so its `all-green` always reports and can stay required); instead a `discover.relevant` output git-diffs the PR against operator code / smoke scripts and `if:`-gates the heavy kind jobs, keeping cost at the level a paths filter would.
+
+The operator scenarios themselves are **shared bash scripts in `hack/smoke/`** (`lib.sh` helpers + `setup-*.sh` cluster prereqs for cert-manager / Flux / MinIO / a self-signed issuer + `scenario-*.sh` assertions), pure `kubectl`, agnostic to how jaas was deployed. Both repos run them: the jaas workflow calls them from the HEAD checkout; the helm-charts workflow `actions/checkout`s `metio/jaas` at the released tag (so the scenarios match the released binary's contract) and calls them from there. Only the `helm install` differs between angles. Both angles **skip (green) until the first release exists** — `discover` emits an empty version and `if:`-gates the smoke jobs; they activate automatically once helm-charts releases the chart (angle 1) / the chart's `appVersion` advances past `0.0.0` (angle 2).
