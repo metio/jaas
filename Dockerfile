@@ -6,7 +6,7 @@
 # each target under QEMU. buildx supplies TARGETOS/TARGETARCH/TARGETVARIANT per
 # target; the runtime stage below takes $TARGETPLATFORM and pulls the matching
 # distroless base.
-FROM --platform=$BUILDPLATFORM cgr.dev/chainguard/go AS build
+FROM --platform=$BUILDPLATFORM cgr.dev/chainguard/go@sha256:3cea88773e65f24c4db570d96b97a65fb8f3c145f656a4396e23d9be6f34cddd AS build
 WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
@@ -24,6 +24,6 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} GOARM=${TARGETVARIANT#v}
 # library images it consumes are co-schedulable on any node architecture. Like
 # chainguard's static image it carries no shell (the drain delay is implemented
 # in the binary, not a preStop sleep).
-FROM gcr.io/distroless/static:nonroot
+FROM gcr.io/distroless/static:nonroot@sha256:963fa6c544fe5ce420f1f54fb88b6fb01479f054c8056d0f74cc2c6000df5240
 COPY --from=build /app/jaas /usr/bin/
 ENTRYPOINT ["/usr/bin/jaas"]
