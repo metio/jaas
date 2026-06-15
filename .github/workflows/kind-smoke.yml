@@ -51,16 +51,19 @@ jobs:
         with:
           fetch-depth: 0
       - id: scope
-        name: Did this PR touch operator code or smoke scripts?
+        name: Did this PR touch operator code, dependencies, or smoke scripts?
         run: |
           # Replaces the old `paths:` trigger: the heavy kind jobs run only when
-          # something they exercise changed. workflow_dispatch always counts.
+          # something they exercise changed. go.mod/go.sum count because a
+          # dependency bump (controller-runtime, the fluxcd source libraries,
+          # minio-go, apimachinery) can change operator runtime behavior the e2e
+          # is uniquely placed to catch. workflow_dispatch always counts.
           if [ "${{ github.event_name }}" != "pull_request" ]; then
             echo "relevant=true" >> "$GITHUB_OUTPUT"; exit 0
           fi
           base="${{ github.event.pull_request.base.sha }}"
           if git diff --name-only "$base" HEAD | grep -qE \
-               '^(api|config)/|^internal/(operator|storage|sources|webhook)/|^main\.go$|^Dockerfile$|^hack/smoke/|^\.github/workflows/kind-smoke\.yml$'; then
+               '^(api|config)/|^internal/(operator|storage|sources|webhook)/|^main\.go$|^Dockerfile$|^hack/smoke/|^\.github/workflows/kind-smoke\.yml$|^go\.(mod|sum)$'; then
             echo "relevant=true" >> "$GITHUB_OUTPUT"
           else
             echo "relevant=false" >> "$GITHUB_OUTPUT"
