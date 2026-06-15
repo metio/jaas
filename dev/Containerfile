@@ -1,17 +1,16 @@
 # SPDX-FileCopyrightText: The jaas Authors
 # SPDX-License-Identifier: 0BSD
 
-# Pinned to 1.26.4 (over `latest`) so the stdlib has the
-# GO-2026-503x advisories patched. Bump as new advisories land.
+# Pinned to 1.26.4 (over `latest`) for a reproducible image whose stdlib has
+# current advisories patched. Bump as new advisories land.
 FROM docker.io/library/golang:1.26.4@sha256:87a41d2539e5671777734e91f467499ed5eafb1fb1f77221dff2744db7a51775
 
-# Recent golang base images default GOTOOLCHAIN=local, which blocks
-# auto-download of the toolchain directive in go.mod. Switching to
-# `auto` lets `go.mod` keep a higher toolchain pin than this base
-# image without forcing a Containerfile change at every advisory.
+# Recent golang base images default GOTOOLCHAIN=local, which blocks auto-download
+# of a higher toolchain directive in go.mod. `auto` lets go.mod pin a newer
+# toolchain than this base image without a Containerfile change.
 ENV GOTOOLCHAIN=auto
 
-RUN apt-get update && apt-get install -y git curl reuse
+RUN apt-get update && apt-get install -y git curl reuse yamllint
 
 # markdownlint-cli2 mirrors the DavidAnson/markdownlint-cli2-action used in
 # verify.yml, so `markdownlint-cli2 '**/*.md'` reproduces the CI markdown gate
@@ -25,22 +24,24 @@ RUN ARCH="$(dpkg --print-architecture)" \
        | tar -xz -C /usr/local --strip-components=1 \
     && npm install -g markdownlint-cli2
 
+# Standalone static-analysis tools — the CI verify gate runs these directly.
+# golangci-lint is intentionally NOT installed (banned project-wide).
+# gofumpt: strict formatting; gosec: security scanner; arch-go: architecture
+# rules (arch-go.yml); actionlint: GitHub Actions workflow linter.
 RUN go install honnef.co/go/tools/cmd/staticcheck@latest
-# Standalone static-analysis tools (the CI verify gate runs these directly —
-# golangci-lint is deliberately not used). gofumpt: strict formatting check;
-# gosec: security scanner; arch-go: architecture rules (arch-go.yml);
-# actionlint: GitHub Actions workflow linter.
 RUN go install mvdan.cc/gofumpt@latest
 RUN go install github.com/securego/gosec/v2/cmd/gosec@latest
 RUN go install github.com/arch-go/arch-go@latest
 RUN go install github.com/rhysd/actionlint/cmd/actionlint@latest
+
+# Code generation + envtest assets for the controller tests.
 RUN go install sigs.k8s.io/controller-tools/cmd/controller-gen@latest
 RUN go install sigs.k8s.io/controller-runtime/tools/setup-envtest@latest
 
-# Pre-stage an envtest asset bundle so unit tests under internal/operator can
-# spin up a real kube-apiserver+etcd without network calls. The bundle path is
-# stable across image rebuilds via the `assets` symlink, exposed through
-# KUBEBUILDER_ASSETS for controller-runtime's envtest package.
+# Pre-stage an envtest asset bundle (kube-apiserver + etcd) so envtest-based
+# controller tests run without network access. The `assets` symlink keeps the
+# path stable across image rebuilds; KUBEBUILDER_ASSETS points the
+# controller-runtime envtest package at it.
 ARG ENVTEST_K8S_VERSION=1.31.0
 RUN setup-envtest use ${ENVTEST_K8S_VERSION} --bin-dir /usr/local/kubebuilder/bin \
     && ln -s "$(setup-envtest use ${ENVTEST_K8S_VERSION} --bin-dir /usr/local/kubebuilder/bin -p path)" /usr/local/kubebuilder/assets
