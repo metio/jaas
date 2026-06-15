@@ -33,24 +33,22 @@ jobs:
         if: steps.commits.outputs.count > 0 || steps.last_release.outputs.tag == ''
         run: echo "version=$(date +'%Y.%-m.%-d')" >> $GITHUB_OUTPUT
   build:
-    name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+    name: Build linux/${{ matrix.goarch }}
     needs: prepare
     runs-on: ubuntu-latest
     strategy:
       matrix:
+        # The same linux architectures the container image ships (the set
+        # gcr.io/distroless/static supports). No darwin/windows: these binaries
+        # mirror the container's reach, not a desktop distribution.
         include:
-          - goos: linux
-            goarch: amd64
-          - goos: linux
-            goarch: arm
-          - goos: linux
-            goarch: arm64
-          - goos: darwin
-            goarch: amd64
-          - goos: darwin
-            goarch: arm64
-          - goos: windows
-            goarch: amd64
+          - goarch: amd64
+          - goarch: arm
+            goarm: "7"
+          - goarch: arm64
+          - goarch: ppc64le
+          - goarch: riscv64
+          - goarch: s390x
     steps:
       - id: checkout
         name: Clone Git Repository
@@ -71,10 +69,12 @@ jobs:
           -o ${{ github.event.repository.name }}_v${{ needs.prepare.outputs.release_version }}
           -trimpath
           -ldflags="-s -w -X main.version=${{ needs.prepare.outputs.release_version }} -X main.commit=${{ github.sha }}"
+          .
         env:
           CGO_ENABLED: 0
-          GOOS: ${{ matrix.goos }}
+          GOOS: linux
           GOARCH: ${{ matrix.goarch }}
+          GOARM: ${{ matrix.goarm }}
       - id: tar
         name: Create tar.gz Archive
         if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
@@ -82,7 +82,7 @@ jobs:
           tar
           --create
           --gzip
-          --file ${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_${{ matrix.goos }}_${{ matrix.goarch }}.tar.gz
+          --file ${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_linux_${{ matrix.goarch }}.tar.gz
           ${{ github.event.repository.name }}_v${{ needs.prepare.outputs.release_version }}
           LICENSE
           README.md
@@ -91,8 +91,8 @@ jobs:
         if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: ${{ github.event.repository.name }}-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: ${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_${{ matrix.goos }}_${{ matrix.goarch }}.tar.gz
+          name: ${{ github.event.repository.name }}-linux-${{ matrix.goarch }}
+          path: ${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_linux_${{ matrix.goarch }}.tar.gz
   github:
     name: GitHub Release
     # Gate the release on a green image build too: the release notes advertise
@@ -106,7 +106,8 @@ jobs:
     needs: [prepare, build, container]
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: write   # create the GitHub Release
+      id-token: write   # cosign keyless sign-blob (Fulcio OIDC)
     steps:
       - id: checkout
         name: Clone Git Repository
@@ -114,6 +115,10 @@ jobs:
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           fetch-depth: 0
+      - id: cosign-install
+        name: Install Cosign
+        if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
       - id: download
         name: Download Artifacts
         if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
@@ -125,32 +130,15 @@ jobs:
       - id: checksums
         name: Calculate Checksums
         if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
-        run: >
-          cd dist &&
-          sha256sum
-          ${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_linux_amd64.tar.gz
-          ${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_linux_arm.tar.gz
-          ${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_linux_arm64.tar.gz
-          ${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_darwin_amd64.tar.gz
-          ${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_darwin_arm64.tar.gz
-          ${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_windows_amd64.tar.gz
-          > ${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_SHA256SUMS
-      - id: import_gpg
-        name: Import GPG key
-        uses: crazy-max/ghaction-import-gpg@2dc316deee8e90f13e1a351ab510b4d5bc0c82cd # v7
-        if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
-        with:
-          gpg_private_key: ${{ secrets.GPG_SECRET_KEY_BASE64 }}
-          passphrase: ${{ secrets.GPG_SECRET_KEY_PASSWORD }}
+        run: cd dist && sha256sum *.tar.gz > ${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_SHA256SUMS
       - id: sign_checksums
-        name: Sign Checksums
+        name: Sign Checksums (cosign keyless)
         if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
         run: >
-          gpg
-          --batch
-          --local-user ${{ steps.import_gpg.outputs.fingerprint }}
-          --output dist/${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_SHA256SUMS.sig
-          --detach-sign
+          cosign sign-blob
+          --yes
+          --output-signature dist/${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_SHA256SUMS.sig
+          --output-certificate dist/${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_SHA256SUMS.pem
           dist/${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_SHA256SUMS
       - id: create_release
         name: Create Release
@@ -165,17 +153,42 @@ jobs:
           body: |
             ## Usage
 
-            Pull latest container from `ghcr.io/metio/jaas:${{ needs.prepare.outputs.release_version }}`. Check the [migration guide](https://github.com/metio/jaas/blob/main/MIGRATIONS.md) for any required actions on your part.
+            Pull the container from `ghcr.io/metio/jaas:${{ needs.prepare.outputs.release_version }}`.
+            Check the [migration guide](https://github.com/metio/jaas/blob/main/MIGRATIONS.md) for any required actions on your part.
+
+            Prebuilt `linux` binaries are attached below for the same architectures the
+            image ships: `amd64`, `arm` (v7), `arm64`, `ppc64le`, `riscv64`, `s390x`.
+
+            ## Verify
+
+            Both the image and the release artifacts are signed with
+            [cosign](https://github.com/sigstore/cosign) keyless — there is no GPG key to
+            trust; identity is proven by the workflow's OIDC certificate.
+
+            Container image:
+
+            ```shell
+            cosign verify ghcr.io/metio/jaas:${{ needs.prepare.outputs.release_version }} \
+              --certificate-identity-regexp '^https://github.com/metio/jaas/\.github/workflows/release\.yml@refs/' \
+              --certificate-oidc-issuer https://token.actions.githubusercontent.com
+            ```
+
+            Release artifacts (verify the signed checksum file, then check your download against it):
+
+            ```shell
+            cosign verify-blob jaas_${{ needs.prepare.outputs.release_version }}_SHA256SUMS \
+              --signature jaas_${{ needs.prepare.outputs.release_version }}_SHA256SUMS.sig \
+              --certificate jaas_${{ needs.prepare.outputs.release_version }}_SHA256SUMS.pem \
+              --certificate-identity-regexp '^https://github.com/metio/jaas/\.github/workflows/release\.yml@refs/' \
+              --certificate-oidc-issuer https://token.actions.githubusercontent.com
+            sha256sum -c jaas_${{ needs.prepare.outputs.release_version }}_SHA256SUMS
+            ```
           generate_release_notes: true
           files: |
-            dist/${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_linux_amd64.tar.gz
-            dist/${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_linux_arm.tar.gz
-            dist/${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_linux_arm64.tar.gz
-            dist/${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_darwin_amd64.tar.gz
-            dist/${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_darwin_arm64.tar.gz
-            dist/${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_windows_amd64.tar.gz
+            dist/*.tar.gz
             dist/${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_SHA256SUMS
             dist/${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_SHA256SUMS.sig
+            dist/${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_SHA256SUMS.pem
   container:
     name: Container Release
     needs: [prepare, build]
