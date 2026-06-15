@@ -157,11 +157,14 @@ jobs:
       - id: sign_checksums
         name: Sign Checksums (cosign keyless)
         if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
+        # Newer cosign defaults to the Sigstore bundle format: --output-signature
+        # / --output-certificate are ignored and a single --bundle file (signature
+        # + certificate + Rekor proof) is written instead. Omitting --bundle makes
+        # cosign try to open an empty path and fail the whole release.
         run: >
           cosign sign-blob
           --yes
-          --output-signature dist/${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_SHA256SUMS.sig
-          --output-certificate dist/${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_SHA256SUMS.pem
+          --bundle dist/${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_SHA256SUMS.bundle
           dist/${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_SHA256SUMS
       - id: create_release
         name: Create Release
@@ -203,8 +206,7 @@ jobs:
 
             ```shell
             cosign verify-blob jaas_${{ needs.prepare.outputs.release_version }}_SHA256SUMS \
-              --signature jaas_${{ needs.prepare.outputs.release_version }}_SHA256SUMS.sig \
-              --certificate jaas_${{ needs.prepare.outputs.release_version }}_SHA256SUMS.pem \
+              --bundle jaas_${{ needs.prepare.outputs.release_version }}_SHA256SUMS.bundle \
               --certificate-identity-regexp '^https://github.com/metio/jaas/\.github/workflows/release\.yml@refs/' \
               --certificate-oidc-issuer https://token.actions.githubusercontent.com
             sha256sum -c jaas_${{ needs.prepare.outputs.release_version }}_SHA256SUMS
@@ -214,8 +216,7 @@ jobs:
             dist/*.tar.gz
             dist/*.zip
             dist/${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_SHA256SUMS
-            dist/${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_SHA256SUMS.sig
-            dist/${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_SHA256SUMS.pem
+            dist/${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_SHA256SUMS.bundle
   container:
     name: Container Release
     needs: [prepare, build]
