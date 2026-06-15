@@ -33,22 +33,37 @@ jobs:
         if: steps.commits.outputs.count > 0 || steps.last_release.outputs.tag == ''
         run: echo "version=$(date +'%Y.%-m.%-d')" >> $GITHUB_OUTPUT
   build:
-    name: Build linux/${{ matrix.goarch }}
+    name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
     needs: prepare
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        # The same linux architectures the container image ships (the set
-        # gcr.io/distroless/static supports). No darwin/windows: these binaries
-        # mirror the container's reach, not a desktop distribution.
+        # The six linux architectures the container image ships (the set
+        # gcr.io/distroless/static supports) plus windows and macOS (darwin) on
+        # amd64/arm64, so the binary is available for desktop use (jaas doubles
+        # as a cluster-free local Jsonnet renderer).
         include:
-          - goarch: amd64
-          - goarch: arm
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm
             goarm: "7"
-          - goarch: arm64
-          - goarch: ppc64le
-          - goarch: riscv64
-          - goarch: s390x
+          - goos: linux
+            goarch: arm64
+          - goos: linux
+            goarch: ppc64le
+          - goos: linux
+            goarch: riscv64
+          - goos: linux
+            goarch: s390x
+          - goos: windows
+            goarch: amd64
+          - goos: windows
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
     steps:
       - id: checkout
         name: Clone Git Repository
@@ -62,37 +77,40 @@ jobs:
           go-version-file: go.mod
           cache: true
       - id: build
-        name: Build Project
+        name: Build & Archive
         if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
-        run: >
-          go build
-          -o ${{ github.event.repository.name }}_v${{ needs.prepare.outputs.release_version }}
-          -trimpath
-          -ldflags="-s -w -X main.version=${{ needs.prepare.outputs.release_version }} -X main.commit=${{ github.sha }}"
-          .
+        # Cross-compile and archive for this platform: tar.gz on linux/darwin,
+        # zip on windows (with a .exe binary).
+        run: |
+          set -euo pipefail
+          ver="${{ needs.prepare.outputs.release_version }}"
+          os="${{ matrix.goos }}"
+          arch="${{ matrix.goarch }}"
+          name="${{ github.event.repository.name }}"
+          ext=""
+          [ "$os" = windows ] && ext=".exe"
+          go build -o "${name}_v${ver}${ext}" -trimpath \
+            -ldflags="-s -w -X main.version=${ver} -X main.commit=${{ github.sha }}" .
+          if [ "$os" = windows ]; then
+            zip "${name}_${ver}_${os}_${arch}.zip" "${name}_v${ver}${ext}" LICENSE README.md
+          else
+            tar --create --gzip --file "${name}_${ver}_${os}_${arch}.tar.gz" "${name}_v${ver}${ext}" LICENSE README.md
+          fi
         env:
           CGO_ENABLED: 0
-          GOOS: linux
+          GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           GOARM: ${{ matrix.goarm }}
-      - id: tar
-        name: Create tar.gz Archive
-        if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
-        run: >
-          tar
-          --create
-          --gzip
-          --file ${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_linux_${{ matrix.goarch }}.tar.gz
-          ${{ github.event.repository.name }}_v${{ needs.prepare.outputs.release_version }}
-          LICENSE
-          README.md
       - id: upload
         name: Upload Artifact
         if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: ${{ github.event.repository.name }}-linux-${{ matrix.goarch }}
-          path: ${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_linux_${{ matrix.goarch }}.tar.gz
+          name: dist-${{ matrix.goos }}-${{ matrix.goarch }}
+          if-no-files-found: error
+          path: |
+            *.tar.gz
+            *.zip
   github:
     name: GitHub Release
     # Gate the release on a green image build too: the release notes advertise
@@ -125,12 +143,17 @@ jobs:
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           path: dist
-          pattern: ${{ github.event.repository.name }}-*
+          pattern: dist-*
           merge-multiple: true
       - id: checksums
         name: Calculate Checksums
         if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
-        run: cd dist && sha256sum *.tar.gz > ${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_SHA256SUMS
+        # One SHA256SUMS over every archive (tar.gz for linux/darwin, zip for
+        # windows). nullglob keeps the glob empty-safe.
+        run: |
+          cd dist
+          shopt -s nullglob
+          sha256sum *.tar.gz *.zip > ${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_SHA256SUMS
       - id: sign_checksums
         name: Sign Checksums (cosign keyless)
         if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
@@ -156,8 +179,11 @@ jobs:
             Pull the container from `ghcr.io/metio/jaas:${{ needs.prepare.outputs.release_version }}`.
             Check the [migration guide](https://github.com/metio/jaas/blob/main/MIGRATIONS.md) for any required actions on your part.
 
-            Prebuilt `linux` binaries are attached below for the same architectures the
-            image ships: `amd64`, `arm` (v7), `arm64`, `ppc64le`, `riscv64`, `s390x`.
+            Prebuilt binaries are attached below:
+
+            - `linux`: `amd64`, `arm` (v7), `arm64`, `ppc64le`, `riscv64`, `s390x`
+            - `windows`: `amd64`, `arm64` (`.zip`)
+            - `darwin` (macOS): `amd64`, `arm64`
 
             ## Verify
 
@@ -186,6 +212,7 @@ jobs:
           generate_release_notes: true
           files: |
             dist/*.tar.gz
+            dist/*.zip
             dist/${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_SHA256SUMS
             dist/${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_SHA256SUMS.sig
             dist/${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_SHA256SUMS.pem
