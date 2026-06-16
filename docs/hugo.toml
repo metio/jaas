@@ -173,6 +173,11 @@ ignoreFiles = ['README\.md$']
     name = "Network policy"
     url = "/usage/network-policy/"
     weight = 14
+  [[menu.main]]
+    parent = "usage"
+    name = "Service mesh"
+    url = "/usage/service-mesh/"
+    weight = 15
 
   [[menu.main]]
     identifier = "api"

@@ -6,5 +6,7 @@ MD010:
 MD013: false # line length: tables and links exceed any sane limit
 MD024:
   siblings_only: true
+MD025:
+  front_matter_title: "" # _index.md renders its title as a body H1; content pages use front matter only
 MD033: false # inline HTML: needed for rendered docs
 MD060: false # table-column-style: pedantic; flags readable, valid tables
