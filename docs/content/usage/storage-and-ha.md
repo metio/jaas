@@ -56,6 +56,60 @@ discovery chain — environment credentials, web-identity tokens, and EC2/EKS
 instance metadata — so a pod running with an IRSA-annotated ServiceAccount needs
 no static keys.
 
+### Bring your own Secret
+
+The chart never bakes credentials into a rendered Secret. It references a Secret
+you provide by name (`operator.storage.s3.credentialsSecret.name`) and consumes it
+via `envFrom`, expecting the keys `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and
+the optional `AWS_SESSION_TOKEN`. The Secret's provenance is yours to choose.
+
+Any of these can produce that Secret, and the chart works with all of them
+unchanged — point the tool at the same name the chart references:
+
+- **External Secrets Operator** — an `ExternalSecret` that syncs from Vault, AWS
+  Secrets Manager, GCP Secret Manager, or Azure Key Vault into a Secret of that
+  name.
+- **Sealed Secrets** — a `SealedSecret` that the controller decrypts in-cluster.
+- **Vault Agent / CSI** — a Secret materialized from Vault.
+- **SOPS** — a Secret decrypted by your GitOps tooling at apply time.
+- **`kubectl create secret`** — a plain hand-managed Secret.
+
+This is why the chart ships no native `ExternalSecret` resource: the reference seam
+already integrates with every secret backend, without coupling the chart to one
+operator's CRDs.
+
+On the cloud, **IAM/IRSA** — leaving the credentials Secret unset (above) — avoids
+a stored secret entirely and is preferred where available.
+
+A minimal External Secrets example whose `target.name` matches the referenced
+Secret and whose keys are the ones JaaS expects:
+
+```yaml
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: jaas-s3
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: vault
+    kind: SecretStore
+  target:
+    name: jaas-s3-credentials # = operator.storage.s3.credentialsSecret.name
+  data:
+    - secretKey: AWS_ACCESS_KEY_ID
+      remoteRef:
+        key: jaas/s3
+        property: access_key_id
+    - secretKey: AWS_SECRET_ACCESS_KEY
+      remoteRef:
+        key: jaas/s3
+        property: secret_access_key
+```
+
+For the full chart values, see the [Helm values](/installation/helm-values/)
+reference.
+
 ## Leader election
 
 Leader election is on by default in operator mode (`--leader-election`, honored
