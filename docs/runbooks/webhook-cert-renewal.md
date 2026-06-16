@@ -1,20 +1,19 @@
-<!--
-SPDX-FileCopyrightText: The jaas Authors
-SPDX-License-Identifier: 0BSD
--->
-
-# Operator runbook: self-signed webhook cert renewal failing
+---
+title: Self-signed webhook cert renewal failing
+description: The Renewer goroutine cannot rotate the webhook TLS material; if uncorrected the cert will expire and every JsonnetSnippet admission will fail
+tags: [runbooks, troubleshooting, webhook]
+---
 
 Fires when `jaas_webhook_cert_renewal_failures_total` has increased above the configured per-hour threshold. The `Renewer` background goroutine rotates the self-signed TLS material every `Validity / 3` (typically every few months for a year-long cert). When it can't, the existing cert keeps working until its natural expiry — at which point the apiserver stops trusting the chain and **every JsonnetSnippet admission fails cluster-wide with `x509` errors**.
 
-## Symptoms
+## Symptom
 
 - `JaaSWebhookCertRenewalFailing` alert is firing (severity: critical).
 - Operator pod logs carry repeated `Self-signed webhook cert renewal failed` warnings at the `Renewer.Interval` cadence.
 - `kubectl describe validatingwebhookconfiguration <name>` shows a `caBundle` that hasn't rotated since the failures started.
 - The pod stays `Ready=True` — the renewer's failures don't gate the readiness probe.
 
-## Diagnose
+## Diagnosis
 
 The most common causes, in order of frequency:
 
@@ -38,7 +37,7 @@ kubectl get validatingwebhookconfigurations \
   -l 'app.kubernetes.io/instance=<release-name>'
 ```
 
-If the live name differs from the operator's `-webhook-vwc-name` flag, redeploy the operator with the correct flag or rename the VWC back.
+If the live name differs from the operator's `--webhook-validating-config-name` flag, redeploy the operator with the correct flag or rename the VWC back.
 
 ### Cause C — `CertDir` gone read-only
 
@@ -51,7 +50,7 @@ kubectl exec -n <ns> <operator-pod> -- touch /tmp/k8s-webhook-server/serving-cer
 
 If the touch fails, the security-context or volume mount needs fixing.
 
-## Remediate
+## Remediation
 
 1. **Fix the root cause** (RBAC, name, or mount).
 2. **Roll the operator pod** to force a fresh bootstrap of the cert and a re-patch of the VWC:
@@ -66,4 +65,4 @@ If the touch fails, the security-context or volume mount needs fixing.
 
 ## When to consider switching to cert-manager
 
-If the self-signed renewer keeps tripping over your environment's RBAC story or pod-security policies, the chart supports `operator.webhook.certMode: cert-manager` — cert-manager handles the rotation, the operator just mounts the secret. Trade-off: requires cert-manager installed and an Issuer configured.
+If the self-signed renewer keeps tripping over your environment's RBAC story or pod-security policies, the chart supports `operator.webhook.certMode: cert-manager` — cert-manager handles the rotation and the operator mounts the resulting secret. Trade-off: requires cert-manager installed and an Issuer configured.

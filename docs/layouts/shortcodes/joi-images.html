@@ -1,0 +1,27 @@
+{{- /*
+  Renders the JOI (Jsonnet OCI Images) catalog as an HTML table.
+
+  Input: hugo.Data."joi-images" — the JSON array produced by `hack/joi-images.jq`
+  from jsonnet-oci-images' libraries.json (and gitignored, so a fresh checkout
+  has none). Each entry is {name, image, source, upstream, description}.
+
+  Degrades to nothing when the data file is absent so a bare `hugo` on a clean
+  checkout never errors — run `hack/gen-docs-data.sh` first to populate it.
+*/ -}}
+{{- with index hugo.Data "joi-images" -}}
+<table>
+  <thead>
+    <tr><th>Library</th><th>Image</th><th>Upstream</th><th>Description</th></tr>
+  </thead>
+  <tbody>
+  {{- range . }}
+    <tr>
+      <td><code>{{ .name }}</code></td>
+      <td><code>{{ .image }}</code></td>
+      <td><a href="{{ .source }}" rel="noopener noreferrer">{{ .upstream }}</a></td>
+      <td>{{ with .description }}{{ . }}{{ else }}<em>—</em>{{ end }}</td>
+    </tr>
+  {{- end }}
+  </tbody>
+</table>
+{{- end -}}

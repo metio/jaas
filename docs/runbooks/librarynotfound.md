@@ -1,9 +1,8 @@
-<!--
-SPDX-FileCopyrightText: The jaas Authors
-SPDX-License-Identifier: 0BSD
--->
-
-# Reason: LibraryNotFound
+---
+title: LibraryNotFound
+description: A JsonnetLibrary CR referenced in spec.libraries does not exist or is unreachable by the tenant ServiceAccount
+tags: [runbooks, troubleshooting, rbac]
+---
 
 ## Symptom
 

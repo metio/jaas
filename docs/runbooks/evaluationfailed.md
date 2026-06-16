@@ -1,9 +1,8 @@
-<!--
-SPDX-FileCopyrightText: The jaas Authors
-SPDX-License-Identifier: 0BSD
--->
-
-# Reason: EvaluationFailed
+---
+title: EvaluationFailed
+description: The Jsonnet snippet failed to evaluate due to a syntax error, runtime error, or unresolved import
+tags: [runbooks, troubleshooting, evaluation]
+---
 
 ## Symptom
 

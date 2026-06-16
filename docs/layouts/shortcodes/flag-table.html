@@ -1,0 +1,31 @@
+{{- /*
+  Renders the generated flag reference for one group as an HTML table.
+
+  Input: hugo.Data.flags — the JSON array produced by `hack/flaggen` (and
+  gitignored, so a fresh checkout has none). Each entry is
+  {name, type, default, usage, group}. The shortcode renders only the rows
+  whose `group` equals the `group` parameter.
+
+  Degrades to nothing when the data file is absent so a bare `hugo` on a clean
+  checkout never errors — run `hack/gen-docs-data.sh` first to populate it.
+*/ -}}
+{{- $group := .Get "group" -}}
+{{- with hugo.Data.flags -}}
+<table>
+  <thead>
+    <tr><th>Flag</th><th>Type</th><th>Default</th><th>Description</th></tr>
+  </thead>
+  <tbody>
+  {{- range . -}}
+    {{- if eq .group $group }}
+    <tr>
+      <td><code>--{{ .name }}</code></td>
+      <td><code>{{ .type }}</code></td>
+      <td>{{ with .default }}<code>{{ . }}</code>{{ else }}<em>(empty)</em>{{ end }}</td>
+      <td>{{ .usage }}</td>
+    </tr>
+    {{- end -}}
+  {{- end }}
+  </tbody>
+</table>
+{{- end -}}

@@ -3,7 +3,7 @@
 #
 # A JsonnetSnippet that imports from a JsonnetLibrary published in the
 # same namespace. The snippet uses `import "grafana/dashboard.libsonnet"`
-# — the prefix "grafana" matches the LibraryRef's `as` field.
+# — the prefix "grafana" matches the LibraryRef's `importPath` field.
 #
 # Library lookup happens through the tenant's impersonating client, so
 # the snippet's ServiceAccount needs `get` on the library kind.
@@ -84,4 +84,4 @@ spec:
   libraries:
     - kind: JsonnetLibrary
       name: grafana-helpers
-      as: grafana
+      importPath: grafana

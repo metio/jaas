@@ -1,9 +1,8 @@
-<!--
-SPDX-FileCopyrightText: The jaas Authors
-SPDX-License-Identifier: 0BSD
--->
-
-# Reason: Synced
+---
+title: Synced
+description: The snippet reconciled end-to-end and its ExternalArtifact is current; no action is required
+tags: [runbooks, troubleshooting, lifecycle]
+---
 
 ## Symptom
 

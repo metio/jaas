@@ -1,0 +1,6 @@
+shell
+--pull
+--no-interactive
+--publish=1313:1313
+ghcr.io/gohugoio/hugo:v0.163.2
+hugo server --bind 0.0.0.0 --minify --printI18nWarnings --printPathWarnings --printUnusedTemplates --source docs

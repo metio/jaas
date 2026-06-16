@@ -1,0 +1,76 @@
+# SPDX-FileCopyrightText: The jaas Authors
+# SPDX-License-Identifier: 0BSD
+name: Documentation
+on:
+  workflow_dispatch:
+  schedule:
+    # Daily rebuild so the generated pages (flags, chart values, JOI catalog)
+    # pick up changes in the sibling repos with no cross-repo trigger and no
+    # token to maintain. jaas's own changes still rebuild immediately via the
+    # push paths below.
+    - cron: 45 4 * * *
+  push:
+    branches: [main]
+    paths:
+      - docs/**
+      # The flags page is generated from the binary's FlagSet, so a flag change
+      # must rebuild the site even though no docs/ file changed.
+      - main.go
+      - internal/cliflags/**
+      - hack/flaggen/**
+      - hack/flatten-schema.jq
+      - hack/joi-images.jq
+      - hack/gen-docs-data.sh
+  pull_request:
+    paths:
+      - docs/**
+      - main.go
+      - internal/cliflags/**
+      - hack/flaggen/**
+      - hack/flatten-schema.jq
+      - hack/joi-images.jq
+      - hack/gen-docs-data.sh
+permissions:
+  contents: read
+jobs:
+  website:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - id: checkout
+        name: Clone Git Repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          fetch-depth: 0
+          submodules: recursive
+      - id: hugo
+        name: Setup Hugo
+        uses: peaceiris/actions-hugo@2752ce1d29631191ea3f27c23495fa06139a5b78 # v3
+        with:
+          hugo-version: latest
+          extended: true
+      - id: go
+        name: Setup Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - id: data
+        name: Generate docs data (flags + chart values)
+        # flaggen renders the binary's FlagSet; the chart values are fetched and
+        # flattened from helm-charts' values.schema.json. Both land in docs/data/
+        # and are gitignored — the published site is always generated from source.
+        run: hack/gen-docs-data.sh
+      - id: build
+        name: Build Website
+        run: hugo --minify --printI18nWarnings --printPathWarnings --source docs
+      - id: deploy
+        name: Deploy Website
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        uses: peaceiris/actions-gh-pages@4f9cc6602d3f66b9c108549d475ec49e8ef4d45e # v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./docs/public
+          force_orphan: true
+          cname: jaas.projects.metio.wtf

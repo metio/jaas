@@ -1,9 +1,8 @@
-<!--
-SPDX-FileCopyrightText: The jaas Authors
-SPDX-License-Identifier: 0BSD
--->
-
-# Operator runbook: watch-layer silent failure
+---
+title: Watch-layer silent failure
+description: The operator's own ClusterRole is missing a verb on a watched kind, so controller-runtime's informer retries silently and no snippet status reflects the problem
+tags: [runbooks, troubleshooting, rbac]
+---
 
 Not tied to a per-snippet `Reason`. This page covers the one RBAC-denial path the reconciler cannot surface itself: when the **operator's own** ClusterRole is missing a verb on a watched resource kind, controller-runtime's informer fails to start its watch, logs warnings, and retries silently. The reconciler never sees the failure — and no snippet's status condition will tell you about it.
 
@@ -11,7 +10,7 @@ If a per-snippet runbook (`rbacdenied.md`, `sourcefetchfailed.md`, `sourcenotrea
 
 ## Symptom
 
-- Snippets that worked yesterday stop receiving watch-driven re-renders. They still reconcile on edits or `spec.interval` ticks, just not on upstream source changes.
+- Snippets that worked yesterday stop receiving watch-driven re-renders. They still reconcile on edits or `spec.interval` ticks, but not on upstream source changes.
 - `kubectl describe jsonnetsnippet` shows healthy or stale state — never `Reason=RBACDenied` or any other failure.
 - Operator pod is `Ready=True`, all probes pass.
 - A `Flux GitRepository` (or `OCIRepository` / `Bucket` / `ExternalArtifact` / `JsonnetLibrary`) advances its `status.artifact` but no JaaS reconcile fires.
@@ -28,7 +27,7 @@ controller-runtime's informer is what watches resource kinds at the apiserver. I
 
 This is the one diagnostic surface the operator can't unify with its other RBAC-denial paths (Fetcher / library Get / Publisher write — all per-reconcile and surfaced via `Reason=RBACDenied`).
 
-## Diagnose
+## Diagnosis
 
 The smoking gun is in the operator's logs:
 
@@ -61,7 +60,7 @@ Compare against the chart-rendered ClusterRole:
 kubectl get clusterrole <release>-operator -o yaml | grep -A2 source.toolkit.fluxcd.io
 ```
 
-## Remediate
+## Remediation
 
 The operator's ClusterRole verbs are defined in the chart's `templates/clusterrole-operator.yaml` (in the metio/helm-charts repo, under `charts/jaas/`). Three causes warrant separate fixes:
 

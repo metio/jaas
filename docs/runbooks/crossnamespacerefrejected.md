@@ -1,9 +1,8 @@
-<!--
-SPDX-FileCopyrightText: The jaas Authors
-SPDX-License-Identifier: 0BSD
--->
-
-# Reason: CrossNamespaceRefRejected
+---
+title: CrossNamespaceRefRejected
+description: The snippet references a library or Flux source in a different namespace and cross-namespace refs are disabled
+tags: [runbooks, troubleshooting, rbac]
+---
 
 ## Symptom
 

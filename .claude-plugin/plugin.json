@@ -1,0 +1,22 @@
+{
+  "name": "jaas",
+  "displayName": "Jsonnet-as-a-Service",
+  "description": "Teach Claude to author and operate JaaS — evaluate Jsonnet over HTTP, and publish JsonnetSnippet / JsonnetLibrary resources as Flux ExternalArtifacts.",
+  "author": {
+    "name": "The jaas Authors",
+    "url": "https://github.com/metio/jaas"
+  },
+  "homepage": "https://jaas.projects.metio.wtf/",
+  "repository": "https://github.com/metio/jaas",
+  "license": "0BSD",
+  "keywords": [
+    "jaas",
+    "jsonnet",
+    "flux",
+    "gitops",
+    "kubernetes",
+    "externalartifact",
+    "grafana",
+    "rendering"
+  ]
+}

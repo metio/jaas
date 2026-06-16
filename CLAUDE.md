@@ -42,7 +42,7 @@ The Helm chart lives in the [metio/helm-charts](https://github.com/metio/helm-ch
 
 ## Architecture
 
-`main.go` keeps `main()` itself to a 4-line shell that creates a signal channel, calls `signal.Notify(sigs, SIGINT, SIGTERM)`, and `os.Exit(run(args, env, stdout, stderr, sigs))`. All real work lives in `run(...) int`, which takes its dependencies (args, env, writers, signal channel) as parameters so it can be exercised from tests without touching globals. `run` uses `flag.NewFlagSet("jaas", flag.ContinueOnError)` per call — not the global `flag.CommandLine` — so two consecutive invocations in one process don't panic with "flag redefined". Exit codes follow Unix convention: 0 success, 1 runtime failure (bind, shutdown), 2 flag parse error.
+`main.go` keeps `main()` itself to a 4-line shell that creates a signal channel, calls `signal.Notify(sigs, SIGINT, SIGTERM)`, and `os.Exit(run(args, env, stdout, stderr, sigs))`. All real work lives in `run(...) int`, which takes its dependencies (args, env, writers, signal channel) as parameters so it can be exercised from tests without touching globals. `run` uses `pflag.NewFlagSet("jaas", pflag.ContinueOnError)` (POSIX double-dash flags, `github.com/spf13/pflag` — unifying the CLI convention with stageset-controller) per call — not a global `pflag.CommandLine` — so two consecutive invocations in one process don't panic with "flag redefined". Because pflag rejects single-dash long flags, only `--flag` parses; a `-flag` long form is a parse error. `fs.Parse` maps `pflag.ErrHelp` (from `-h`/`--help`) to exit 0; any other parse error is exit 2. Exit codes follow Unix convention: 0 success, 1 runtime failure (bind, shutdown), 2 flag parse error. jaas uses `log/slog`, not controller-runtime's zap, and nothing registers on a global flag set, so there is no zap/klog flag bridge to wire — the FlagSet is local to `run`.
 
 `run` wires two independent `http.Server` instances and a shared `*handler.HealthState`, plus — when `--enable-flux-integration` is set — a third HTTP server and a controller-runtime manager:
 
@@ -147,7 +147,7 @@ Non-2xx responses carry a JSON body produced by `writeJSONError(ctx, logger, w, 
 
 ### Misc
 
-- Snippet / library / extvar flag types are accumulator slices (`stringArray` in `main.go`) so `-snippet`, `-snippet-directory`, `-library-path` can be repeated.
+- Snippet / library / extvar flags use pflag `StringArray` (not `StringSlice`) so `--snippet`, `--snippet-directory`, `--library-path`, `--ext-var` can be repeated and each occurrence appends exactly one value without comma-splitting — `--ext-var KEY=VALUE` and paths may legitimately contain commas.
 
 ## Build & release
 
@@ -225,9 +225,26 @@ The `examples/` directory is organised so each subdirectory exercises a distinct
 
 The `examples/libraries-overrides/` directory exists solely to exercise the library-precedence test — it redefines `examplonet/main.libsonnet` so `TestExamples_LibraryPrecedence_WithOverride` can prove the rightmost `-library-path` takes effect. Don't put production-style libraries there.
 
+## Documentation site
+
+`docs/` is a [Hugo](https://gohugo.io/) site published to `https://jaas.projects.metio.wtf/` (gh-pages, via `.github/workflows/docs.yml`). It uses the shared **metio-hugo-theme** pinned as a **git submodule** at `docs/themes/metio` (`theme = "metio"` in `docs/hugo.toml`); Renovate's `git-submodules` manager keeps it on the latest theme commit. The setup is kept **structurally identical to the stageset-controller repo** on purpose (same theme, conventions, `hugo.toml`, REUSE handling, LLMs outputs, Claude skill) — changes to one usually want mirroring to the other.
+
+The site is **end-user documentation**, authored directly under `docs/content/`: `installation/`, `tutorials/`, `usage/` (one feature per page), `api/` (a field-by-field reference per CR), `comparisons/`, and `contributing/`. Two conventions matter: content pages carry **front matter only** — no inline SPDX, because `REUSE.toml` covers `docs/**`, `skills/**`, and `.claude-plugin/**` — and **no body `# H1`**, because the theme renders the page title from front matter and a body H1 double-prints it. The home page (`content/_index.md`) is the one exception: its template renders `.Content`, so it keeps a body H1.
+
+The runbook markdown stays at `docs/runbooks/` — pinned there by the `conditions_test` drift gate and doubling as GitHub-rendered repo docs — and is surfaced into the content tree via a `[module.mounts]` entry in `docs/hugo.toml` (`ignoreFiles = ['README\.md$']` drops the runbook README from the render). Runbook pages carry front matter (title/description/tags) so they list, but no body H1. There are **no design/decision docs in the tree** — that material was folded into the end-user docs.
+
+The desktop nav is an explicit `[menu.main]` tree in `hugo.toml` — the theme renders a menu entry only when it has children. `outputs.home` includes `LLMS` (generates `/llms-full.txt`, the whole site concatenated for LLMs) and `LLMSINDEX` (generates `/llms.txt`, a concise link index auto-derived from each page's front-matter title + description) — both are theme output formats, so no static llms file is hand-maintained. A Claude skill lives at `skills/jaas/` (`SKILL.md` + `references/reference.md`) with `.claude-plugin/{plugin,marketplace}.json`, mirroring the stageset repo.
+
+Build/preview locally with ilo argument files — but the repo's `.ilo.rc` auto-loads the Go dev shell, which would clash, so bypass it with `--no-rc`:
+
+```shell
+ilo --no-rc @dev/website   # one-shot build into docs/public/
+ilo --no-rc @dev/serve     # live server on :1313
+```
+
 ## Licensing / REUSE
 
-The repo is REUSE-compliant (0BSD). Every source file carries an SPDX header. `REUSE.toml` overrides licensing for paths that can't carry inline headers (`examples/**`, `http/**`, generated CRD/JSON files). The `reuse` GitHub workflow enforces this on every push — new files without SPDX headers will fail CI.
+The repo is REUSE-compliant (0BSD). Every source file carries an SPDX header. `REUSE.toml` overrides licensing for paths that can't carry inline headers (`examples/**`, `http/**`, generated CRD/JSON files, `.gitmodules`, the `dev/website` / `dev/serve` ilo argument files). The `reuse` GitHub workflow enforces this on every push — new files without SPDX headers will fail CI. The `docs/themes/metio` submodule is a separate repo (CC0) and is outside this repo's REUSE scope.
 
 ## CI
 

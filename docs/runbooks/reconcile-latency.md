@@ -1,9 +1,8 @@
-<!--
-SPDX-FileCopyrightText: The jaas Authors
-SPDX-License-Identifier: 0BSD
--->
-
-# Operator runbook: high reconcile latency
+---
+title: High reconcile latency
+description: Individual reconcile calls are taking longer than the configured p99 threshold, indicating slow source fetches, heavy evaluation, or a sluggish storage backend
+tags: [runbooks, troubleshooting, metrics]
+---
 
 Linked from the `JaaSReconcileLatencyHigh` alert. Fires when the controller-runtime `controller_runtime_reconcile_time_seconds` histogram p99 exceeds the configured threshold (default 30s) for the alert window.
 
@@ -62,7 +61,7 @@ kubectl -n <jaas-ns> logs deploy/jaas --tail=50 | grep <name>
 ## Remediation
 
 - **Slow Fetcher.** Narrow `spec.sourceRef.path` to the subdirectory the snippet actually needs. Tarballs balloon when an entire monorepo is published; the filter trims what JaaS has to download.
-- **Heavy eval.** Cap `-max-stack` to bound runaway recursion. Profile the snippet locally via `jsonnet` (the CLI) — the operator's evaluation is identical.
+- **Heavy eval.** Cap `--max-stack` to bound runaway recursion. Profile the snippet locally via `jsonnet` (the CLI) — the operator's evaluation is identical.
 - **Slow Publisher.** See [storage-recovery.md](storage-recovery.md) for backend-specific tuning.
 - **Cycle-detection blowup.** Reorganize snippets so the cross-reference graph is shallow; cycle detection visits every reachable node, so a fan-out of N snippets multiplies the cost.
 - **OTel for forensics.** Enable `--tracing-endpoint` and the per-stage spans turn this from guessing into measurement. The chart values key is `operator.tracing.endpoint`.

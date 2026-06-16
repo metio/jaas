@@ -1,0 +1,23 @@
+{
+  "name": "jaas",
+  "owner": {
+    "name": "The jaas Authors"
+  },
+  "description": "Jsonnet-as-a-Service — evaluate Jsonnet on demand and publish it as a Flux ExternalArtifact.",
+  "plugins": [
+    {
+      "name": "jaas",
+      "source": "./",
+      "description": "Teach Claude to author and operate JaaS snippets and libraries.",
+      "homepage": "https://jaas.projects.metio.wtf/",
+      "license": "0BSD",
+      "keywords": [
+        "jaas",
+        "jsonnet",
+        "flux",
+        "gitops",
+        "kubernetes"
+      ]
+    }
+  ]
+}

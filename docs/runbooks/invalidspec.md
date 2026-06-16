@@ -1,9 +1,8 @@
-<!--
-SPDX-FileCopyrightText: The jaas Authors
-SPDX-License-Identifier: 0BSD
--->
-
-# Reason: InvalidSpec
+---
+title: InvalidSpec
+description: The snippet's spec contains a field combination the reconciler cannot process, such as a missing entryFile or conflicting source fields
+tags: [runbooks, troubleshooting, lifecycle]
+---
 
 ## Symptom
 

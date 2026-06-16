@@ -1,9 +1,8 @@
-<!--
-SPDX-FileCopyrightText: The jaas Authors
-SPDX-License-Identifier: 0BSD
--->
-
-# Reason: Suspended
+---
+title: Suspended
+description: Reconciliation is intentionally paused because spec.suspend is true; the last published artifact remains intact
+tags: [runbooks, troubleshooting, lifecycle]
+---
 
 ## Symptom
 

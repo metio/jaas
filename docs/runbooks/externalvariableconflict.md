@@ -1,9 +1,8 @@
-<!--
-SPDX-FileCopyrightText: The jaas Authors
-SPDX-License-Identifier: 0BSD
--->
-
-# Reason: ExternalVariableConflict
+---
+title: ExternalVariableConflict
+description: The snippet declares an external variable key already claimed by the operator via --ext-var
+tags: [runbooks, troubleshooting, evaluation]
+---
 
 ## Symptom
 
@@ -17,7 +16,7 @@ The snippet's `spec.externalVariables` declares a key that the operator already 
 
 ```shell
 # Which keys does the operator own?
-kubectl get pod -n <jaas-ns> -l app.kubernetes.io/name=jaas -o yaml | grep -A1 "\-ext-var="
+kubectl get pod -n <jaas-ns> -l app.kubernetes.io/name=jaas -o yaml | grep -A1 "\--ext-var="
 ```
 
 Cross-reference with the snippet's `spec.externalVariables`.

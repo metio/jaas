@@ -1,14 +1,15 @@
 # SPDX-FileCopyrightText: The jaas Authors
 # SPDX-License-Identifier: 0BSD
 #
-# Two snippets where the second sources from the ExternalArtifact the
-# first publishes. When `base-config` re-renders, the operator's
-# ExternalArtifact watch enqueues `derived-config` automatically.
+# Two snippets where the second re-evaluates the Jsonnet the first publishes.
+# base-config publishes its raw Jsonnet (output: source); derived-config sources
+# that artifact and re-evaluates it with its own top-level arguments. When
+# base-config republishes, the operator's ExternalArtifact watch re-queues
+# derived-config automatically.
 #
-# Cycles are detected at reconcile time — if `derived-config` somehow
-# fed back into `base-config` (directly or via a library chain), the
-# reconciler refuses to publish and surfaces Ready=False with a
-# ReasonDependencyCycle.
+# Cycles are detected at reconcile time — if derived-config somehow fed back into
+# base-config (directly or via a library chain), the reconciler refuses to publish
+# and surfaces Ready=False with ReasonDependencyCycle.
 
 apiVersion: v1
 kind: ServiceAccount
@@ -23,9 +24,11 @@ metadata:
   name: chained-tenant
   namespace: default
 rules:
+  # Both snippets publish their own ExternalArtifact, and derived-config also
+  # reads the one base-config publishes.
   - apiGroups: [source.toolkit.fluxcd.io]
     resources: [externalartifacts]
-    verbs: [get]
+    verbs: [get, create, update, patch]
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -43,7 +46,8 @@ roleRef:
   apiGroup: rbac.authorization.k8s.io
 
 ---
-# The "base" snippet renders a shared config blob other snippets consume.
+# The "base" snippet publishes its raw Jsonnet — a function parameterized by
+# environment — so downstream snippets can re-evaluate it (output: source).
 apiVersion: jaas.metio.wtf/v1
 kind: JsonnetSnippet
 metadata:
@@ -51,19 +55,24 @@ metadata:
   namespace: default
 spec:
   serviceAccountName: chained-tenant
+  output: source
   entryFile: main.jsonnet
   files:
     main.jsonnet: |
-      {
+      function(env='dev') {
         cluster: 'prod',
-        region:  'eu-west-1',
-        retentionDays: 30,
+        region: 'eu-west-1',
+        retentionDays: if env == 'prod' then 90 else 30,
+        alerting: {
+          errorRateThreshold: if env == 'prod' then 0.01 else 0.05,
+          latencyP99Ms: 500,
+        },
       }
 
 ---
-# The "derived" snippet sources from base-config's ExternalArtifact and
-# extends it. The reconciler's watch on ExternalArtifact updates
-# re-queues derived-config whenever base-config republishes.
+# The "derived" snippet sources base-config's published Jsonnet and re-evaluates
+# it for production. Its source is the ExternalArtifact, so it carries no inline
+# files of its own; it customizes the render through TLAs.
 apiVersion: jaas.metio.wtf/v1
 kind: JsonnetSnippet
 metadata:
@@ -75,12 +84,6 @@ spec:
   sourceRef:
     kind: ExternalArtifact
     name: base-config
-  files:
-    main.jsonnet: |
-      local base = import 'base-config.json';
-      base + {
-        alerting: {
-          errorRateThreshold: 0.01,
-          latencyP99Ms: 500,
-        },
-      }
+  tlas:
+    env:
+      - prod

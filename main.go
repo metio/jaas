@@ -8,7 +8,6 @@ package main
 import (
 	"context"
 	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"log/slog"
@@ -24,11 +23,13 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/spf13/pflag"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	ctrl "sigs.k8s.io/controller-runtime"
 
+	"github.com/metio/jaas/internal/cliflags"
 	"github.com/metio/jaas/internal/eval"
 	"github.com/metio/jaas/internal/handler"
 	"github.com/metio/jaas/internal/observability"
@@ -36,17 +37,6 @@ import (
 	"github.com/metio/jaas/internal/storage"
 	"github.com/metio/jaas/internal/webhook/selfsigned"
 )
-
-type stringArray []string
-
-func (i *stringArray) String() string {
-	return fmt.Sprintf("%v", *i)
-}
-
-func (i *stringArray) Set(value string) error {
-	*i = append(*i, value)
-	return nil
-}
 
 // Overwritten at link time via `-ldflags="-X main.version=... -X main.commit=..."` by
 // the release workflow. For local builds `version` stays "development", and `commit`
@@ -107,87 +97,19 @@ func main() {
 // Return value follows the Unix convention: 0 success, 1 runtime failure
 // (bind / shutdown error surfaced before normal exit), 2 flag parse error.
 func run(args, env []string, stdout, stderr io.Writer, sigs <-chan os.Signal) int {
-	fs := flag.NewFlagSet("jaas", flag.ContinueOnError)
+	fs := pflag.NewFlagSet("jaas", pflag.ContinueOnError)
 	fs.SetOutput(stderr)
 
-	var libraryPaths stringArray
-	var snippets stringArray
-	var snippetDirectories stringArray
-	var extVarFlags stringArray
-	showVersion := fs.Bool("version", false, "Print version and exit")
-	logLevel := fs.String("log-level", "info", "The log level to use (debug, info, warn, error)")
-	listenAddress := fs.String("listen-address", "127.0.0.1", "The listen address to bind to for the Jsonnet server")
-	port := fs.String("port", "8080", "The port to bind to for the Jsonnet server")
-	jsonnetEndpointPath := fs.String("jsonnet-endpoint-path", "jsonnet", "The path to the jsonnet endpoint")
-	writeTimeout := fs.Duration("write-timeout", 10*time.Second, "The maximum duration before timing out writes of the response in the Jsonnet server")
-	readTimeout := fs.Duration("read-timeout", 10*time.Second, "maximum duration for reading the entire request, including the body in the Jsonnet server")
-	managementListenAddress := fs.String("management-listen-address", "127.0.0.1", "The listen address to bind to for the management server")
-	managementPort := fs.String("management-port", "8081", "The port to bind to for the management server")
-	managementWriteTimeout := fs.Duration("management-write-timeout", 10*time.Second, "The maximum duration before timing out writes of the response in the management server")
-	managementReadTimeout := fs.Duration("management-read-timeout", 10*time.Second, "maximum duration for reading the entire request, including the body in the management server")
-	evaluationTimeout := fs.Duration("evaluation-timeout", 5*time.Second, "Maximum duration a single Jsonnet evaluation is allowed to take. Set to 0 to disable.")
-	maxStack := fs.Int("max-stack", 500, "Maximum Jsonnet call-stack depth. Set to 0 to use go-jsonnet's default.")
-	maxConcurrentEvals := fs.Int("max-concurrent-evals", defaultMaxConcurrentEvals(), "Maximum number of in-flight Jsonnet evaluations. Excess requests return 503 (HTTP) or RequeueAfter (operator). Set to 0 to disable. Defaults to max(GOMAXPROCS*4, 16).")
-	shutdownDelay := fs.Duration("shutdown-delay", 5*time.Second, "Time to wait after readiness flips to false before initiating graceful shutdown; gives Kubernetes time to propagate the not-ready status to endpoint controllers. Set to 0 to disable.")
-	fs.Var(&libraryPaths, "library-path", "The path of a directory containing jsonnet libraries (can be specified multiple times). Rightmost matching library will be used.")
-	fs.Var(&snippets, "snippet", "The path of a jsonnet file or directory containing snippets (can be specified multiple times). Snippets will be loaded from the given path, where the file name is the snippet name.")
-	fs.Var(&snippetDirectories, "snippet-directory", "The path of a directory containing snippets as subdirectories (can be specified multiple times). Snippets will be loaded from subdirectories of the given path, where the directory name is the snippet name.")
-	fs.Var(&extVarFlags, "ext-var", "External variable as KEY=VALUE for std.extVar lookups (can be specified multiple times). Takes precedence over JAAS_EXT_VAR_* env vars on conflict.")
-
-	enableFluxIntegration := fs.Bool("enable-flux-integration", false, "Boot the Kubernetes operator that watches JsonnetSnippet / JsonnetLibrary CRs and publishes evaluated results as Flux ExternalArtifacts.")
-	defaultServiceAccount := fs.String("default-service-account", "", "ServiceAccount the operator impersonates when a JsonnetSnippet has no spec.serviceAccountName. Empty rejects such snippets at reconcile time.")
-	noCrossNamespaceRefs := fs.Bool("no-cross-namespace-refs", true, "When true (default), reject JsonnetSnippet / library CRs that reference a SourceRef in a different namespace.")
-	labelSelector := fs.String("label-selector", "", "Narrow the operator's watch to CRs matching this label selector. Empty selects every CR in the watched scope.")
-	watchNamespaces := fs.String("watch-namespaces", "", "Comma-separated list of namespaces this operator watches. Empty (the default) means cluster-wide. When set, the manager's cache only observes CRs in these namespaces — multi-tenant operator-instances pattern. Falls back to JAAS_WATCH_NAMESPACES env var when the flag is empty.")
-	rerenderRate := fs.String("rerender-rate", "60/min", "Per-snippet steady-state re-render budget, as N/period (sec|min|hour). Token-bucket combined with -rerender-burst.")
-	rerenderBurst := fs.Int("rerender-burst", 120, "Per-snippet token-bucket depth for re-render rate limiting.")
-	kubeconfig := fs.String("kubeconfig", "", "Path to a kubeconfig file for the operator. Empty falls back to KUBECONFIG env, then to in-cluster service-account credentials.")
-	storagePath := fs.String("storage-path", "", "Directory the operator writes ExternalArtifact tarballs to. Required when -enable-flux-integration is set.")
-	storageBaseURL := fs.String("storage-base-url", "", "Public URL prefix the operator's storage HTTP server serves tarballs at. Required when -enable-flux-integration is set.")
-	storageListenAddress := fs.String("storage-listen-address", "0.0.0.0", "The listen address to bind to for the storage HTTP server")
-	storagePort := fs.String("storage-port", "8082", "The port to bind to for the storage HTTP server")
-	storageReadTimeout := fs.Duration("storage-read-timeout", 30*time.Second, "Maximum duration for reading the entire request on the storage server.")
-	storageWriteTimeout := fs.Duration("storage-write-timeout", 5*time.Minute, "Maximum duration before timing out writes of the response on the storage server. Tarballs can be MBs, so this is generous by default.")
-	enableWebhook := fs.Bool("enable-webhook", false, "Boot the validating admission webhook for JsonnetSnippet. Requires -enable-flux-integration and a TLS cert/key in -webhook-cert-dir.")
-	webhookCertDir := fs.String("webhook-cert-dir", "/tmp/k8s-webhook-server/serving-certs", "Directory holding the TLS cert (tls.crt) and key (tls.key) the webhook server presents.")
-	webhookPort := fs.Int("webhook-port", 9443, "Port the validating webhook server binds to.")
-	webhookCertMode := fs.String("webhook-cert-mode", "cert-manager", "How the webhook's TLS material is provisioned: cert-manager (chart renders a Certificate; cert injected via Secret mount), or self-signed (operator generates a CA + serving cert in-pod and patches the ValidatingWebhookConfiguration's caBundle).")
-	webhookServiceName := fs.String("webhook-service-name", "jaas-webhook", "Service name the webhook is reachable through. Used to build cert SANs when -webhook-cert-mode=self-signed.")
-	webhookServiceNamespace := fs.String("webhook-service-namespace", "", "Namespace the webhook Service lives in. Empty falls back to -leader-election-namespace, then to in-cluster downward API.")
-	webhookVWCName := fs.String("webhook-validating-config-name", "", "Name of the ValidatingWebhookConfiguration whose caBundle this operator patches. Required when -webhook-cert-mode=self-signed.")
-	webhookCertValidity := fs.Duration("webhook-cert-validity", 365*24*time.Hour, "Validity of the self-signed serving cert. Operators that want short-lived rotation should use cert-manager instead.")
-	leaderElection := fs.Bool("leader-election", true, "Enable controller-runtime leader election so only one operator replica reconciles at a time. Honored only when -enable-flux-integration is set.")
-	leaderElectionID := fs.String("leader-election-id", "jaas-operator", "Lease object name used for leader election. Must be unique across JaaS installations sharing a namespace.")
-	leaderElectionNamespace := fs.String("leader-election-namespace", "", "Namespace holding the leader-election Lease. Empty defaults to the operator pod's namespace.")
-	metricsBindAddress := fs.String("metrics-bind-address", ":8083", "Bind address for the controller-runtime Prometheus metrics endpoint. Use \"0\" to disable. The default avoids the conflict between controller-runtime's built-in :8080 and the jsonnet HTTP server.")
-	storageBackend := fs.String("storage-backend", "local", "Artifact backend the operator publishes ExternalArtifact tarballs through. local (default; emptyDir/PVC) or s3 (any S3-compatible object store; pairs with leader election for HA across replicas).")
-	s3Endpoint := fs.String("s3-endpoint", "", "S3 service host:port (e.g. s3.amazonaws.com or minio.minio.svc:9000). Required when -storage-backend=s3.")
-	s3Bucket := fs.String("s3-bucket", "", "S3 bucket the artifacts live in. Must already exist. Required when -storage-backend=s3.")
-	s3Prefix := fs.String("s3-prefix", "", "Optional object-key prefix prepended under the bucket, so jaas can coexist with other tenants in one bucket.")
-	s3Region := fs.String("s3-region", "", "S3 region the bucket lives in. Required for AWS multi-region setups; ignored by most S3-compatible servers.")
-	s3UseSSL := fs.Bool("s3-use-ssl", true, "Talk HTTPS to the S3 endpoint. Set to false only for local MinIO over HTTP.")
-	s3AccessKey := fs.String("s3-access-key", "", "Static AWS_ACCESS_KEY_ID. Empty triggers the IAM/IRSA discovery chain (AWS_*, web-identity, EC2 metadata).")
-	s3SecretKey := fs.String("s3-secret-key", "", "Static AWS_SECRET_ACCESS_KEY. Pairs with -s3-access-key.")
-	s3SessionToken := fs.String("s3-session-token", "", "Optional AWS_SESSION_TOKEN, paired with -s3-access-key/-s3-secret-key for temporary credentials.")
-	s3Anonymous := fs.Bool("s3-anonymous", false, "Skip request signing entirely. Only useful against a public bucket — test/dev only.")
-	runbookBaseURL := fs.String("runbook-base-url", "", "Optional URL prefix appended to every Ready condition Message as (runbook: <base>/<reason>.md). Empty disables.")
-	maxWithdrawWait := fs.Duration("max-withdraw-wait", 1*time.Hour, "Bound the time a deleted JsonnetSnippet's finalizer can hold while Publisher.Withdraw keeps failing. Past this, the operator emits a Warning WithdrawForced event, drops the finalizer, and lets the snippet be garbage-collected — possibly leaving an orphan tarball in storage. Required so a permanently-broken backend doesn't block namespace teardown.")
-	maxArtifactBytes := fs.Int64("max-artifact-bytes", 0, "Cap the rendered artifact size in bytes. Snippets whose rendered output exceeds this fail with ReasonArtifactTooLarge. Zero disables.")
-	artifactGCGrace := fs.Duration("artifact-gc-grace", 5*time.Minute, "Minimum time a superseded artifact revision is retained after being evicted from the keep-set. Closes the pin→fetch race in which a Flux consumer reads status.artifact a moment before the operator garbage-collects the superseded revision. Zero disables and restores eager pruning. The deletion path (snippet teardown) is unaffected.")
-	storageSweepInterval := fs.Duration("storage-sweep-interval", 10*time.Minute, "How often the operator sweeps orphaned <rev>.tar.gz.tmp residue left by Puts whose process died mid-rename. Zero disables.")
-	storageSweepMaxTmpAge := fs.Duration("storage-sweep-max-tmp-age", 30*time.Minute, "Minimum age before an orphaned .tmp file is eligible for sweep. Wider than the longest plausible in-flight Put to avoid racing live writers.")
-	tracingEndpoint := fs.String("tracing-endpoint", "", "OTLP gRPC collector host:port (e.g. otel-collector.observability.svc:4317). Empty disables tracing entirely.")
-	tracingInsecure := fs.Bool("tracing-insecure", false, "Skip TLS when dialing the OTLP collector. Use only for in-cluster collectors that don't terminate TLS themselves.")
-	tracingSampleRatio := fs.Float64("tracing-sample-ratio", 1.0, "TraceID-ratio sampling (0.0..1.0). 1.0 samples every trace.")
+	f := cliflags.Register(fs, defaultMaxConcurrentEvals)
 
 	if err := fs.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
+		if errors.Is(err, pflag.ErrHelp) {
 			return 0
 		}
 		return 2
 	}
 
-	if *showVersion {
+	if *f.ShowVersion {
 		// Single Fprintln per line so an empty commit (or version)
 		// doesn't leave behind the "label:  \n" double-space artifact
 		// the old %s format produced when -ldflags set the value to
@@ -198,25 +120,25 @@ func run(args, env []string, stdout, stderr io.Writer, sigs <-chan os.Signal) in
 	}
 
 	// The webhook server is wired only inside the operator boot path, so
-	// -enable-webhook without -enable-flux-integration would silently
+	// --enable-webhook without --enable-flux-integration would silently
 	// boot an HTTP-only evaluator with no admission validation — a
 	// security-relevant no-op. Reject it as a flag error rather than
 	// ignore it.
-	if *enableWebhook && !*enableFluxIntegration {
-		fmt.Fprintln(stderr, "jaas: -enable-webhook requires -enable-flux-integration")
+	if *f.EnableWebhook && !*f.EnableFluxIntegration {
+		fmt.Fprintln(stderr, "jaas: --enable-webhook requires --enable-flux-integration")
 		return 2
 	}
 
-	configureLogger(stdout, *logLevel)
+	configureLogger(stdout, *f.LogLevel)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	tracingShutdown, err := observability.InitTracer(ctx, observability.TracingConfig{
-		Endpoint:       *tracingEndpoint,
-		Insecure:       *tracingInsecure,
+		Endpoint:       *f.TracingEndpoint,
+		Insecure:       *f.TracingInsecure,
 		ServiceVersion: version,
-		SampleRatio:    *tracingSampleRatio,
+		SampleRatio:    *f.TracingSampleRatio,
 	})
 	if err != nil {
 		slog.ErrorContext(ctx, "Cannot init tracer", slog.Any("error", err))
@@ -235,39 +157,39 @@ func run(args, env []string, stdout, stderr io.Writer, sigs <-chan os.Signal) in
 		slog.String("commit", commit))
 
 	slog.InfoContext(ctx, "CLI flags parsed",
-		slog.String("log-level", *logLevel),
-		slog.String("listen-address", *listenAddress),
-		slog.String("port", *port),
-		slog.String("jsonnet-endpoint-path", *jsonnetEndpointPath),
-		slog.Duration("write-timeout", *writeTimeout),
-		slog.Duration("read-timeout", *readTimeout),
-		slog.Any("library-paths", libraryPaths),
-		slog.Any("snippets", snippets),
-		slog.Any("snippets-directories", snippetDirectories),
-		slog.String("management-listen-address", *managementListenAddress),
-		slog.String("management-port", *managementPort),
-		slog.Duration("management-write-timeout", *managementWriteTimeout),
-		slog.Duration("management-read-timeout", *managementReadTimeout),
-		slog.Duration("evaluation-timeout", *evaluationTimeout),
-		slog.Int("max-stack", *maxStack),
-		slog.Int("max-concurrent-evals", *maxConcurrentEvals),
-		slog.Duration("shutdown-delay", *shutdownDelay),
-		slog.Bool("enable-flux-integration", *enableFluxIntegration),
-		slog.String("default-service-account", *defaultServiceAccount),
-		slog.Bool("no-cross-namespace-refs", *noCrossNamespaceRefs),
-		slog.String("label-selector", *labelSelector),
-		slog.String("rerender-rate", *rerenderRate),
-		slog.Int("rerender-burst", *rerenderBurst))
+		slog.String("log-level", *f.LogLevel),
+		slog.String("listen-address", *f.ListenAddress),
+		slog.String("port", *f.Port),
+		slog.String("jsonnet-endpoint-path", *f.JsonnetEndpointPath),
+		slog.Duration("write-timeout", *f.WriteTimeout),
+		slog.Duration("read-timeout", *f.ReadTimeout),
+		slog.Any("library-paths", *f.LibraryPaths),
+		slog.Any("snippets", *f.Snippets),
+		slog.Any("snippets-directories", *f.SnippetDirectories),
+		slog.String("management-listen-address", *f.ManagementListenAddress),
+		slog.String("management-port", *f.ManagementPort),
+		slog.Duration("management-write-timeout", *f.ManagementWriteTimeout),
+		slog.Duration("management-read-timeout", *f.ManagementReadTimeout),
+		slog.Duration("evaluation-timeout", *f.EvaluationTimeout),
+		slog.Int("max-stack", *f.MaxStack),
+		slog.Int("max-concurrent-evals", *f.MaxConcurrentEvals),
+		slog.Duration("shutdown-delay", *f.ShutdownDelay),
+		slog.Bool("enable-flux-integration", *f.EnableFluxIntegration),
+		slog.String("default-service-account", *f.DefaultServiceAccount),
+		slog.Bool("no-cross-namespace-refs", *f.NoCrossNamespaceRefs),
+		slog.String("label-selector", *f.LabelSelector),
+		slog.String("rerender-rate", *f.RerenderRate),
+		slog.Int("rerender-burst", *f.RerenderBurst))
 
-	eval.SetMaxConcurrentEvals(*maxConcurrentEvals)
+	eval.SetMaxConcurrentEvals(*f.MaxConcurrentEvals)
 
-	cliExtVars, err := operator.ParseExtVars(extVarFlags)
+	cliExtVars, err := operator.ParseExtVars(*f.ExtVarFlags)
 	if err != nil {
-		fmt.Fprintf(stderr, "Invalid -ext-var: %v\n", err)
+		fmt.Fprintf(stderr, "Invalid --ext-var: %v\n", err)
 		return 1
 	}
 
-	// CLI -ext-var overlays env-derived JAAS_EXT_VAR_* on key conflicts;
+	// CLI --ext-var overlays env-derived JAAS_EXT_VAR_* on key conflicts;
 	// the env mechanism predates the flag and is kept for the HTTP-only path.
 	extVars := handler.ParseExtVars(env)
 	for k, v := range cliExtVars {
@@ -287,32 +209,32 @@ func run(args, env []string, stdout, stderr io.Writer, sigs <-chan os.Signal) in
 		// the renewer never starts, in which case the await is skipped.
 		webhookRenewerDone <-chan struct{}
 	)
-	if *enableFluxIntegration {
-		rerenderRatePerSec, err := operator.ParseRerenderRate(*rerenderRate)
+	if *f.EnableFluxIntegration {
+		rerenderRatePerSec, err := operator.ParseRerenderRate(*f.RerenderRate)
 		if err != nil {
-			fmt.Fprintf(stderr, "Invalid -rerender-rate: %v\n", err)
+			fmt.Fprintf(stderr, "Invalid --rerender-rate: %v\n", err)
 			return 1
 		}
-		if *rerenderBurst < 1 {
-			fmt.Fprintf(stderr, "Invalid -rerender-burst: must be >= 1, got %d\n", *rerenderBurst)
+		if *f.RerenderBurst < 1 {
+			fmt.Fprintf(stderr, "Invalid --rerender-burst: must be >= 1, got %d\n", *f.RerenderBurst)
 			return 1
 		}
-		if *storageBaseURL == "" {
-			fmt.Fprintln(stderr, "Invalid -storage-base-url: required when -enable-flux-integration is set")
+		if *f.StorageBaseURL == "" {
+			fmt.Fprintln(stderr, "Invalid --storage-base-url: required when --enable-flux-integration is set")
 			return 1
 		}
 		var ok bool
-		opStore, ok = newStorageBackend(ctx, stderr, *storageBackend, *storagePath, storage.S3Config{
-			Endpoint:        *s3Endpoint,
-			Bucket:          *s3Bucket,
-			Prefix:          *s3Prefix,
-			Region:          *s3Region,
-			UseSSL:          *s3UseSSL,
-			AccessKeyID:     *s3AccessKey,
-			SecretAccessKey: *s3SecretKey,
-			SessionToken:    *s3SessionToken,
-			UseAnonymous:    *s3Anonymous,
-			ReadTimeout:     *storageReadTimeout,
+		opStore, ok = newStorageBackend(ctx, stderr, *f.StorageBackend, *f.StoragePath, storage.S3Config{
+			Endpoint:        *f.S3Endpoint,
+			Bucket:          *f.S3Bucket,
+			Prefix:          *f.S3Prefix,
+			Region:          *f.S3Region,
+			UseSSL:          *f.S3UseSSL,
+			AccessKeyID:     *f.S3AccessKey,
+			SecretAccessKey: *f.S3SecretKey,
+			SessionToken:    *f.S3SessionToken,
+			UseAnonymous:    *f.S3Anonymous,
+			ReadTimeout:     *f.StorageReadTimeout,
 		})
 		if !ok {
 			return 1
@@ -320,59 +242,59 @@ func run(args, env []string, stdout, stderr io.Writer, sigs <-chan os.Signal) in
 		defer func() { _ = opStore.Close() }()
 
 		opCfg = operator.Config{
-			DefaultServiceAccount:   *defaultServiceAccount,
-			NoCrossNamespaceRefs:    *noCrossNamespaceRefs,
-			LabelSelector:           *labelSelector,
-			WatchNamespaces:         parseWatchNamespaces(*watchNamespaces, env),
+			DefaultServiceAccount:   *f.DefaultServiceAccount,
+			NoCrossNamespaceRefs:    *f.NoCrossNamespaceRefs,
+			LabelSelector:           *f.LabelSelector,
+			WatchNamespaces:         parseWatchNamespaces(*f.WatchNamespaces, env),
 			RerenderRate:            rerenderRatePerSec,
-			RerenderBurst:           *rerenderBurst,
+			RerenderBurst:           *f.RerenderBurst,
 			ExtVars:                 extVars,
-			EvaluationTimeout:       *evaluationTimeout,
-			MaxStack:                *maxStack,
+			EvaluationTimeout:       *f.EvaluationTimeout,
+			MaxStack:                *f.MaxStack,
 			Store:                   opStore,
-			StorageBaseURL:          *storageBaseURL,
-			EnableWebhook:           *enableWebhook,
-			WebhookCertDir:          *webhookCertDir,
-			WebhookPort:             *webhookPort,
-			LeaderElection:          *leaderElection,
-			LeaderElectionID:        *leaderElectionID,
-			LeaderElectionNamespace: *leaderElectionNamespace,
-			KnownLibraryAliases:     ociLibraryAliasesFromPaths(libraryPaths),
-			OCILibraries:            loadOCILibraries(ctx, libraryPaths),
-			MetricsBindAddress:      *metricsBindAddress,
-			RunbookBaseURL:          *runbookBaseURL,
-			MaxWithdrawWait:         *maxWithdrawWait,
-			MaxArtifactBytes:        *maxArtifactBytes,
-			ArtifactGCGrace:         *artifactGCGrace,
+			StorageBaseURL:          *f.StorageBaseURL,
+			EnableWebhook:           *f.EnableWebhook,
+			WebhookCertDir:          *f.WebhookCertDir,
+			WebhookPort:             *f.WebhookPort,
+			LeaderElection:          *f.LeaderElection,
+			LeaderElectionID:        *f.LeaderElectionID,
+			LeaderElectionNamespace: *f.LeaderElectionNamespace,
+			KnownLibraryAliases:     ociLibraryAliasesFromPaths(*f.LibraryPaths),
+			OCILibraries:            loadOCILibraries(ctx, *f.LibraryPaths),
+			MetricsBindAddress:      *f.MetricsBindAddress,
+			RunbookBaseURL:          *f.RunbookBaseURL,
+			MaxWithdrawWait:         *f.MaxWithdrawWait,
+			MaxArtifactBytes:        *f.MaxArtifactBytes,
+			ArtifactGCGrace:         *f.ArtifactGCGrace,
 			// OnReady is wired below once state is constructed so the
 			// probe only flips ready after the manager is reconcile-ready.
 		}
-		opRestCfg, err = loadKubeconfig(*kubeconfig)
+		opRestCfg, err = loadKubeconfig(*f.Kubeconfig)
 		if err != nil {
-			slog.ErrorContext(ctx, "Cannot load kubeconfig", slog.String("kubeconfig", *kubeconfig), slog.Any("error", err))
+			slog.ErrorContext(ctx, "Cannot load kubeconfig", slog.String("kubeconfig", *f.Kubeconfig), slog.Any("error", err))
 			return 1
 		}
 
-		if *enableWebhook {
-			switch *webhookCertMode {
+		if *f.EnableWebhook {
+			switch *f.WebhookCertMode {
 			case "cert-manager":
 				// External tooling provisions tls.crt/tls.key under
 				// WebhookCertDir. Nothing to do here.
 			case "self-signed":
-				if *webhookVWCName == "" {
-					fmt.Fprintln(stderr, "Invalid -webhook-validating-config-name: required when -webhook-cert-mode=self-signed")
+				if *f.WebhookVWCName == "" {
+					fmt.Fprintln(stderr, "Invalid --webhook-validating-config-name: required when --webhook-cert-mode=self-signed")
 					return 1
 				}
-				ns := *webhookServiceNamespace
+				ns := *f.WebhookServiceNamespace
 				if ns == "" {
-					ns = *leaderElectionNamespace
+					ns = *f.LeaderElectionNamespace
 				}
 				done, err := provisionSelfSignedWebhookCert(ctx, opRestCfg, selfsignedConfig{
 					Namespace:   ns,
-					ServiceName: *webhookServiceName,
-					CertDir:     *webhookCertDir,
-					Validity:    *webhookCertValidity,
-					VWCName:     *webhookVWCName,
+					ServiceName: *f.WebhookServiceName,
+					CertDir:     *f.WebhookCertDir,
+					Validity:    *f.WebhookCertValidity,
+					VWCName:     *f.WebhookVWCName,
 				})
 				if err != nil {
 					slog.ErrorContext(ctx, "Cannot provision self-signed webhook cert", slog.Any("error", err))
@@ -380,36 +302,36 @@ func run(args, env []string, stdout, stderr io.Writer, sigs <-chan os.Signal) in
 				}
 				webhookRenewerDone = done
 				slog.InfoContext(ctx, "Self-signed webhook cert provisioned",
-					slog.String("certDir", *webhookCertDir),
-					slog.String("vwc", *webhookVWCName))
+					slog.String("certDir", *f.WebhookCertDir),
+					slog.String("vwc", *f.WebhookVWCName))
 			default:
-				fmt.Fprintf(stderr, "Invalid -webhook-cert-mode %q: must be \"cert-manager\" or \"self-signed\"\n", *webhookCertMode)
+				fmt.Fprintf(stderr, "Invalid --webhook-cert-mode %q: must be \"cert-manager\" or \"self-signed\"\n", *f.WebhookCertMode)
 				return 1
 			}
 		}
 	}
 
 	jsonnetMux := http.NewServeMux()
-	jsonnetMux.HandleFunc(fmt.Sprintf("/%s/{snippet...}", *jsonnetEndpointPath), handler.JsonnetHandler(handler.Config{
-		Snippets:           snippets,
-		SnippetDirectories: snippetDirectories,
-		LibraryPaths:       libraryPaths,
+	jsonnetMux.HandleFunc(fmt.Sprintf("/%s/{snippet...}", *f.JsonnetEndpointPath), handler.JsonnetHandler(handler.Config{
+		Snippets:           *f.Snippets,
+		SnippetDirectories: *f.SnippetDirectories,
+		LibraryPaths:       *f.LibraryPaths,
 		ExtVars:            extVars,
-		EvaluationTimeout:  *evaluationTimeout,
-		MaxStack:           *maxStack,
+		EvaluationTimeout:  *f.EvaluationTimeout,
+		MaxStack:           *f.MaxStack,
 	}))
 	slog.DebugContext(ctx, "Jsonnet handler configured")
 
 	jsonnetServer := &http.Server{
-		Addr:         net.JoinHostPort(*listenAddress, *port),
-		WriteTimeout: *writeTimeout,
-		ReadTimeout:  *readTimeout,
+		Addr:         net.JoinHostPort(*f.ListenAddress, *f.Port),
+		WriteTimeout: *f.WriteTimeout,
+		ReadTimeout:  *f.ReadTimeout,
 		Handler:      jsonnetMux,
 	}
 	slog.DebugContext(ctx, "Jsonnet server created")
 
 	state := handler.NewHealthState()
-	if *enableFluxIntegration {
+	if *f.EnableFluxIntegration {
 		// Capture state.SetReady so the operator manager flips the pod's
 		// readiness probe only after mgr.Elected() closes (cache synced,
 		// leader elected — or LE off). Set here, post-state-construction.
@@ -422,9 +344,9 @@ func run(args, env []string, stdout, stderr io.Writer, sigs <-chan os.Signal) in
 	slog.DebugContext(ctx, "Management handlers configured")
 
 	managementServer := &http.Server{
-		Addr:         net.JoinHostPort(*managementListenAddress, *managementPort),
-		WriteTimeout: *managementWriteTimeout,
-		ReadTimeout:  *managementReadTimeout,
+		Addr:         net.JoinHostPort(*f.ManagementListenAddress, *f.ManagementPort),
+		WriteTimeout: *f.ManagementWriteTimeout,
+		ReadTimeout:  *f.ManagementReadTimeout,
 		Handler:      managementMux,
 	}
 	slog.DebugContext(ctx, "Management server created")
@@ -446,11 +368,11 @@ func run(args, env []string, stdout, stderr io.Writer, sigs <-chan os.Signal) in
 		storageServer   *http.Server
 		storageListener net.Listener
 	)
-	if *enableFluxIntegration {
+	if *f.EnableFluxIntegration {
 		storageServer = &http.Server{
-			Addr:         net.JoinHostPort(*storageListenAddress, *storagePort),
-			WriteTimeout: *storageWriteTimeout,
-			ReadTimeout:  *storageReadTimeout,
+			Addr:         net.JoinHostPort(*f.StorageListenAddress, *f.StoragePort),
+			WriteTimeout: *f.StorageWriteTimeout,
+			ReadTimeout:  *f.StorageReadTimeout,
 			Handler:      opStore.HTTPHandler(),
 		}
 		storageListener, err = net.Listen("tcp", storageServer.Addr)
@@ -471,7 +393,7 @@ func run(args, env []string, stdout, stderr io.Writer, sigs <-chan os.Signal) in
 	// and no reconciles are happening. opCfg.OnReady (wired below
 	// when --enable-flux-integration is set) flips the probe once
 	// mgr.Elected() closes.
-	if !*enableFluxIntegration {
+	if !*f.EnableFluxIntegration {
 		state.SetReady(true)
 	}
 
@@ -508,7 +430,7 @@ func run(args, env []string, stdout, stderr io.Writer, sigs <-chan os.Signal) in
 	// from under an active walk (ErrClosed, a spurious sweep-failure
 	// metric, possibly a half-completed removal pass).
 	sweepDone := make(chan struct{})
-	if *enableFluxIntegration {
+	if *f.EnableFluxIntegration {
 		go func() {
 			defer close(operatorDone)
 			if err := operator.Run(ctx, opCfg, opRestCfg); err != nil && !errors.Is(err, context.Canceled) {
@@ -522,10 +444,10 @@ func run(args, env []string, stdout, stderr io.Writer, sigs <-chan os.Signal) in
 
 		// Periodic storage GC: sweep orphaned .tmp residue left by Puts
 		// that died after writing the tmpfile but before the rename.
-		if *storageSweepInterval > 0 {
+		if *f.StorageSweepInterval > 0 {
 			go func() {
 				defer close(sweepDone)
-				runStorageSweep(ctx, opStore, *storageSweepInterval, *storageSweepMaxTmpAge)
+				runStorageSweep(ctx, opStore, *f.StorageSweepInterval, *f.StorageSweepMaxTmpAge)
 			}()
 		} else {
 			close(sweepDone)
@@ -544,7 +466,7 @@ func run(args, env []string, stdout, stderr io.Writer, sigs <-chan os.Signal) in
 		exitCode = 1
 	}
 
-	drainBeforeShutdown(sigs, state, *shutdownDelay, slog.Default())
+	drainBeforeShutdown(sigs, state, *f.ShutdownDelay, slog.Default())
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer shutdownCancel()
@@ -672,7 +594,7 @@ func newStorageBackend(ctx context.Context, stderr io.Writer, backend, localPath
 	switch backend {
 	case "local":
 		if localPath == "" {
-			fmt.Fprintln(stderr, "Invalid -storage-path: required when -storage-backend=local")
+			fmt.Fprintln(stderr, "Invalid --storage-path: required when --storage-backend=local")
 			return nil, false
 		}
 		store, err := storage.New(localPath)
@@ -683,7 +605,7 @@ func newStorageBackend(ctx context.Context, stderr io.Writer, backend, localPath
 		return store, true
 	case "s3":
 		if s3cfg.Endpoint == "" || s3cfg.Bucket == "" {
-			fmt.Fprintln(stderr, "Invalid S3 config: -s3-endpoint and -s3-bucket are required when -storage-backend=s3")
+			fmt.Fprintln(stderr, "Invalid S3 config: --s3-endpoint and --s3-bucket are required when --storage-backend=s3")
 			return nil, false
 		}
 		b, err := storage.NewS3(s3cfg)
@@ -693,12 +615,12 @@ func newStorageBackend(ctx context.Context, stderr io.Writer, backend, localPath
 		}
 		return b, true
 	default:
-		fmt.Fprintf(stderr, "Invalid -storage-backend %q: must be \"local\" or \"s3\"\n", backend)
+		fmt.Fprintf(stderr, "Invalid --storage-backend %q: must be \"local\" or \"s3\"\n", backend)
 		return nil, false
 	}
 }
 
-// loadOCILibraries scans the operator's -library-path mounts for shared
+// loadOCILibraries scans the operator's --library-path mounts for shared
 // libraries and logs the discovered alias set. Folded out of the operator
 // Config literal so the field assignment stays a single readable call.
 func loadOCILibraries(ctx context.Context, libraryPaths []string) map[string]eval.Library {
@@ -788,7 +710,7 @@ type selfsignedConfig struct {
 // SIGTERM isn't abandoned mid-patch.
 func provisionSelfSignedWebhookCert(ctx context.Context, restCfg *rest.Config, cfg selfsignedConfig) (<-chan struct{}, error) {
 	if cfg.Namespace == "" {
-		return nil, fmt.Errorf("webhook self-signed: service namespace is required (set -webhook-service-namespace or -leader-election-namespace)")
+		return nil, fmt.Errorf("webhook self-signed: service namespace is required (set --webhook-service-namespace or --leader-election-namespace)")
 	}
 	if err := os.MkdirAll(cfg.CertDir, 0o750); err != nil {
 		return nil, fmt.Errorf("webhook self-signed: mkdir cert dir %q: %w", cfg.CertDir, err)
@@ -862,7 +784,7 @@ func provisionSelfSignedWebhookCert(ctx context.Context, restCfg *rest.Config, c
 	return done, nil
 }
 
-// ociLibraryAliasesFromPaths walks every -library-path entry and
+// ociLibraryAliasesFromPaths walks every --library-path entry and
 // returns the basenames of the subdirectories it contains. Each
 // subdirectory name is the alias a snippet would `import "<name>/..."`
 // against — the same alias the operator's admission webhook + reconciler
@@ -893,11 +815,11 @@ func ociLibraryAliasesFromPaths(paths []string) []string {
 	return out
 }
 
-// ociLibrariesFromPaths walks every -library-path entry and loads
+// ociLibrariesFromPaths walks every --library-path entry and loads
 // every `.libsonnet` / `.jsonnet` / `.json` file under each
 // subdirectory into an eval.Library, keyed by the subdirectory name.
 // First write wins on duplicate aliases (matching
-// ociLibraryAliasesFromPaths's order), so later -library-path entries
+// ociLibraryAliasesFromPaths's order), so later --library-path entries
 // don't silently override earlier ones — operators see whichever was
 // declared first.
 //
@@ -911,7 +833,7 @@ func ociLibrariesFromPaths(paths []string) map[string]eval.Library {
 		entries, err := os.ReadDir(root)
 		if err != nil {
 			if !os.IsNotExist(err) {
-				slog.Warn("Skipping unreadable -library-path entry",
+				slog.Warn("Skipping unreadable --library-path entry",
 					slog.String("path", root), slog.Any("error", err))
 			}
 			continue
@@ -966,7 +888,7 @@ func readOCILibraryFiles(libDir string) (map[string]string, error) {
 			return nil
 		}
 		// #nosec G304,G122 -- p is enumerated by WalkDir over the
-		// operator-configured -library-path, never request input.
+		// operator-configured --library-path, never request input.
 		body, err := os.ReadFile(p)
 		if err != nil {
 			return nil // skip unreadable individual files

@@ -1,13 +1,12 @@
-<!--
-SPDX-FileCopyrightText: The jaas Authors
-SPDX-License-Identifier: 0BSD
--->
-
-# Reason: Pending
+---
+title: Pending
+description: The snippet has been observed by the operator but its first reconcile pass has not yet completed
+tags: [runbooks, troubleshooting, lifecycle]
+---
 
 ## Symptom
 
-`kubectl get jsonnetsnippet` shows `READY=Unknown` (or `False` with `REASON=Pending`) and the snippet has just been created or just had its spec updated.
+`kubectl get jsonnetsnippet` shows `READY=Unknown` (or `False` with `REASON=Pending`) immediately after the snippet was created or its spec was updated.
 
 ## Cause
 

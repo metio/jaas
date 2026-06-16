@@ -104,8 +104,8 @@ func TestExamples_FileSnippetWithLibraryImport(t *testing.T) {
 	runGoldenCase(t, goldenCase{
 		name: "example_jsonnet",
 		args: []string{
-			"-snippet=examples/snippets/example.jsonnet",
-			"-library-path=examples/libraries",
+			"--snippet=examples/snippets/example.jsonnet",
+			"--library-path=examples/libraries",
 		},
 		urlPath: "examples/snippets/example.jsonnet",
 	})
@@ -117,8 +117,8 @@ func TestExamples_DirectorySnippetWithExtVarsAndLibraryImport(t *testing.T) {
 	runGoldenCase(t, goldenCase{
 		name: "dashboards_example1",
 		args: []string{
-			"-snippet-directory=examples/snippets/dashboards",
-			"-library-path=examples/libraries",
+			"--snippet-directory=examples/snippets/dashboards",
+			"--library-path=examples/libraries",
 		},
 		env: []string{
 			"JAAS_EXT_VAR_name=Alice",
@@ -135,8 +135,8 @@ func TestExamples_DirectorySnippetWithTLAs(t *testing.T) {
 	runGoldenCase(t, goldenCase{
 		name: "dashboards_tla_example",
 		args: []string{
-			"-snippet-directory=examples/snippets/dashboards",
-			"-library-path=examples/libraries",
+			"--snippet-directory=examples/snippets/dashboards",
+			"--library-path=examples/libraries",
 		},
 		urlPath: "tla-example",
 		query: url.Values{
@@ -152,8 +152,8 @@ func TestExamples_DirectorySnippetWithTLAs_UsesDefaults(t *testing.T) {
 	runGoldenCase(t, goldenCase{
 		name: "dashboards_tla_example_defaults",
 		args: []string{
-			"-snippet-directory=examples/snippets/dashboards",
-			"-library-path=examples/libraries",
+			"--snippet-directory=examples/snippets/dashboards",
+			"--library-path=examples/libraries",
 		},
 		urlPath: "tla-example",
 		query: url.Values{
@@ -168,7 +168,7 @@ func TestExamples_RecursionDepth_GoldenAtSafeDepth(t *testing.T) {
 	runGoldenCase(t, goldenCase{
 		name: "dashboards_recursion_depth_50",
 		args: []string{
-			"-snippet-directory=examples/snippets/dashboards",
+			"--snippet-directory=examples/snippets/dashboards",
 		},
 		urlPath: "recursion-depth",
 		query:   url.Values{"depth": {"50"}},
@@ -182,7 +182,7 @@ func TestExamples_RecursionDepth_FindsLimitAtDefaultMaxStack(t *testing.T) {
 	// prints the boundary. Sanity-asserts a generous range so the test fails
 	// only if go-jsonnet's stack accounting shifts dramatically.
 	h := runInBackground(t, []string{
-		"-snippet-directory=examples/snippets/dashboards",
+		"--snippet-directory=examples/snippets/dashboards",
 	}, nil)
 	defer h.shutdown(t, 0)
 
@@ -207,7 +207,7 @@ func TestExamples_RecursionDepth_FindsLimitAtDefaultMaxStack(t *testing.T) {
 
 func TestExamples_RecursionDepth_HighDepthOverflowsStack(t *testing.T) {
 	h := runInBackground(t, []string{
-		"-snippet-directory=examples/snippets/dashboards",
+		"--snippet-directory=examples/snippets/dashboards",
 	}, nil)
 	defer h.shutdown(t, 0)
 
@@ -227,8 +227,8 @@ func TestExamples_RecursionDepth_MaxStackFlagShrinksLimit(t *testing.T) {
 	// Operator-visible knob: setting -max-stack=100 makes the snippet fail at
 	// a depth that succeeds with the default -max-stack=500.
 	h := runInBackground(t, []string{
-		"-snippet-directory=examples/snippets/dashboards",
-		"-max-stack=100",
+		"--snippet-directory=examples/snippets/dashboards",
+		"--max-stack=100",
 	}, nil)
 	defer h.shutdown(t, 0)
 
@@ -260,7 +260,7 @@ func TestExamples_MultiValueTLA(t *testing.T) {
 	runGoldenCase(t, goldenCase{
 		name: "dashboards_multi_tla",
 		args: []string{
-			"-snippet-directory=examples/snippets/dashboards",
+			"--snippet-directory=examples/snippets/dashboards",
 		},
 		urlPath: "multi-tla",
 		query: url.Values{
@@ -275,7 +275,7 @@ func TestExamples_MultiValueTLA_FallsBackToDefault(t *testing.T) {
 	runGoldenCase(t, goldenCase{
 		name: "dashboards_multi_tla_default",
 		args: []string{
-			"-snippet-directory=examples/snippets/dashboards",
+			"--snippet-directory=examples/snippets/dashboards",
 		},
 		urlPath: "multi-tla",
 	})
@@ -287,8 +287,8 @@ func TestExamples_ImportStrLoadsLiteralFile(t *testing.T) {
 	runGoldenCase(t, goldenCase{
 		name: "dashboards_embed_text",
 		args: []string{
-			"-snippet-directory=examples/snippets/dashboards",
-			"-library-path=examples/libraries",
+			"--snippet-directory=examples/snippets/dashboards",
+			"--library-path=examples/libraries",
 		},
 		urlPath: "embed-text",
 	})
@@ -301,7 +301,7 @@ func TestExamples_ObjectInheritanceAndHiddenFields(t *testing.T) {
 	runGoldenCase(t, goldenCase{
 		name: "dashboards_inheritance",
 		args: []string{
-			"-snippet-directory=examples/snippets/dashboards",
+			"--snippet-directory=examples/snippets/dashboards",
 		},
 		urlPath: "inheritance",
 	})
@@ -313,8 +313,8 @@ func TestExamples_TransitiveLibraryImports(t *testing.T) {
 	runGoldenCase(t, goldenCase{
 		name: "dashboards_transitive_imports",
 		args: []string{
-			"-snippet-directory=examples/snippets/dashboards",
-			"-library-path=examples/libraries",
+			"--snippet-directory=examples/snippets/dashboards",
+			"--library-path=examples/libraries",
 		},
 		urlPath: "transitive-imports",
 	})
@@ -327,7 +327,7 @@ func TestExamples_KubernetesManifest(t *testing.T) {
 	runGoldenCase(t, goldenCase{
 		name: "dashboards_k8s_manifest",
 		args: []string{
-			"-snippet-directory=examples/snippets/dashboards",
+			"--snippet-directory=examples/snippets/dashboards",
 		},
 		urlPath: "k8s-manifest",
 		query: url.Values{
@@ -351,8 +351,8 @@ func TestExamples_LibraryPrecedence_SinglePath(t *testing.T) {
 	runGoldenCase(t, goldenCase{
 		name: "dashboards_library_precedence_default",
 		args: []string{
-			"-snippet-directory=examples/snippets/dashboards",
-			"-library-path=examples/libraries",
+			"--snippet-directory=examples/snippets/dashboards",
+			"--library-path=examples/libraries",
 		},
 		urlPath: "library-precedence",
 	})
@@ -367,9 +367,9 @@ func TestExamples_LibraryPrecedence_WithOverride(t *testing.T) {
 	runGoldenCase(t, goldenCase{
 		name: "dashboards_library_precedence_override",
 		args: []string{
-			"-snippet-directory=examples/snippets/dashboards",
-			"-library-path=examples/libraries",
-			"-library-path=examples/libraries-overrides",
+			"--snippet-directory=examples/snippets/dashboards",
+			"--library-path=examples/libraries",
+			"--library-path=examples/libraries-overrides",
 		},
 		urlPath: "library-precedence",
 	})

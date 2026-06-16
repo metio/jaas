@@ -1,9 +1,8 @@
-<!--
-SPDX-FileCopyrightText: The jaas Authors
-SPDX-License-Identifier: 0BSD
--->
-
-# Reason: ServiceAccountMissing
+---
+title: ServiceAccountMissing
+description: The snippet specifies no ServiceAccount and the operator has no --default-service-account configured
+tags: [runbooks, troubleshooting, rbac]
+---
 
 ## Symptom
 

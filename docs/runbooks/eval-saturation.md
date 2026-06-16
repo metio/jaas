@@ -1,9 +1,8 @@
-<!--
-SPDX-FileCopyrightText: The jaas Authors
-SPDX-License-Identifier: 0BSD
--->
-
-# Operator runbook: eval-concurrency saturation
+---
+title: Eval-concurrency saturation
+description: The global concurrent-eval cap is full and the operator is shedding new evaluations, typically because a runaway snippet is holding slots past its deadline
+tags: [runbooks, troubleshooting, evaluation]
+---
 
 Not tied to a single `Reason` — this page covers what to do when the global concurrent-eval cap (`--max-concurrent-evals`) is full and JaaS is shedding new evaluations. The cap exists because the synchronous go-jsonnet API has no context-aware cancellation: once an eval starts it runs to natural completion, so an unbounded queue lets a runaway snippet pile up goroutines that outlive every caller's deadline.
 
@@ -17,7 +16,7 @@ One or more of:
 - `kubectl describe jsonnetsnippet` shows recurring `Warning EvalUnavailable` events with message `reconcile deferred for 1s by --max-concurrent-evals`. Ready condition stays untouched (backpressure is not failure).
 - `jaas_eval_outstanding_timed_out` is also elevated — confirms the runaway-snippet diagnosis: orphaned evals are pinning slots while their parents have already given up.
 
-## Diagnose: why is the cap full?
+## Diagnosis: why is the cap full?
 
 The cap fills for two distinct reasons. The right remediation depends on which.
 
@@ -47,7 +46,7 @@ The snippet whose name dominates that list is the culprit. Common causes:
 
 ### Path B — genuine load above the cap
 
-Leak gauge is at zero (or steady, not growing), `jaas_eval_in_flight` is pegged near the cap, and many distinct snippets show `EvalUnavailable` events. The cap is just sized too small for the workload.
+Leak gauge is at zero (or steady, not growing), `jaas_eval_in_flight` is pegged near the cap, and many distinct snippets show `EvalUnavailable` events. The cap is sized too small for the workload.
 
 ```shell
 # Distribution of which snippets are seeing rejections — a flat
@@ -58,7 +57,7 @@ kubectl -n <jaas-ns> exec deploy/jaas -- \
   | grep jaas_snippet_eval_unavailable_total
 ```
 
-## Remediate
+## Remediation
 
 ### Path A — runaway snippet
 
@@ -97,7 +96,7 @@ kubectl -n <jaas-ns> exec deploy/jaas -- \
 
 ## When NOT to raise the cap
 
-If the leak gauge is non-zero AND growing, raising the cap just lets more goroutines pile up before the next saturation event. Diagnose path A first. The cap is a backpressure boundary, not a throughput knob.
+If the leak gauge is non-zero AND growing, raising the cap lets more goroutines pile up before the next saturation event. Diagnose path A first. The cap is a backpressure boundary, not a throughput knob.
 
 ## Disable the gate (not recommended)
 

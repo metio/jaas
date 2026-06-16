@@ -1,9 +1,8 @@
-<!--
-SPDX-FileCopyrightText: The jaas Authors
-SPDX-License-Identifier: 0BSD
--->
-
-# Reason: SourceRefNotYetSupported
+---
+title: SourceRefNotYetSupported
+description: The snippet uses spec.sourceRef but the running binary was built without a Fetcher wired in
+tags: [runbooks, troubleshooting, sources]
+---
 
 ## Symptom
 

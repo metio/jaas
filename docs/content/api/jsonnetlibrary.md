@@ -1,0 +1,66 @@
+---
+title: JsonnetLibrary
+description: Field-by-field reference for the JsonnetLibrary custom resource at apiVersion jaas.metio.wtf/v1.
+tags: [api, libraries, operator]
+---
+
+`JsonnetLibrary` (`jlib`) is a namespaced bundle of `.libsonnet` files that
+`JsonnetSnippet` CRs in the same namespace can import. The library carries no
+artifact of its own and has no controller reconciling it today — it exists purely
+as a supply-side source for snippets. The import alias is set on the snippet side
+via `LibraryRef.importPath` (defaulting to the library's `metadata.name`); the
+library itself carries no registration name. Task-oriented guidance lives in
+[Jsonnet libraries](/usage/jsonnet-libraries/).
+
+## Example
+
+```yaml
+apiVersion: jaas.metio.wtf/v1
+kind: JsonnetLibrary
+metadata:
+  name: mylib
+  namespace: default
+spec:
+  files:
+    main.libsonnet: |
+      {
+        dashboard(env, cluster):: {
+          title: '%s / %s' % [env, cluster],
+        },
+      }
+```
+
+Exactly one of `spec.files` or `spec.sourceRef` must be set. Admission rejects
+CRs that set neither or both.
+
+## Spec fields
+
+`JsonnetLibrarySpec` embeds `SnippetSource` directly (the same source shape used
+by `JsonnetSnippetSpec`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `files` | map[string]string | — | Inline map of filename to Jsonnet/libsonnet source. Exactly one of `files` or `sourceRef` must be set. |
+| `sourceRef.apiVersion` | string | `source.toolkit.fluxcd.io/v1` | APIVersion of the referenced Flux source CR. |
+| `sourceRef.kind` | string | — | Kind of the referenced source. One of: `GitRepository`, `OCIRepository`, `Bucket`, `ExternalArtifact`. Required when `sourceRef` is set. |
+| `sourceRef.name` | string | — | Name of the referenced source CR. Required when `sourceRef` is set. Minimum length 1. |
+| `sourceRef.namespace` | string | library's namespace | Namespace of the referenced source CR. Cross-namespace references are rejected when the operator is started with `--no-cross-namespace-refs`. |
+| `sourceRef.path` | string | — (artifact root) | Subdirectory within the fetched tarball to treat as the library root. Empty means the archive root — required for jb-vendored trees (e.g. a `sourceRef` pointing at a Flux `OCIRepository` for a JOI image) where the library aliases resolve against the full vendor tree. |
+
+## Status
+
+`JsonnetLibrary` shares the `SyncStatus` type with `JsonnetSnippet`, though no
+controller currently populates it. The `status` subresource exists so a future
+library reconciler can be added without a schema change.
+
+| Field | Type | Description |
+|---|---|---|
+| `observedGeneration` | int64 | `.metadata.generation` last reconciled. Not currently populated. |
+| `conditions` | []Condition | Standard apimachinery conditions. Not currently populated. |
+| `revision` | string | Not currently populated. |
+| `artifactURL` | string | Not currently populated. |
+| `lastSyncTime` | Time | Not currently populated. |
+| `history` | []RevisionEntry | Not currently populated. |
+
+For how snippets reference libraries, see [/api/jsonnetsnippet/](/api/jsonnetsnippet/)
+(`spec.libraries`) and [Jsonnet libraries](/usage/jsonnet-libraries/).

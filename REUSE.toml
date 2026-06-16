@@ -2,11 +2,39 @@
 # SPDX-License-Identifier: 0BSD
 
 version = 1
+SPDX-PackageName = "jaas"
+SPDX-PackageSupplier = "Sebastian Hoß <seb@xn--ho-hia.de>"
+SPDX-PackageDownloadLocation = "https://github.com/metio/jaas"
+
+# Documentation, the Claude skill, and the plugin manifests carry their license
+# here rather than inline, matching the stageset-controller repo so the two
+# projects stay structurally aligned. The docs/themes/metio submodule is a
+# separate repo, outside this scope.
+[[annotations]]
+path = ["docs/**", "skills/**", ".claude-plugin/**"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "The jaas Authors"
+SPDX-License-Identifier = "0BSD"
 
 # renovate.json is JSON (no comment syntax) and follows Renovate's fixed schema;
 # it extends the org-wide preset at github.com/metio/renovate-config.
 [[annotations]]
 path = "renovate.json"
+precedence = "override"
+SPDX-FileCopyrightText = "The jaas Authors"
+SPDX-License-Identifier = "0BSD"
+
+# .gitmodules registers the docs theme git submodule; it has no comment syntax.
+[[annotations]]
+path = ".gitmodules"
+precedence = "override"
+SPDX-FileCopyrightText = "The jaas Authors"
+SPDX-License-Identifier = "0BSD"
+
+# ilo argument files (plain-text lists of `ilo` CLI args, run via `ilo @dev/<name>`)
+# carry no comment syntax of their own.
+[[annotations]]
+path = ["dev/website", "dev/serve"]
 precedence = "override"
 SPDX-FileCopyrightText = "The jaas Authors"
 SPDX-License-Identifier = "0BSD"

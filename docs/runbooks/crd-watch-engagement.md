@@ -1,21 +1,20 @@
-<!--
-SPDX-FileCopyrightText: The jaas Authors
-SPDX-License-Identifier: 0BSD
--->
-
-# Operator runbook: CRD watch engagement failing
+---
+title: CRD watch engagement failing
+description: A runtime watch on a Flux source CRD failed to engage, so snippets referencing that kind no longer re-render on upstream changes
+tags: [runbooks, troubleshooting, lifecycle]
+---
 
 Fires when `jaas_crd_watch_engagement_failures_total{gvk=...}` has increased above the per-hour threshold for the alert window. JaaS lazy-watches Flux source CRDs: at boot, only the CRDs already installed get a watch; when a previously-missing CRD becomes `Established=True` (operator installed source-controller post hoc, say), the `crdWatcher` engages a runtime watch on it via `Controller.Watch`. **When that engagement fails, the apiextensions informer fires no further events on a stable CRD** — meaning the watch stays un-engaged forever until either the CRD object's metadata/status is changed by something else, or the operator restarts.
 
-The visible symptom is that snippets with `spec.sourceRef.Kind=<the affected kind>` stop re-rendering on upstream source updates. There is no per-snippet status signal — they just sit at their last-rendered revision, drifting from upstream.
+The visible symptom is that snippets with `spec.sourceRef.Kind=<the affected kind>` stop re-rendering on upstream source updates. There is no per-snippet status signal — they sit at their last-rendered revision, drifting from upstream.
 
-## Symptoms
+## Symptom
 
 - `JaaSCRDWatchEngagementFailing` alert is firing with `gvk` labelling the affected kind.
 - `kubectl describe jsonnetsnippet` on snippets referencing that GVK shows a Ready condition that hasn't moved in hours/days.
 - Upstream Flux source CRs (GitRepository, OCIRepository, Bucket, ExternalArtifact) show recent `status.artifact.revision` changes that the jaas snippets aren't picking up.
 
-## Diagnose
+## Diagnosis
 
 ### Step 1 — confirm the CRD is actually installed and Established
 
@@ -45,7 +44,7 @@ kubectl logs -n <ns> <operator-pod> | grep -E 'engage|Failed to watch|cache' | t
 
 Look for `cache reconnect`, `informer failed`, or `Watch failed: forbidden`. A transient cache reconnect during a heavy load period can trip engagement once; the DD7 bounded-retry mechanism re-engages automatically. Sustained failures point at RBAC or a misconfigured `MetricsBindAddress`.
 
-## Remediate
+## Remediation
 
 1. **Fix the verb / kind / RBAC** issue identified above.
 2. **Roll the operator pod** to force a fresh `SetupWithManager` pass, which re-detects every Flux CRD and re-engages watches that succeed on first try:

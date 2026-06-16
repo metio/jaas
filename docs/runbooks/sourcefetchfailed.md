@@ -1,9 +1,8 @@
-<!--
-SPDX-FileCopyrightText: The jaas Authors
-SPDX-License-Identifier: 0BSD
--->
-
-# Reason: SourceFetchFailed
+---
+title: SourceFetchFailed
+description: The operator resolved the source CR but the artifact download failed due to an HTTP error, digest mismatch, or oversized tarball
+tags: [runbooks, troubleshooting, sources]
+---
 
 ## Symptom
 

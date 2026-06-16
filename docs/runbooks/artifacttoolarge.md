@@ -1,9 +1,8 @@
-<!--
-SPDX-FileCopyrightText: The jaas Authors
-SPDX-License-Identifier: 0BSD
--->
-
-# Reason: ArtifactTooLarge
+---
+title: ArtifactTooLarge
+description: The snippet's rendered output exceeds the operator's per-artifact byte cap
+tags: [runbooks, troubleshooting, storage]
+---
 
 ## Symptom
 

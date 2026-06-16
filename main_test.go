@@ -361,93 +361,79 @@ func TestCommitPackageVariable_IsResolvedAtInit(t *testing.T) {
 	}
 }
 
-// ---- stringArray -----------------------------------------------------------
+// ---- pflag CLI convention --------------------------------------------------
 
-func TestStringArray_EmptyStringer(t *testing.T) {
-	var s stringArray
-	if got := s.String(); got != "[]" {
-		t.Errorf("String() on nil = %q, want %q", got, "[]")
+// The CLI is POSIX double-dash (github.com/spf13/pflag): a single-dash long
+// flag is not a long flag at all, so it must fail parse with the exit-2
+// flag-error code rather than be silently accepted. This pins the convention
+// against an accidental swap back to the standard-library flag package, which
+// would accept both -flag and --flag.
+func TestRun_SingleDashLongFlagFailsParse(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	sigs := make(chan os.Signal, 1)
+	withRestoredSlogDefault(t)
+	code := run([]string{"-port", "9999"}, nil, &stdout, &stderr, sigs)
+	if code != 2 {
+		t.Errorf("exit code = %d, want 2 for single-dash long flag; stderr=%q", code, stderr.String())
 	}
 }
 
-func TestStringArray_StringFormatsValues(t *testing.T) {
-	s := stringArray{"a", "b", "c"}
-	if got := s.String(); got != "[a b c]" {
-		t.Errorf("String() = %q, want %q", got, "[a b c]")
+// The double-dash form of the same flag parses; the snippet directory is
+// observable over the jsonnet endpoint, proving the value reached the handler.
+func TestRun_DoubleDashLongFlagParses(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "ok"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "ok", "main.jsonnet"), []byte(`{ ok: true }`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := runInBackground(t, []string{"--snippet-directory", dir}, nil)
+	defer h.shutdown(t, 0)
+
+	resp, err := http.Get("http://" + h.jsonnet + "/jsonnet/ok")
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status = %d, want 200 with --snippet-directory", resp.StatusCode)
 	}
 }
 
-func TestStringArray_StringSingleElement(t *testing.T) {
-	s := stringArray{"only"}
-	if got := s.String(); got != "[only]" {
-		t.Errorf("String() = %q, want %q", got, "[only]")
+// Repeatable flags use pflag StringArray, which appends one value per flag
+// occurrence and must NOT comma-split — a single --ext-var carrying a comma
+// (or a path containing one) stays a single value. This asserts each
+// occurrence appends rather than overwrites, and that a comma in the value
+// is preserved verbatim.
+func TestRun_ExtVarFlag_RepeatableAndNotCommaSplit(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "show"), 0o755); err != nil {
+		t.Fatal(err)
 	}
-}
+	if err := os.WriteFile(filepath.Join(dir, "show", "main.jsonnet"),
+		[]byte(`{ a: std.extVar("a"), b: std.extVar("b") }`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := runInBackground(t, []string{
+		"--snippet-directory=" + dir,
+		"--ext-var=a=one",
+		"--ext-var=b=x,y", // comma must survive — StringArray, not StringSlice
+	}, nil)
+	defer h.shutdown(t, 0)
 
-func TestStringArray_SetAppendsValue(t *testing.T) {
-	var s stringArray
-	if err := s.Set("first"); err != nil {
-		t.Fatalf("Set: %v", err)
+	resp, err := http.Get("http://" + h.jsonnet + "/jsonnet/show")
+	if err != nil {
+		t.Fatalf("GET: %v", err)
 	}
-	if !slices.Equal(s, stringArray{"first"}) {
-		t.Errorf("after Set: %v, want [first]", s)
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(body), `"one"`) {
+		t.Errorf("body = %q, want first --ext-var value 'one'", string(body))
 	}
-}
-
-func TestStringArray_SetAppendsMultiple(t *testing.T) {
-	var s stringArray
-	for _, v := range []string{"a", "b", "c"} {
-		if err := s.Set(v); err != nil {
-			t.Fatalf("Set(%q): %v", v, err)
-		}
+	if !strings.Contains(string(body), `"x,y"`) {
+		t.Errorf("body = %q, want comma preserved verbatim ('x,y'); StringArray must not comma-split", string(body))
 	}
-	if !slices.Equal(s, stringArray{"a", "b", "c"}) {
-		t.Errorf("after Set sequence: %v, want [a b c]", s)
-	}
-}
-
-func TestStringArray_SetReturnsNilOnAnyInput(t *testing.T) {
-	// flag.Value.Set returns an error to signal a parse failure; stringArray
-	// accepts any string verbatim and never errors.
-	cases := []string{"", " ", "with space", "x=y=z", "\n", "unicode 🚀"}
-	for _, in := range cases {
-		t.Run(strconv.Quote(in), func(t *testing.T) {
-			var s stringArray
-			if err := s.Set(in); err != nil {
-				t.Errorf("Set(%q) returned error: %v", in, err)
-			}
-		})
-	}
-}
-
-func TestStringArray_SetAcceptsEmptyString(t *testing.T) {
-	var s stringArray
-	_ = s.Set("")
-	if len(s) != 1 || s[0] != "" {
-		t.Errorf("after Set(\"\"): %v, want [\"\"]", s)
-	}
-}
-
-func TestStringArray_SetPreservesOrder(t *testing.T) {
-	var s stringArray
-	inputs := []string{"first", "second", "third", "fourth", "fifth"}
-	for _, v := range inputs {
-		_ = s.Set(v)
-	}
-	if !slices.Equal(s, stringArray(inputs)) {
-		t.Errorf("got %v, want %v", s, inputs)
-	}
-}
-
-func TestStringArray_SatisfiesFlagValueInterface(t *testing.T) {
-	// Compile-time-ish proof: stringArray must implement flag.Value so it can
-	// be passed to flag.Var. Calling the two methods here exercises the
-	// interface contract at runtime.
-	var s stringArray
-	if err := s.Set("x"); err != nil {
-		t.Fatalf("Set: %v", err)
-	}
-	_ = s.String()
 }
 
 // ---- configureLogger -------------------------------------------------------
@@ -625,11 +611,11 @@ func runInBackground(t *testing.T, extraArgs []string, env []string) *runHandle 
 	}
 
 	args := append([]string{
-		"-listen-address=127.0.0.1",
-		"-port=" + jsonnetPort,
-		"-management-listen-address=127.0.0.1",
-		"-management-port=" + mgmtPort,
-		"-shutdown-delay=0",
+		"--listen-address=127.0.0.1",
+		"--port=" + jsonnetPort,
+		"--management-listen-address=127.0.0.1",
+		"--management-port=" + mgmtPort,
+		"--shutdown-delay=0",
 	}, extraArgs...)
 
 	withRestoredSlogDefault(t)
@@ -790,11 +776,11 @@ func TestRun_DualStackBindAddressBoots(t *testing.T) {
 	withRestoredSlogDefault(t)
 	go func() {
 		done <- run([]string{
-			"-listen-address=::",
-			"-port=" + jsonnetPort,
-			"-management-listen-address=::",
-			"-management-port=" + mgmtPort,
-			"-shutdown-delay=0",
+			"--listen-address=::",
+			"--port=" + jsonnetPort,
+			"--management-listen-address=::",
+			"--management-port=" + mgmtPort,
+			"--shutdown-delay=0",
 		}, nil, &stdout, &stderr, sigs)
 	}()
 
@@ -817,7 +803,7 @@ func TestRun_DualStackBindAddressBoots(t *testing.T) {
 func TestRun_VersionFlagPrintsAndExits(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	sigs := make(chan os.Signal, 1)
-	code := run([]string{"-version"}, nil, &stdout, &stderr, sigs)
+	code := run([]string{"--version"}, nil, &stdout, &stderr, sigs)
 
 	if code != 0 {
 		t.Errorf("exit code = %d, want 0", code)
@@ -834,7 +820,7 @@ func TestRun_VersionFlagPrintsAndExits(t *testing.T) {
 func TestRun_VersionFlagBeforeOtherFlagsStillWorks(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	sigs := make(chan os.Signal, 1)
-	code := run([]string{"-version", "-port=9999"}, nil, &stdout, &stderr, sigs)
+	code := run([]string{"--version", "--port=9999"}, nil, &stdout, &stderr, sigs)
 	if code != 0 {
 		t.Errorf("exit code = %d, want 0", code)
 	}
@@ -843,7 +829,7 @@ func TestRun_VersionFlagBeforeOtherFlagsStillWorks(t *testing.T) {
 func TestRun_HelpFlagReturnsZero(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	sigs := make(chan os.Signal, 1)
-	code := run([]string{"-help"}, nil, &stdout, &stderr, sigs)
+	code := run([]string{"--help"}, nil, &stdout, &stderr, sigs)
 	if code != 0 {
 		t.Errorf("exit code = %d, want 0; stderr=%q", code, stderr.String())
 	}
@@ -852,9 +838,9 @@ func TestRun_HelpFlagReturnsZero(t *testing.T) {
 func TestRun_HelpFlagWritesUsageToStderr(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	sigs := make(chan os.Signal, 1)
-	_ = run([]string{"-help"}, nil, &stdout, &stderr, sigs)
-	// flag.PrintDefaults emits names like "-port string"
-	if !strings.Contains(stderr.String(), "-port") {
+	_ = run([]string{"--help"}, nil, &stdout, &stderr, sigs)
+	// pflag's usage output lists flags in their POSIX double-dash form, e.g. "--port".
+	if !strings.Contains(stderr.String(), "--port") {
 		t.Errorf("stderr = %q, want usage output", stderr.String())
 	}
 }
@@ -862,7 +848,7 @@ func TestRun_HelpFlagWritesUsageToStderr(t *testing.T) {
 func TestRun_UnknownFlagReturnsTwo(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	sigs := make(chan os.Signal, 1)
-	code := run([]string{"-this-flag-does-not-exist"}, nil, &stdout, &stderr, sigs)
+	code := run([]string{"--this-flag-does-not-exist"}, nil, &stdout, &stderr, sigs)
 	if code != 2 {
 		t.Errorf("exit code = %d, want 2", code)
 	}
@@ -1005,7 +991,7 @@ func TestNewStorageBackend(t *testing.T) {
 func TestRun_WebhookWithoutFluxIntegrationReturnsTwo(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	sigs := make(chan os.Signal, 1)
-	code := run([]string{"-enable-webhook"}, nil, &stdout, &stderr, sigs)
+	code := run([]string{"--enable-webhook"}, nil, &stdout, &stderr, sigs)
 	if code != 2 {
 		t.Errorf("exit code = %d, want 2 (webhook requires flux integration)", code)
 	}
@@ -1017,7 +1003,7 @@ func TestRun_WebhookWithoutFluxIntegrationReturnsTwo(t *testing.T) {
 func TestRun_MalformedDurationFlagReturnsTwo(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	sigs := make(chan os.Signal, 1)
-	code := run([]string{"-write-timeout=not-a-duration"}, nil, &stdout, &stderr, sigs)
+	code := run([]string{"--write-timeout=not-a-duration"}, nil, &stdout, &stderr, sigs)
 	if code != 2 {
 		t.Errorf("exit code = %d, want 2", code)
 	}
@@ -1026,7 +1012,7 @@ func TestRun_MalformedDurationFlagReturnsTwo(t *testing.T) {
 func TestRun_MalformedIntFlagReturnsTwo(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	sigs := make(chan os.Signal, 1)
-	code := run([]string{"-max-stack=not-an-int"}, nil, &stdout, &stderr, sigs)
+	code := run([]string{"--max-stack=not-an-int"}, nil, &stdout, &stderr, sigs)
 	if code != 2 {
 		t.Errorf("exit code = %d, want 2", code)
 	}
@@ -1046,11 +1032,11 @@ func TestRun_BindFailureOnJsonnetPortReturnsOne(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	sigs := make(chan os.Signal, 1)
 	code := run([]string{
-		"-listen-address=127.0.0.1",
-		"-port=" + blockedPort,
-		"-management-listen-address=127.0.0.1",
-		"-management-port=" + mgmtPort,
-		"-shutdown-delay=0",
+		"--listen-address=127.0.0.1",
+		"--port=" + blockedPort,
+		"--management-listen-address=127.0.0.1",
+		"--management-port=" + mgmtPort,
+		"--shutdown-delay=0",
 	}, nil, &stdout, &stderr, sigs)
 
 	if code != 1 {
@@ -1074,11 +1060,11 @@ func TestRun_BindFailureOnManagementPortReturnsOne(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	sigs := make(chan os.Signal, 1)
 	code := run([]string{
-		"-listen-address=127.0.0.1",
-		"-port=" + jsonnetPort,
-		"-management-listen-address=127.0.0.1",
-		"-management-port=" + blockedPort,
-		"-shutdown-delay=0",
+		"--listen-address=127.0.0.1",
+		"--port=" + jsonnetPort,
+		"--management-listen-address=127.0.0.1",
+		"--management-port=" + blockedPort,
+		"--shutdown-delay=0",
 	}, nil, &stdout, &stderr, sigs)
 
 	if code != 1 {
@@ -1145,7 +1131,7 @@ func TestRun_ServesJsonnetSnippet(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	h := runInBackground(t, []string{"-snippet-directory=" + dir}, nil)
+	h := runInBackground(t, []string{"--snippet-directory=" + dir}, nil)
 	defer h.shutdown(t, 0)
 
 	resp, err := http.Get("http://" + h.jsonnet + "/jsonnet/hello")
@@ -1181,7 +1167,7 @@ func TestRun_LoadsExtVarsFromEnv(t *testing.T) {
 		"HOME=/home/x",
 	}
 
-	h := runInBackground(t, []string{"-snippet-directory=" + dir}, env)
+	h := runInBackground(t, []string{"--snippet-directory=" + dir}, env)
 	defer h.shutdown(t, 0)
 
 	resp, err := http.Get("http://" + h.jsonnet + "/jsonnet/echo")
@@ -1212,7 +1198,7 @@ func TestRun_DoesNotLoadExtVarsFromActualOSEnviron(t *testing.T) {
 	}
 
 	// Pass a sanitized env without the JAAS_EXT_VAR_ entry.
-	h := runInBackground(t, []string{"-snippet-directory=" + dir}, []string{"PATH=/usr/bin"})
+	h := runInBackground(t, []string{"--snippet-directory=" + dir}, []string{"PATH=/usr/bin"})
 	defer h.shutdown(t, 0)
 
 	resp, err := http.Get("http://" + h.jsonnet + "/jsonnet/probe")
@@ -1284,8 +1270,8 @@ func TestRun_RespectsCustomJsonnetEndpointPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	h := runInBackground(t, []string{
-		"-snippet-directory=" + dir,
-		"-jsonnet-endpoint-path=eval",
+		"--snippet-directory=" + dir,
+		"--jsonnet-endpoint-path=eval",
 	}, nil)
 	defer h.shutdown(t, 0)
 
@@ -1328,7 +1314,7 @@ func TestRun_ManagementServerDoesNotExposeJsonnetEndpoint(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "x", "main.jsonnet"), []byte(`{ ok: true }`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	h := runInBackground(t, []string{"-snippet-directory=" + dir}, nil)
+	h := runInBackground(t, []string{"--snippet-directory=" + dir}, nil)
 	defer h.shutdown(t, 0)
 
 	// Jsonnet endpoint on the management port should 404, not serve.
@@ -1429,7 +1415,7 @@ func TestRun_ErrorBody_EvaluationFailed_OverTCP(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "broken", "main.jsonnet"), []byte(`local x =`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	h := runInBackground(t, []string{"-snippet-directory=" + dir}, nil)
+	h := runInBackground(t, []string{"--snippet-directory=" + dir}, nil)
 	defer h.shutdown(t, 0)
 
 	resp, err := http.Get("http://" + h.jsonnet + "/jsonnet/broken")
@@ -1464,8 +1450,8 @@ func TestRun_ErrorBody_EvaluationTimeout_OverTCP(t *testing.T) {
 		t.Fatal(err)
 	}
 	h := runInBackground(t, []string{
-		"-snippet-directory=" + dir,
-		"-evaluation-timeout=1us",
+		"--snippet-directory=" + dir,
+		"--evaluation-timeout=1us",
 	}, nil)
 	defer h.shutdown(t, 0)
 
@@ -1500,7 +1486,7 @@ func TestRun_ExtVarFlag_PopulatesHandlerExtVars(t *testing.T) {
 		t.Fatal(err)
 	}
 	h := runInBackground(t,
-		[]string{"-snippet-directory=" + dir, "-ext-var=env=dev"}, nil)
+		[]string{"--snippet-directory=" + dir, "--ext-var=env=dev"}, nil)
 	defer h.shutdown(t, 0)
 
 	resp, err := http.Get("http://" + h.jsonnet + "/jsonnet/show")
@@ -1525,7 +1511,7 @@ func TestRun_ExtVarFlag_OverlaysJaasExtVarEnvOnConflict(t *testing.T) {
 	}
 	// Env says us-east-1; CLI -ext-var says us-west-2; CLI wins.
 	h := runInBackground(t,
-		[]string{"-snippet-directory=" + dir, "-ext-var=region=us-west-2"},
+		[]string{"--snippet-directory=" + dir, "--ext-var=region=us-west-2"},
 		[]string{"JAAS_EXT_VAR_region=us-east-1"})
 	defer h.shutdown(t, 0)
 
@@ -1544,12 +1530,12 @@ func TestRun_ExtVarFlag_InvalidFormatReturnsOne(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	sigs := make(chan os.Signal, 1)
 	withRestoredSlogDefault(t)
-	code := run([]string{"-ext-var=noequals"}, nil, &stdout, &stderr, sigs)
+	code := run([]string{"--ext-var=noequals"}, nil, &stdout, &stderr, sigs)
 	if code != 1 {
 		t.Errorf("exit code = %d, want 1; stderr=%q", code, stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "Invalid -ext-var") {
-		t.Errorf("stderr = %q, want it to mention -ext-var", stderr.String())
+	if !strings.Contains(stderr.String(), "Invalid --ext-var") {
+		t.Errorf("stderr = %q, want it to mention --ext-var", stderr.String())
 	}
 }
 
@@ -1557,7 +1543,7 @@ func TestRun_ExtVarFlag_EmptyKeyReturnsOne(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	sigs := make(chan os.Signal, 1)
 	withRestoredSlogDefault(t)
-	code := run([]string{"-ext-var==orphan-value"}, nil, &stdout, &stderr, sigs)
+	code := run([]string{"--ext-var==orphan-value"}, nil, &stdout, &stderr, sigs)
 	if code != 1 {
 		t.Errorf("exit code = %d, want 1; stderr=%q", code, stderr.String())
 	}
@@ -1575,13 +1561,13 @@ func TestRun_FluxIntegration_InvalidRerenderRateReturnsOne(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	sigs := make(chan os.Signal, 1)
 	withRestoredSlogDefault(t)
-	code := run([]string{"-enable-flux-integration", "-rerender-rate=garbage"},
+	code := run([]string{"--enable-flux-integration", "--rerender-rate=garbage"},
 		nil, &stdout, &stderr, sigs)
 	if code != 1 {
 		t.Errorf("exit code = %d, want 1; stderr=%q", code, stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "Invalid -rerender-rate") {
-		t.Errorf("stderr = %q, want it to mention -rerender-rate", stderr.String())
+	if !strings.Contains(stderr.String(), "Invalid --rerender-rate") {
+		t.Errorf("stderr = %q, want it to mention --rerender-rate", stderr.String())
 	}
 }
 
@@ -1589,7 +1575,7 @@ func TestRun_FluxIntegration_ZeroRerenderBurstReturnsOne(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	sigs := make(chan os.Signal, 1)
 	withRestoredSlogDefault(t)
-	code := run([]string{"-enable-flux-integration", "-rerender-burst=0"},
+	code := run([]string{"--enable-flux-integration", "--rerender-burst=0"},
 		nil, &stdout, &stderr, sigs)
 	if code != 1 {
 		t.Errorf("exit code = %d, want 1; stderr=%q", code, stderr.String())
@@ -1606,10 +1592,10 @@ func TestRun_FluxIntegration_BadKubeconfigPathReturnsOne(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "does-not-exist.yaml")
 	storage := t.TempDir()
 	code := run([]string{
-		"-enable-flux-integration",
-		"-kubeconfig=" + missing,
-		"-storage-path=" + storage,
-		"-storage-base-url=http://example",
+		"--enable-flux-integration",
+		"--kubeconfig=" + missing,
+		"--storage-path=" + storage,
+		"--storage-base-url=http://example",
 	}, nil, &stdout, &stderr, sigs)
 	if code != 1 {
 		t.Errorf("exit code = %d, want 1; stdout=%s; stderr=%s",
@@ -1628,8 +1614,8 @@ func TestRun_FluxIntegration_MissingStoragePathReturnsOne(t *testing.T) {
 	// guarded by -storage-backend=local), not on the base-url check
 	// that runs first.
 	code := run([]string{
-		"-enable-flux-integration",
-		"-storage-base-url=http://x",
+		"--enable-flux-integration",
+		"--storage-base-url=http://x",
 	}, nil, &stdout, &stderr, sigs)
 	if code != 1 {
 		t.Errorf("exit code = %d, want 1", code)
@@ -1644,8 +1630,8 @@ func TestRun_FluxIntegration_MissingStorageBaseURLReturnsOne(t *testing.T) {
 	sigs := make(chan os.Signal, 1)
 	withRestoredSlogDefault(t)
 	code := run([]string{
-		"-enable-flux-integration",
-		"-storage-path=" + t.TempDir(),
+		"--enable-flux-integration",
+		"--storage-path=" + t.TempDir(),
 	}, nil, &stdout, &stderr, sigs)
 	if code != 1 {
 		t.Errorf("exit code = %d, want 1", code)
@@ -1660,9 +1646,9 @@ func TestRun_FluxIntegration_BadStoragePathReturnsOne(t *testing.T) {
 	sigs := make(chan os.Signal, 1)
 	withRestoredSlogDefault(t)
 	code := run([]string{
-		"-enable-flux-integration",
-		"-storage-path=/proc/1/jaas-cannot-mkdir-here",
-		"-storage-base-url=http://example",
+		"--enable-flux-integration",
+		"--storage-path=/proc/1/jaas-cannot-mkdir-here",
+		"--storage-base-url=http://example",
 	}, nil, &stdout, &stderr, sigs)
 	if code != 1 {
 		t.Errorf("exit code = %d, want 1", code)
@@ -1677,9 +1663,9 @@ func TestRun_FluxIntegration_UnknownBackendReturnsOne(t *testing.T) {
 	sigs := make(chan os.Signal, 1)
 	withRestoredSlogDefault(t)
 	code := run([]string{
-		"-enable-flux-integration",
-		"-storage-base-url=http://x",
-		"-storage-backend=disk",
+		"--enable-flux-integration",
+		"--storage-base-url=http://x",
+		"--storage-backend=disk",
 	}, nil, &stdout, &stderr, sigs)
 	if code != 1 {
 		t.Errorf("exit code = %d, want 1", code)
@@ -1697,12 +1683,12 @@ func TestRun_FluxIntegration_S3RequiresEndpointAndBucket(t *testing.T) {
 	}{
 		{
 			name: "missing endpoint",
-			args: []string{"-s3-bucket=b"},
+			args: []string{"--s3-bucket=b"},
 			want: "s3-endpoint",
 		},
 		{
 			name: "missing bucket",
-			args: []string{"-s3-endpoint=s3.example"},
+			args: []string{"--s3-endpoint=s3.example"},
 			want: "s3-bucket",
 		},
 	}
@@ -1712,9 +1698,9 @@ func TestRun_FluxIntegration_S3RequiresEndpointAndBucket(t *testing.T) {
 			sigs := make(chan os.Signal, 1)
 			withRestoredSlogDefault(t)
 			args := append([]string{
-				"-enable-flux-integration",
-				"-storage-base-url=http://x",
-				"-storage-backend=s3",
+				"--enable-flux-integration",
+				"--storage-base-url=http://x",
+				"--storage-backend=s3",
 			}, tc.args...)
 			code := run(args, nil, &stdout, &stderr, sigs)
 			if code != 1 {

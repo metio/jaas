@@ -1,9 +1,8 @@
-<!--
-SPDX-FileCopyrightText: The jaas Authors
-SPDX-License-Identifier: 0BSD
--->
-
-# Reason: SourceNotReady
+---
+title: SourceNotReady
+description: The referenced Flux source CR exists but has not yet reported Ready=True or has no published artifact
+tags: [runbooks, troubleshooting, sources]
+---
 
 ## Symptom
 

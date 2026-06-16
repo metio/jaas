@@ -1,9 +1,8 @@
-<!--
-SPDX-FileCopyrightText: The jaas Authors
-SPDX-License-Identifier: 0BSD
--->
-
-# Operator runbook: storage backend recovery
+---
+title: Storage backend recovery
+description: The artifact store is degraded (PVC lost, S3 endpoint down, or storage HTTP server unreachable) and downstream Flux consumers can no longer fetch tarballs
+tags: [runbooks, troubleshooting, storage]
+---
 
 Not tied to a single `Reason` — this page covers what to do when the artifact store itself is degraded (PVC lost, S3 endpoint unavailable, the storage HTTP server is down). Downstream Flux consumers (kustomize-controller, helm-controller, grafana-operator) dereference `ExternalArtifact.status.artifact.url` to fetch tarballs; when that URL stops returning bytes, dependent resources stall.
 
@@ -31,7 +30,7 @@ kubectl -n <jaas-ns> get deploy jaas \
 
 ### PVC lost or replaced
 
-Symptom: every `ExternalArtifact` URL returns 404 even though the snippet's Ready=True. The Publisher writes idempotently on every reconcile, so the cure is simply to make the operator re-render every snippet:
+Symptom: every `ExternalArtifact` URL returns 404 even though the snippet's Ready=True. The Publisher writes idempotently on every reconcile, so making the operator re-render every snippet is the fix:
 
 ```shell
 # Roll the operator — the cache is rebuilt from the apiserver and every

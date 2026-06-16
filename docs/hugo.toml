@@ -1,0 +1,258 @@
+baseURL = "https://jaas.projects.metio.wtf/"
+locale = "en"
+defaultContentLanguage = "en"
+theme = "metio"
+title = "Jsonnet-as-a-Service"
+
+enableGitInfo = true
+enableRobotsTXT = true
+enableInlineShortcodes = true
+pygmentsUseClasses = true
+
+# The mounted runbook directory carries a GitHub-facing README.md that is not a
+# site page. ignoreFiles (a regex list, unlike the per-mount globs) drops it from
+# the render while leaving it on disk for GitHub.
+ignoreFiles = ['README\.md$']
+
+# The migrated runbook pages contain inline HTML; Goldmark must pass it through
+# rather than strip it.
+[markup.goldmark.renderer]
+  unsafe = true
+
+[outputs]
+  home = ["HTML", "RSS", "ATOM", "HUMANS", "FOAF", "LLMS", "LLMSINDEX"]
+  section = ["HTML", "RSS", "ATOM"]
+  term = ["HTML", "RSS", "ATOM"]
+
+[params]
+  mainSections = ["installation", "tutorials", "usage", "api", "comparisons", "runbooks", "contributing"]
+  author = "metio.wtf"
+  github = "metio/jaas"
+  # Render the per-page "see history" / "edit this page" icons next to the title.
+  # editContentPath is the repo-root-relative path to this content tree, joined
+  # with each page's .File.Path to build the GitHub URLs.
+  editContentPath = "docs/content"
+  editBranch = "main"
+  work = "jaas.projects.metio.wtf"
+  description = "evaluate Jsonnet snippets on demand and return JSON"
+  # Cross-project JSON-LD link (emitted as schema.org mentions on the home page).
+  relatedProjects = [{ name = "stageset-controller", url = "https://stageset.projects.metio.wtf/" }]
+
+# Desktop navigation. The theme renders a main-menu entry only when it has
+# children, so each section is a parent linking to its list page.
+[menu]
+  [[menu.main]]
+    identifier = "installation"
+    name = "Installation"
+    url = "/installation/"
+    weight = 10
+  [[menu.main]]
+    parent = "installation"
+    name = "Kubernetes"
+    url = "/installation/kubernetes/"
+    weight = 1
+  [[menu.main]]
+    parent = "installation"
+    name = "Production"
+    url = "/installation/production/"
+    weight = 2
+  [[menu.main]]
+    parent = "installation"
+    name = "Operations"
+    url = "/installation/operations/"
+    weight = 3
+  [[menu.main]]
+    parent = "installation"
+    name = "Configuration reference"
+    url = "/installation/configuration/"
+    weight = 4
+  [[menu.main]]
+    parent = "installation"
+    name = "Helm chart values"
+    url = "/installation/helm-values/"
+    weight = 5
+
+  [[menu.main]]
+    identifier = "tutorials"
+    name = "Tutorials"
+    url = "/tutorials/"
+    weight = 15
+  [[menu.main]]
+    parent = "tutorials"
+    name = "Quickstart"
+    url = "/tutorials/quickstart/"
+    weight = 1
+  [[menu.main]]
+    parent = "tutorials"
+    name = "Grafana dashboards"
+    url = "/tutorials/grafana-dashboards/"
+    weight = 2
+  [[menu.main]]
+    parent = "tutorials"
+    name = "Deploying manifests with StageSet"
+    url = "/tutorials/deploying-manifests/"
+    weight = 3
+  [[menu.main]]
+    parent = "tutorials"
+    name = "Local rendering"
+    url = "/tutorials/local-rendering/"
+    weight = 4
+
+  [[menu.main]]
+    identifier = "usage"
+    name = "Usage"
+    url = "/usage/"
+    weight = 20
+  [[menu.main]]
+    parent = "usage"
+    name = "Rendering endpoint"
+    url = "/usage/rendering-endpoint/"
+    weight = 1
+  [[menu.main]]
+    parent = "usage"
+    name = "Snippets and libraries"
+    url = "/usage/snippets-and-libraries/"
+    weight = 2
+  [[menu.main]]
+    parent = "usage"
+    name = "External variables and TLAs"
+    url = "/usage/external-variables-and-tlas/"
+    weight = 3
+  [[menu.main]]
+    parent = "usage"
+    name = "Evaluation and security"
+    url = "/usage/evaluation-and-security/"
+    weight = 4
+  [[menu.main]]
+    parent = "usage"
+    name = "Operator mode"
+    url = "/usage/operator-mode/"
+    weight = 5
+  [[menu.main]]
+    parent = "usage"
+    name = "Snippet sources"
+    url = "/usage/snippet-sources/"
+    weight = 6
+  [[menu.main]]
+    parent = "usage"
+    name = "Creating source artifacts"
+    url = "/usage/creating-sources/"
+    weight = 7
+  [[menu.main]]
+    parent = "usage"
+    name = "Jsonnet libraries"
+    url = "/usage/jsonnet-libraries/"
+    weight = 8
+  [[menu.main]]
+    parent = "usage"
+    name = "JOI images"
+    url = "/usage/joi-images/"
+    weight = 9
+  [[menu.main]]
+    parent = "usage"
+    name = "Tenancy and RBAC"
+    url = "/usage/tenancy-and-rbac/"
+    weight = 10
+  [[menu.main]]
+    parent = "usage"
+    name = "Storage and HA"
+    url = "/usage/storage-and-ha/"
+    weight = 11
+  [[menu.main]]
+    parent = "usage"
+    name = "Admission webhook"
+    url = "/usage/admission-webhook/"
+    weight = 12
+  [[menu.main]]
+    parent = "usage"
+    name = "Observability"
+    url = "/usage/observability/"
+    weight = 13
+  [[menu.main]]
+    parent = "usage"
+    name = "Network policy"
+    url = "/usage/network-policy/"
+    weight = 14
+
+  [[menu.main]]
+    identifier = "api"
+    name = "API reference"
+    url = "/api/"
+    weight = 40
+  [[menu.main]]
+    parent = "api"
+    name = "JsonnetSnippet"
+    url = "/api/jsonnetsnippet/"
+    weight = 1
+  [[menu.main]]
+    parent = "api"
+    name = "JsonnetLibrary"
+    url = "/api/jsonnetlibrary/"
+    weight = 2
+  [[menu.main]]
+    parent = "api"
+    name = "ExternalArtifact output"
+    url = "/api/externalartifact/"
+    weight = 3
+
+  [[menu.main]]
+    identifier = "comparisons"
+    name = "Comparisons"
+    url = "/comparisons/"
+    weight = 50
+  [[menu.main]]
+    parent = "comparisons"
+    name = "vs Tanka"
+    url = "/comparisons/tanka/"
+    weight = 1
+  [[menu.main]]
+    parent = "comparisons"
+    name = "vs grafana-operator"
+    url = "/comparisons/grafana-operator/"
+    weight = 2
+  [[menu.main]]
+    parent = "comparisons"
+    name = "vs the jsonnet CLI"
+    url = "/comparisons/jsonnet-cli/"
+    weight = 3
+  [[menu.main]]
+    parent = "comparisons"
+    name = "vs jsonnet-controller"
+    url = "/comparisons/jsonnet-controller/"
+    weight = 4
+
+  [[menu.main]]
+    identifier = "runbooks"
+    name = "Runbooks"
+    url = "/runbooks/"
+    weight = 60
+
+  [[menu.main]]
+    identifier = "contributing"
+    name = "Contributing"
+    url = "/contributing/"
+    weight = 80
+  [[menu.main]]
+    parent = "contributing"
+    name = "Building and testing"
+    url = "/contributing/building/"
+    weight = 1
+  [[menu.main]]
+    parent = "contributing"
+    name = "CI and releases"
+    url = "/contributing/ci-and-release/"
+    weight = 2
+
+# The website lives under docs/ but the runbook markdown is authored as plain repo
+# documentation (GitHub-rendered, and pinned in place by the conditions_test drift
+# gate at docs/runbooks/). Mounting that directory into the content tree publishes
+# it on the site without relocating a single file, so the on-disk contract stays
+# intact. Everything else is authored directly under content/.
+[module]
+  [[module.mounts]]
+    source = "content"
+    target = "content"
+
+  [[module.mounts]]
+    source = "runbooks"
+    target = "content/runbooks"

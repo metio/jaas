@@ -1,9 +1,8 @@
-<!--
-SPDX-FileCopyrightText: The jaas Authors
-SPDX-License-Identifier: 0BSD
--->
-
-# Reason: DependencyCycle
+---
+title: DependencyCycle
+description: The snippet's sourceRef or library chain loops back to itself, which would cause infinite re-render
+tags: [runbooks, troubleshooting, sources]
+---
 
 ## Symptom
 

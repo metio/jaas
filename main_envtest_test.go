@@ -87,17 +87,17 @@ func TestRun_FluxIntegration_BindFailureOnStoragePort(t *testing.T) {
 	sigs := make(chan os.Signal, 1)
 	withRestoredSlogDefault(t)
 	code := run([]string{
-		"-listen-address=127.0.0.1",
-		"-port=" + freePort(t),
-		"-management-listen-address=127.0.0.1",
-		"-management-port=" + freePort(t),
-		"-shutdown-delay=0",
-		"-enable-flux-integration",
-		"-kubeconfig=" + kubeconfig,
-		"-storage-path=" + t.TempDir(),
-		"-storage-base-url=http://x",
-		"-storage-listen-address=127.0.0.1",
-		"-storage-port=" + blockedPort,
+		"--listen-address=127.0.0.1",
+		"--port=" + freePort(t),
+		"--management-listen-address=127.0.0.1",
+		"--management-port=" + freePort(t),
+		"--shutdown-delay=0",
+		"--enable-flux-integration",
+		"--kubeconfig=" + kubeconfig,
+		"--storage-path=" + t.TempDir(),
+		"--storage-base-url=http://x",
+		"--storage-listen-address=127.0.0.1",
+		"--storage-port=" + blockedPort,
 	}, nil, &stdout, &stderr, sigs)
 	if code != 1 {
 		t.Errorf("exit code = %d, want 1; stdout=%s", code, stdout.String())
@@ -126,23 +126,23 @@ func TestRun_FluxIntegration_BootsAgainstEnvtestAndShutsDownCleanly(t *testing.T
 	storagePath := t.TempDir()
 
 	args := []string{
-		"-listen-address=127.0.0.1",
-		"-port=" + jsonnetPort,
-		"-management-listen-address=127.0.0.1",
-		"-management-port=" + mgmtPort,
-		"-shutdown-delay=0",
-		"-enable-flux-integration",
-		"-kubeconfig=" + kubeconfig,
-		"-storage-path=" + storagePath,
-		"-storage-base-url=http://example.test/artifacts",
-		"-storage-listen-address=127.0.0.1",
-		"-storage-port=" + storagePort,
+		"--listen-address=127.0.0.1",
+		"--port=" + jsonnetPort,
+		"--management-listen-address=127.0.0.1",
+		"--management-port=" + mgmtPort,
+		"--shutdown-delay=0",
+		"--enable-flux-integration",
+		"--kubeconfig=" + kubeconfig,
+		"--storage-path=" + storagePath,
+		"--storage-base-url=http://example.test/artifacts",
+		"--storage-listen-address=127.0.0.1",
+		"--storage-port=" + storagePort,
 		// envtest runs outside a pod, so controller-runtime's downward-
 		// API namespace lookup fails. Set the LE namespace explicitly.
-		"-leader-election-namespace=default",
+		"--leader-election-namespace=default",
 		// Disable the metrics server so a parallel run doesn't fight
 		// over the chart-default ":8083" port.
-		"-metrics-bind-address=0",
+		"--metrics-bind-address=0",
 	}
 
 	sigs := make(chan os.Signal, 1)

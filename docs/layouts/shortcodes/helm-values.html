@@ -1,0 +1,29 @@
+{{- /*
+  Renders a flattened Helm-chart values schema as an HTML table.
+
+  Input: hugo.Data.<data> — the JSON array produced by `hack/flatten-schema.jq`
+  from a chart's values.schema.json (and gitignored, so a fresh checkout has
+  none). `data` picks which file (e.g. "helm-values" for the jaas chart,
+  "joi-values" for the joi chart). Each entry is {path, type, default, description}.
+
+  Degrades to nothing when the data file is absent so a bare `hugo` on a clean
+  checkout never errors — run `hack/gen-docs-data.sh` first to populate it.
+*/ -}}
+{{- $name := .Get "data" -}}
+{{- with index hugo.Data $name -}}
+<table>
+  <thead>
+    <tr><th>Value</th><th>Type</th><th>Default</th><th>Description</th></tr>
+  </thead>
+  <tbody>
+  {{- range . }}
+    <tr>
+      <td><code>{{ .path }}</code></td>
+      <td><code>{{ .type }}</code></td>
+      <td>{{ with .default }}<code>{{ . }}</code>{{ else }}<em>(empty)</em>{{ end }}</td>
+      <td>{{ .description }}</td>
+    </tr>
+  {{- end }}
+  </tbody>
+</table>
+{{- end -}}

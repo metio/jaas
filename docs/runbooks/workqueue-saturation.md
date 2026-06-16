@@ -1,9 +1,8 @@
-<!--
-SPDX-FileCopyrightText: The jaas Authors
-SPDX-License-Identifier: 0BSD
--->
-
-# Operator runbook: workqueue saturation
+---
+title: Workqueue saturation
+description: The reconciler's workqueue depth exceeds the threshold because the operator is dequeuing reconciles slower than the apiserver enqueues them
+tags: [runbooks, troubleshooting, metrics]
+---
 
 Linked from the `JaaSControllerWorkqueueDepthHigh` alert. Fires when the reconciler's workqueue holds more items than the configured threshold (default 50) for the alert window. Not tied to a `Reason` constant — workqueue depth is a controller-runtime signal, not a per-snippet status.
 

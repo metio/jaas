@@ -1,9 +1,8 @@
-<!--
-SPDX-FileCopyrightText: The jaas Authors
-SPDX-License-Identifier: 0BSD
--->
-
-# Reason: EvaluationTimeout
+---
+title: EvaluationTimeout
+description: The snippet's evaluation exceeded the operator's wall-clock deadline and was abandoned
+tags: [runbooks, troubleshooting, evaluation]
+---
 
 ## Symptom
 

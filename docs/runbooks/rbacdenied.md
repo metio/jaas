@@ -1,9 +1,8 @@
-<!--
-SPDX-FileCopyrightText: The jaas Authors
-SPDX-License-Identifier: 0BSD
--->
-
-# Reason: RBACDenied
+---
+title: RBACDenied
+description: The apiserver returned Forbidden on a call the reconciler made with the tenant ServiceAccount's impersonated identity
+tags: [runbooks, troubleshooting, rbac]
+---
 
 ## Symptom
 
@@ -36,7 +35,7 @@ The apiserver returned `Forbidden` on a call the reconciler had to make. Three c
 
 The `NoMatchError` variant means the apiserver doesn't know about the resource kind at all — typically because the corresponding CRD (usually Flux's source-controller) isn't installed in the cluster.
 
-## Diagnose
+## Diagnosis
 
 `kubectl describe` shows the operator's classified message. The verbatim apiserver error (`forbidden: ServiceAccount X cannot get resource Y in namespace Z`) is appended after the operator's classification, so you can read off:
 
@@ -63,7 +62,7 @@ kubectl get crd | grep -E 'source.toolkit.fluxcd.io|jaas.metio.wtf'
 # https://fluxcd.io/flux/installation/
 ```
 
-## Remediate
+## Remediation
 
 Grant the missing verb to the tenant SA. The minimum verbs JaaS expects are documented in the README's [Tenant ServiceAccount RBAC](../../README.md#tenant-serviceaccount-rbac) section. Typical fix:
 
@@ -109,6 +108,6 @@ For the missing-CRD case, installing the CRD fires the operator's `crdWatcher`, 
 
 ## Why this is non-transient
 
-`Forbidden` doesn't recover by retry. The cluster operator (or whoever owns the tenant's RBAC) has to grant the verb. Retrying every 16 minutes would just pile up wasted API calls and obscure the workqueue's signal. The non-transient classification lets the workqueue depth metric remain meaningful — anything on it is genuinely live work.
+`Forbidden` doesn't recover by retry. The cluster operator (or whoever owns the tenant's RBAC) has to grant the verb. Retrying every 16 minutes would pile up wasted API calls and obscure the workqueue's signal. The non-transient classification lets the workqueue depth metric remain meaningful — anything on it is genuinely live work.
 
 `NoMatchError` is the same shape: until the CRD is installed, the kind doesn't exist. Retry can't conjure it.

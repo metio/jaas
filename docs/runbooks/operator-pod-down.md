@@ -1,9 +1,8 @@
-<!--
-SPDX-FileCopyrightText: The jaas Authors
-SPDX-License-Identifier: 0BSD
--->
-
-# Operator runbook: operator pod not ready
+---
+title: Operator pod not ready
+description: At least one jaas pod has been Ready=False for the configured alert window, so new snippets are not being reconciled
+tags: [runbooks, troubleshooting, lifecycle]
+---
 
 Linked from the `JaaSOperatorPodDown` alert. Fires when at least one jaas pod has been `Ready=False` for the alert window (default 5m).
 

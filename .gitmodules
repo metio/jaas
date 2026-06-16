@@ -1,0 +1,3 @@
+[submodule "docs/themes/metio"]
+	path = docs/themes/metio
+	url = https://github.com/metio/metio-hugo-theme.git
