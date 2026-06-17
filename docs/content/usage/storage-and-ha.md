@@ -147,8 +147,10 @@ Two flags shape how superseded revisions age out:
 
 ## Orphan-tmp sweep
 
-A `Put` that dies after writing the temporary file but before the atomic rename
-leaves a `<rev>.tar.gz.tmp` residue. A background sweep removes it:
+This is a local-backend concern only. On the filesystem backend a `Put` that
+dies after writing the temporary file but before the atomic rename leaves a
+`<rev>.tar.gz.tmp` residue, and a background sweep removes it. The S3 backend has
+no such residue — `PutObject` is atomic — so its sweep is a no-op:
 
 - `--storage-sweep-interval` (default `10m`) — how often the sweep runs. `0`
   disables it.

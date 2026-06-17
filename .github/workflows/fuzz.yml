@@ -1,0 +1,82 @@
+# SPDX-FileCopyrightText: The jaas Authors
+# SPDX-License-Identifier: 0BSD
+
+name: Fuzz
+on:
+  schedule:
+    # Weekly, Sunday 03:17 UTC — deliberately off the Monday release cron so a
+    # long campaign never overlaps a release run.
+    - cron: '17 3 * * 0'
+  workflow_dispatch:
+    inputs:
+      fuzztime:
+        description: 'How long to fuzz each target (Go duration, e.g. 90s, 5m, 1h)'
+        default: '5m'
+permissions:
+  contents: read
+jobs:
+  discover:
+    # Enumerate every Fuzz* target as a {pkg, func} pair so new targets are
+    # fuzzed automatically — no hand-maintained matrix to drift.
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.list.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - id: list
+        run: |
+          matrix=$(grep -rE '^func Fuzz' --include='*_test.go' internal \
+            | sed -E 's#^(internal/.+)/[^/]+_test\.go:func (Fuzz[A-Za-z0-9_]+).*#{"pkg":"./\1","func":"\2"}#' \
+            | jq -s -c '{include: .}')
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+          echo "$matrix" | jq .
+  fuzz:
+    # A nightly fuzz pass is best-effort coverage, not a release gate: each
+    # target runs its own coverage-guided campaign. A finding writes a crasher
+    # to testdata/fuzz/, which is printed below and should be committed as a
+    # permanent seed (it then reproduces deterministically in the Verify gate).
+    needs: discover
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.discover.outputs.matrix) }}
+    env:
+      FUZZTIME: ${{ github.event.inputs.fuzztime || '5m' }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Set up envtest assets
+        # The current fuzz targets (handler/sources/urlguard) are cluster-free,
+        # but a future target in an envtest-backed package (e.g. internal/operator)
+        # whose TestMain boots a kube-apiserver would need KUBEBUILDER_ASSETS for
+        # the coordinator's initial test pass. Harmless for the pure packages,
+        # which ignore the variable.
+        run: |
+          assets=$(go run sigs.k8s.io/controller-runtime/tools/setup-envtest@latest use 1.31.0 -p path)
+          echo "KUBEBUILDER_ASSETS=$assets" >> "$GITHUB_ENV"
+      - name: Fuzz ${{ matrix.func }} (${{ matrix.pkg }})
+        run: go test -run='^$' -fuzz="^${{ matrix.func }}$" -fuzztime="$FUZZTIME" "${{ matrix.pkg }}"
+      - name: Surface discovered crasher
+        if: failure()
+        run: |
+          echo "::group::New fuzz corpus entries (crashers) — commit these as seeds"
+          find internal -path '*/testdata/fuzz/*' -type f -print -exec cat {} \; || true
+          echo "::endgroup::"
+  all-green:
+    # Single aggregate status mirroring the Verify convention: any failed or
+    # cancelled leg fails this, so a notification on the scheduled run is enough.
+    name: Fuzz — all targets passed
+    needs: [discover, fuzz]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify every job succeeded or skipped
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          bad=$(echo "$NEEDS" | jq -r 'to_entries[] | select(.value.result != "success" and .value.result != "skipped") | "\(.key)=\(.value.result)"')
+          [ -z "$bad" ] || { echo "::error::$bad"; exit 1; }

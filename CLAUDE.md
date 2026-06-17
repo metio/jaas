@@ -173,7 +173,7 @@ The Helm chart lives in the [metio/helm-charts](https://github.com/metio/helm-ch
 
 ## Test layers
 
-The suite spans several layers; all run via `go test` and all are exercised by the `test` job in `verify.yml` (`go test -v -cover ./...`). Locally, run them through the dev shell:
+The suite spans several layers; all run via `go test` and all are exercised by the `test` job in `verify.yml` (`go test -v -race -shuffle=on -coverprofile=cover.out ./...`). Locally, run them through the dev shell:
 
 ```shell
 ilo bash -c 'go test -count=1 -race -cover ./...'                       # everything, race detector on
@@ -188,7 +188,7 @@ ilo bash -c 'go test -fuzz=FuzzName -fuzztime=30s ./internal/urlguard/' # one fu
 
 - **Golden / example e2e** — `examples_test.go` boots the whole binary via `runInBackground` and asserts HTTP responses against `testdata/golden/`. See the [Examples & golden tests](#examples--golden-tests) section below for the `-update` regen flow and the per-snippet feature matrix.
 
-- **Fuzz tests** — `FuzzXxx` targets in `internal/handler/`, `internal/sources/`, and `internal/urlguard/` harden the request/snippet path, the tar/gzip artifact unpacker, and the SSRF URL/IP parser against adversarial input. CI exercises their seed corpus as ordinary unit tests; run `-fuzz` explicitly to fuzz for real.
+- **Fuzz tests** — `FuzzXxx` targets in `internal/handler/`, `internal/sources/`, and `internal/urlguard/` harden the request/snippet path, the tar/gzip artifact unpacker, and the SSRF URL/IP parser against adversarial input. The `test` job exercises their seed corpus as ordinary unit tests; the weekly `fuzz.yml` workflow runs a real coverage-guided campaign over an auto-discovered matrix of every target; run `-fuzz` explicitly to fuzz locally.
 
 - **Benchmarks** — `Benchmark*` in `internal/eval/`, `internal/storage/`, and `internal/operator/` (reconcile throughput, watch mapping, tenant-client cache). They are throughput baselines, not gates; `-run=^$` skips the tests so only benchmarks run. The reconcile benchmark is envtest-backed and therefore skips without `KUBEBUILDER_ASSETS`.
 
@@ -259,19 +259,23 @@ The repo is REUSE-compliant (0BSD). Every source file carries an SPDX header. `R
 
 `.github/workflows/verify.yml` is the PR gate. It fans out into one job per concern so a failure points straight at the offending gate, and CI installs each tool fresh via `go run <tool>@latest` (the dev shell pre-installs the same tools in `dev/Containerfile`, so local and CI runs agree):
 
-- `test` — `go build ./...` then `go test -v -cover ./...`.
+- `test` — `go build ./...` then `go test -v -race -shuffle=on -coverprofile=cover.out ./...` (race detector + randomized order; envtest tests skip in CI without `KUBEBUILDER_ASSETS`).
 - `lint-go` — `go vet ./...`, `staticcheck ./...` (`staticcheck.conf`, `checks=all`), `gosec ./...`, and a `gofumpt -l .` check that fails on any non-empty output.
 - `vulnerabilities` — `govulncheck ./...`. A reachable-from-code advisory is a hard merge gate; the usual fix is bumping the `toolchain` directive in `go.mod` (stdlib) or `go get -u` (deps).
 - `architecture` — `arch-go` against `arch-go.yml`.
 - `reuse` — the `fsfe/reuse-action` enforces SPDX headers on every file (see Licensing / REUSE).
-- Text linters, one job each — `yaml` (`yamllint` against `.yamllint.yaml`), `github-actions` (`actionlint`), `markdown` (`markdownlint-cli2` against `.markdownlint.yaml`), `typos` (`.typos.toml`).
+- Text/prose linters, one job each — `yaml` (`yamllint` against `.yamllint.yaml`), `github-actions` (`actionlint`), `markdown` (`markdownlint-cli2` against `.markdownlint.yaml`), `typos` (`.typos.toml`), `prose` (Vale against the shared `metio/vale-config` style, error-level findings fail).
+- `docs-lint` — builds the Hugo site (after `hack/gen-docs-data.sh`, which needs `helm-schema` on PATH to generate each chart's `values.schema.json` on the fly) and lints the rendered HTML (`htmltest`) plus the theme CSS (`biome`).
+- `dco` — every non-bot commit must carry a `Signed-off-by` trailer.
 - `container-image` — a Docker buildx image build (load, no push) followed by a Trivy scan that hard-fails on any fixable `CRITICAL`/`HIGH` (`ignore-unfixed: true`); the distroless base is slim, so findings are rare and worth investigating before merge.
 
-golangci-lint is **not** used anywhere (banned project-wide); the Go gate is the standalone tools above. Chart gates (helm-unittest, helm-schema drift, kube-score) run in the metio/helm-charts repo, which owns the chart.
+A separate `fuzz.yml` runs a weekly (Sunday) coverage-guided fuzz campaign over an auto-discovered matrix of every `Fuzz*` target (`workflow_dispatch` lets you set the per-target duration); it is best-effort coverage, not a merge gate. `docs.yml` builds and publishes the site to gh-pages. `verify.yml`, `docs.yml`, and `fuzz.yml` are kept structurally identical to the stageset-controller repo.
+
+golangci-lint is **not** used anywhere (banned project-wide); the Go gate is the standalone tools above. Chart gates (helm-unittest, kube-score) run in the metio/helm-charts repo, which owns the chart — each chart's `values.schema.json` is generated on the fly at package time, so there is no committed schema and no drift gate.
 
 **All-green aggregate convention.** Both `verify.yml` and `kind-smoke.yml` end in a single `all-green` job that `needs` every other job, runs `if: always()`, and fails unless each dependency `result` is `success` or `skipped`. That one job is the **only** check marked required in branch protection — new jobs are covered automatically, and dynamic matrix names (kind smoke) don't have to be enumerated as required checks. Don't add a new required check; add the job to the `needs` list of the relevant `all-green`.
 
-`kind-smoke.yml` is the operator end-to-end gate, and it's **angle 1 of a two-angle strategy**: the dev binary (HEAD build) is tested against the **latest released chart** (`oci://ghcr.io/metio/helm-charts/jaas`, version discovered from helm-charts' `jaas-*` GitHub releases). A `discover` job finds the chart version plus the newest Kubernetes (`kindest/node`), Flux (floored at v2.7.0, where the `ExternalArtifact` CRD lands), and kind versions at runtime — nothing is hardcoded, so a regression against a new release surfaces as a failure rather than silent staleness. The `smoke` job sweeps the full k8s × Flux matrix; the orthogonal jobs (`selfsigned`, `new-fields`, `source-chain`, `scale-smoke`) run once on the newest of each. Each job builds the HEAD image, loads it into kind, installs the released chart with `--set image.*` pointing at the dev image, and overlays HEAD's CRDs (`kubectl apply --server-side -f config/crd/bases/`) since the released chart's vendored CRDs lag HEAD. **Angle 2** lives in helm-charts (`operator-smoke.yml`): the dev chart deploys the **released binary** (its `appVersion`) and runs the identical scenarios. Each angle holds one moving part and tests it against the released counterpart, so neither couples to the other repo's `main`.
+`kind-smoke.yml` is the operator end-to-end gate, and it's **angle 1 of a two-angle strategy**: the dev binary (HEAD build) is tested against the **latest released chart** (`oci://ghcr.io/metio/helm-charts/jaas`, version discovered from helm-charts' `jaas-*` GitHub releases). A `discover` job finds the chart version plus the newest Kubernetes (`kindest/node`), Flux (floored at v2.7.0, where the `ExternalArtifact` CRD lands), and kind versions at runtime — nothing is hardcoded, so a regression against a new release surfaces as a failure rather than silent staleness. The `smoke` job sweeps the full k8s × Flux matrix; a set of orthogonal single-run jobs (`selfsigned`, `new-fields`, `source-chain`, `scale-smoke`, `image-volume` [k8s ≥ 1.33], `impersonation`, `networkpolicy`) run once on the newest of each. The `impersonation` and `networkpolicy` scenarios mirror the equivalents in the stageset-controller repo (parity). Each job builds the HEAD image, loads it into kind, installs the released chart with `--set image.*` pointing at the dev image, and overlays HEAD's CRDs (`kubectl apply --server-side -f config/crd/bases/`) since the released chart's vendored CRDs lag HEAD. **Angle 2** lives in helm-charts (`operator-smoke.yml`): the dev chart deploys the **released binary** (its `appVersion`) and runs the identical scenarios. Each angle holds one moving part and tests it against the released counterpart, so neither couples to the other repo's `main`.
 
 The workflow has **no `paths:` filter** (so its `all-green` always reports and can stay required); instead a `discover.relevant` output git-diffs the PR against operator code / smoke scripts and `if:`-gates the heavy kind jobs, keeping cost at the level a paths filter would.
 

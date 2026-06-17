@@ -33,7 +33,7 @@ spec:
             description: |
               Snippet has been flipping to Ready=False (reason: {{ $labels.reason }})
               for >10 minutes. Check the runbook at
-              https://github.com/metio/jaas/blob/main/docs/runbooks/{{ $labels.reason | toLower }}.md
+              https://jaas.projects.metio.wtf/runbooks/{{ $labels.reason | toLower }}/
 
         - alert: JaaSSnippetArtifactGrowing
           expr: |

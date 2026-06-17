@@ -43,8 +43,6 @@ These cover failures that don't map to a single `Reason` constant — typically 
 
 `JaaSSnippetReconcileErrorsHigh`'s runbook URL is templated on `$labels.reason` and resolves to the matching per-`Reason` page above. `JaaSSnippetArtifactGrowing` links to [artifacttoolarge.md](artifacttoolarge.md).
 
-## Wiring this into Ready condition messages
+## Runbook links in Ready condition messages
 
-Pass `--runbook-base-url=<prefix>` to the operator and every Ready condition Message picks up a `(runbook: <prefix>/<reason>.md)` suffix — visible in `kubectl describe`. Operators can then jump straight from the diagnosis output to the right page.
-
-A typical value: `https://github.com/metio/jaas/blob/main/docs/runbooks` — so messages link directly into this directory on GitHub.
+Every Ready condition Message the operator sets carries a `(runbook: https://jaas.projects.metio.wtf/runbooks/<reason>/)` suffix — the reason is lower-cased and appended as a path segment. The suffix shows up in `kubectl describe`, so operators jump straight from the diagnosis output to the matching page. Healthy and intentional states (`Synced`, `Suspended`, `Pending`) get no suffix.

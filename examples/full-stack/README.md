@@ -133,7 +133,7 @@ Edit anything in the snippet's git source — within `interval`, the dashboard u
 | Grafana dashboard not updating | grafana-operator logs; verify the `ExternalArtifact` URL is reachable from the grafana-operator pod |
 | `Ready=False/Suspended` | A human (or controller) set `spec.suspend: true` — `kubectl describe` for context |
 
-For each failure mode there's a runbook under [`docs/runbooks/`](../../docs/runbooks/). JaaS surfaces the runbook URL on the Ready condition when started with `--runbook-base-url`.
+For each failure mode there's a runbook under [`docs/runbooks/`](../../docs/runbooks/). JaaS auto-surfaces the matching runbook URL on the Ready condition message — a `(runbook: https://jaas.projects.metio.wtf/runbooks/<reason>/)` suffix visible in `kubectl describe`.
 
 ## Notifications (optional)
 

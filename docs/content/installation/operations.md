@@ -109,7 +109,7 @@ Once the deadline passes, the operator:
 The trade-off is a possible orphan tarball in storage. Recover it using the
 [storage-recovery](/runbooks/storage-recovery/) runbook.
 
-Adjust the bound with the chart value `arguments.maxWithdrawWait`. Lower it in
+Adjust the bound with the chart value `operator.maxWithdrawWait`. Lower it in
 environments where namespace teardown latency is critical; raise it (or remove
 the concern by fixing the backend) in environments where artifact-safety is
 paramount.

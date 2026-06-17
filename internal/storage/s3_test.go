@@ -25,6 +25,23 @@ import (
 	"github.com/minio/minio-go/v7"
 )
 
+// TestS3Backend_SweepIsNoOp pins the contract that the S3 backend has no
+// orphan-.tmp residue to clean: PutObject is atomic, so Sweep always reports
+// zero removals and no error. The background sweep loop relies on this so an
+// S3 deployment never logs spurious cleanup activity.
+func TestS3Backend_SweepIsNoOp(t *testing.T) {
+	b := &S3Backend{}
+	for _, age := range []time.Duration{0, time.Minute, time.Hour} {
+		n, err := b.Sweep(context.Background(), age)
+		if err != nil {
+			t.Fatalf("Sweep(age=%v) error = %v, want nil", age, err)
+		}
+		if n != 0 {
+			t.Fatalf("Sweep(age=%v) removed = %d, want 0", age, n)
+		}
+	}
+}
+
 // TestWatchUploadStall_TripsAfterNoProgress drives the stall monitor with a
 // hand-controlled tick channel and a progress counter that never advances:
 // after stall/interval no-progress ticks it must fire onStall. Deterministic

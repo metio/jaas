@@ -715,6 +715,121 @@ jobs:
           kubectl -n jaas-system describe pods -l app.kubernetes.io/name=jaas || true
           kubectl -n jaas-system logs deploy/jaas --tail=200 || true
 
+  impersonation:
+    name: tenant SA impersonation (RBACDenied → granted)
+    needs: discover
+    if: needs.discover.outputs.chart_version != '' && needs.discover.outputs.relevant == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone Git Repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build container image (dev / HEAD)
+        run: docker build --build-arg VERSION=smoke --build-arg COMMIT=${{ github.sha }} -t jaas:smoke .
+      - name: Create kind cluster
+        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1
+        with:
+          version: ${{ needs.discover.outputs.kind_latest }}
+          cluster_name: jaas-imp
+          node_image: kindest/node:${{ needs.discover.outputs.k8s_latest }}
+          wait: 180s
+      - name: Load image into kind
+        run: kind load docker-image jaas:smoke --name jaas-imp
+      - name: Cluster prereqs (Flux)
+        run: hack/smoke/setup-flux.sh ${{ needs.discover.outputs.flux_latest }}
+      - name: Install released chart (no webhook) with the dev image
+        run: |
+          kubectl create namespace jaas-system
+          # The chart's default JOI library image-volumes (volumes[].image) need
+          # the ImageVolume feature gate, which kind does not enable by default —
+          # without it the pod wedges in ContainerCreating. These scenarios use
+          # inline files / a Bucket source, not the libraries, so disable them.
+          helm upgrade --install jaas oci://ghcr.io/metio/helm-charts/jaas \
+            --version "${{ needs.discover.outputs.chart_version }}" \
+            --namespace jaas-system \
+            --set image.registry=docker.io \
+            --set image.repository=library/jaas \
+            --set-string image.tag=smoke \
+            --set operator.enabled=true \
+            --set operator.defaultServiceAccount=default \
+            --set libraries.grafonnet.enabled=false \
+            --set libraries.docsonnet.enabled=false \
+            --set libraries.xtd.enabled=false \
+            --wait --timeout 5m
+          kubectl apply --server-side --force-conflicts -f config/crd/bases/
+      - name: Operator scenario — tenant SA impersonation
+        run: hack/smoke/scenario-impersonation.sh
+      - name: Diagnostics on failure
+        if: failure()
+        run: |
+          kubectl -n jaas-system get all || true
+          kubectl -n jaas-system logs deploy/jaas --tail=300 || true
+          kubectl describe jsonnetsnippet imp-demo || true
+          kubectl describe externalartifact imp-demo || true
+
+  networkpolicy:
+    name: chart NetworkPolicy applies + operator still works
+    needs: discover
+    if: needs.discover.outputs.chart_version != '' && needs.discover.outputs.relevant == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone Git Repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build container image (dev / HEAD)
+        run: docker build --build-arg VERSION=smoke --build-arg COMMIT=${{ github.sha }} -t jaas:smoke .
+      - name: Create kind cluster
+        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1
+        with:
+          version: ${{ needs.discover.outputs.kind_latest }}
+          cluster_name: jaas-np
+          node_image: kindest/node:${{ needs.discover.outputs.k8s_latest }}
+          wait: 180s
+      - name: Load image into kind
+        run: kind load docker-image jaas:smoke --name jaas-np
+      - name: Cluster prereqs (Flux)
+        run: hack/smoke/setup-flux.sh ${{ needs.discover.outputs.flux_latest }}
+      - name: Install released chart (no webhook, NetworkPolicy enabled) with the dev image
+        run: |
+          kubectl create namespace jaas-system
+          # networkPolicy.enabled=true renders the chart's allowlist policy. kindnet
+          # does not enforce it, so the scenario asserts the object lands and the
+          # operator path still works — not enforcement. The chart's default JOI
+          # library image-volumes (volumes[].image) need the ImageVolume feature
+          # gate kind lacks, so disable them; these scenarios use inline files.
+          helm upgrade --install jaas oci://ghcr.io/metio/helm-charts/jaas \
+            --version "${{ needs.discover.outputs.chart_version }}" \
+            --namespace jaas-system \
+            --set image.registry=docker.io \
+            --set image.repository=library/jaas \
+            --set-string image.tag=smoke \
+            --set operator.enabled=true \
+            --set operator.defaultServiceAccount=default \
+            --set libraries.grafonnet.enabled=false \
+            --set libraries.docsonnet.enabled=false \
+            --set libraries.xtd.enabled=false \
+            --set networkPolicy.enabled=true \
+            --wait --timeout 5m
+          kubectl apply --server-side --force-conflicts -f config/crd/bases/
+      - name: Operator scenario — NetworkPolicy applies + operator works
+        run: hack/smoke/scenario-networkpolicy.sh
+      - name: Diagnostics on failure
+        if: failure()
+        run: |
+          kubectl -n jaas-system get all || true
+          kubectl -n jaas-system get networkpolicy jaas -o yaml || true
+          kubectl -n jaas-system logs deploy/jaas --tail=300 || true
+          kubectl describe jsonnetsnippet np-smoke || true
+          kubectl describe externalartifact np-smoke || true
+
   # Single stably-named aggregate — the only check to mark "required". It always
   # runs (if: always()) so it reports on every PR, including ones where the kind
   # jobs skip (not operator-relevant, or no released chart yet) — those pass.
@@ -731,6 +846,8 @@ jobs:
       - s3-seaweedfs
       - ha
       - image-volume
+      - impersonation
+      - networkpolicy
     if: always()
     runs-on: ubuntu-latest
     steps:

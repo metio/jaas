@@ -243,6 +243,104 @@ func TestExtractTarball_SkippedEntryDecompressionTripsCap(t *testing.T) {
 	}
 }
 
+// errStuckReader yields one byte per Read forever — never EOF. It drives
+// cappedReader's over-budget probe branch deterministically.
+type byteAtATimeReader struct {
+	data []byte
+	pos  int
+}
+
+func (r *byteAtATimeReader) Read(p []byte) (int, error) {
+	if len(p) == 0 {
+		return 0, nil
+	}
+	if r.pos >= len(r.data) {
+		return 0, io.EOF
+	}
+	p[0] = r.data[r.pos]
+	r.pos++
+	return 1, nil
+}
+
+// zeroNilReader returns (0, nil) on the first call then (0, io.EOF) — the
+// pathological io.Reader shape cappedReader must defend against at the
+// budget boundary (an endless (0,nil) loop would hang the extractor).
+type zeroNilReader struct{ calls int }
+
+func (r *zeroNilReader) Read(_ []byte) (int, error) {
+	r.calls++
+	if r.calls == 1 {
+		return 0, nil
+	}
+	return 0, io.EOF
+}
+
+func TestCappedReader_Read(t *testing.T) {
+	errCap := errors.New("over cap")
+
+	t.Run("under budget passes through to EOF", func(t *testing.T) {
+		cr := newCappedReader(bytes.NewReader([]byte("hello")), 100, errCap)
+		got, err := io.ReadAll(cr)
+		if err != nil {
+			t.Fatalf("ReadAll error = %v, want nil", err)
+		}
+		if string(got) != "hello" {
+			t.Fatalf("got %q, want %q", got, "hello")
+		}
+	})
+
+	t.Run("exact budget then clean EOF does not trip", func(t *testing.T) {
+		// Five bytes, budget five: the bytes drain to the boundary, then
+		// the probe sees a clean EOF rather than more data.
+		cr := newCappedReader(&byteAtATimeReader{data: []byte("abcde")}, 5, errCap)
+		got, err := io.ReadAll(cr)
+		if err != nil {
+			t.Fatalf("ReadAll error = %v, want nil", err)
+		}
+		if string(got) != "abcde" {
+			t.Fatalf("got %q, want %q", got, "abcde")
+		}
+	})
+
+	t.Run("over budget trips with cause mid-stream", func(t *testing.T) {
+		// Budget three, six bytes available: after draining three the probe
+		// finds a fourth byte and trips.
+		cr := newCappedReader(&byteAtATimeReader{data: []byte("abcdef")}, 3, errCap)
+		_, err := io.ReadAll(cr)
+		if !errors.Is(err, errCap) {
+			t.Fatalf("err = %v, want errCap", err)
+		}
+	})
+
+	t.Run("repeated Read after trip keeps returning cause", func(t *testing.T) {
+		cr := newCappedReader(&byteAtATimeReader{data: []byte("abcdef")}, 3, errCap)
+		buf := make([]byte, 16)
+		// Drain until the trip.
+		var tripErr error
+		for range 10 {
+			if _, tripErr = cr.Read(buf); tripErr != nil {
+				break
+			}
+		}
+		if !errors.Is(tripErr, errCap) {
+			t.Fatalf("first non-nil err = %v, want errCap", tripErr)
+		}
+		// A subsequent Read must still report the cause, not block or EOF.
+		if _, err := cr.Read(buf); !errors.Is(err, errCap) {
+			t.Fatalf("post-trip err = %v, want errCap", err)
+		}
+	})
+
+	t.Run("zero-nil at boundary trips defensively", func(t *testing.T) {
+		// Budget zero forces the probe immediately; the underlying answers
+		// (0, nil), which cappedReader must convert to a trip.
+		cr := newCappedReader(&zeroNilReader{}, 0, errCap)
+		if _, err := cr.Read(make([]byte, 4)); !errors.Is(err, errCap) {
+			t.Fatalf("err = %v, want errCap on (0,nil) boundary", err)
+		}
+	})
+}
+
 func TestExtractTarball_CorruptGzipReturnsError(t *testing.T) {
 	if _, err := extractTarball(strings.NewReader("not a gzip stream"), "", 1<<20); err == nil {
 		t.Errorf("corrupt gzip accepted")

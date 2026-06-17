@@ -10,6 +10,11 @@ jaas
 # Go test binaries — `go test -c`, `go test -cpuprofile=…`, etc. drop
 # `<package>.test` next to the package. Never source.
 *.test
+
+# Coverage profile from `go test -coverprofile=cover.out ./...` (the CI test job
+# and the dev-shell suite) plus any `go tool cover -html` render.
+cover.out
+cover.html
 # rapid (pgregory.net/rapid) persists failing-case replay files under a
 # package's testdata/rapid/ when a property test fails. They are transient
 # debugging aids, not source — keep them out of the tree.

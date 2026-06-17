@@ -28,6 +28,7 @@ import (
 
 	"github.com/metio/jaas/internal/handler"
 	"github.com/metio/jaas/internal/storage"
+	"k8s.io/client-go/rest"
 )
 
 func discardLogger() *slog.Logger {
@@ -763,6 +764,75 @@ func TestOCILibrariesFromPaths_MissingDirsAreSkipped(t *testing.T) {
 	got := ociLibrariesFromPaths([]string{"/does/not/exist"})
 	if len(got) != 0 {
 		t.Errorf("got %v, want empty", got)
+	}
+}
+
+func TestLoadOCILibraries_LoadsReadableAndSkipsEmpty(t *testing.T) {
+	// One path holds a usable library; the other is an empty directory with
+	// a content-free subdir. loadOCILibraries must fold in the usable one
+	// and warn-and-continue past the empty subdir without failing.
+	good := t.TempDir()
+	libDir := filepath.Join(good, "examplonet")
+	if err := os.MkdirAll(libDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(libDir, "main.libsonnet"), []byte(`{ ok: true }`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	empty := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(empty, "nothing"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	got := loadOCILibraries(context.Background(), []string{good, empty})
+	if _, ok := got["examplonet"]; !ok {
+		t.Fatalf("examplonet missing; got %v", got)
+	}
+	if _, ok := got["nothing"]; ok {
+		t.Error("empty library directory must not surface an alias")
+	}
+	if len(got) != 1 {
+		t.Errorf("loaded %d libraries, want exactly 1", len(got))
+	}
+}
+
+func TestLoadOCILibraries_EmptyResultIsEmptyMap(t *testing.T) {
+	got := loadOCILibraries(context.Background(), nil)
+	if len(got) != 0 {
+		t.Errorf("got %v, want empty", got)
+	}
+}
+
+func TestProvisionSelfSignedWebhookCert_EmptyNamespaceErrors(t *testing.T) {
+	_, err := provisionSelfSignedWebhookCert(context.Background(), &rest.Config{}, selfsignedConfig{
+		Namespace: "",
+		CertDir:   t.TempDir(),
+	})
+	if err == nil {
+		t.Fatal("expected error for empty namespace, got nil")
+	}
+	if !strings.Contains(err.Error(), "namespace is required") {
+		t.Errorf("error = %v, want it to mention the missing namespace", err)
+	}
+}
+
+func TestProvisionSelfSignedWebhookCert_UnwritableCertDirErrors(t *testing.T) {
+	// CertDir is rooted under a regular file, so MkdirAll cannot create it.
+	parent := t.TempDir()
+	notADir := filepath.Join(parent, "regular-file")
+	if err := os.WriteFile(notADir, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := provisionSelfSignedWebhookCert(context.Background(), &rest.Config{}, selfsignedConfig{
+		Namespace: "jaas-system",
+		CertDir:   filepath.Join(notADir, "certs"),
+	})
+	if err == nil {
+		t.Fatal("expected error for unwritable cert dir, got nil")
+	}
+	if !strings.Contains(err.Error(), "mkdir cert dir") {
+		t.Errorf("error = %v, want mkdir cert dir failure", err)
 	}
 }
 

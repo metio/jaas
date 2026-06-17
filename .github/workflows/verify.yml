@@ -17,7 +17,7 @@ jobs:
           go-version-file: go.mod
           cache: true
       - run: go build ./...
-      - run: go test -v -cover ./...
+      - run: go test -v -race -shuffle=on -coverprofile=cover.out ./...
   lint-go:
     runs-on: ubuntu-latest
     steps:
@@ -107,6 +107,8 @@ jobs:
       HTMLTEST_VERSION: 0.17.0
       # renovate: datasource=github-releases depName=biomejs/biome extractVersion=^@biomejs/biome@(?<version>.+)$
       BIOME_VERSION: 2.5.0
+      # renovate: datasource=github-releases depName=dadav/helm-schema
+      GO_HELM_SCHEMA_VERSION: 0.23.4
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
@@ -119,6 +121,12 @@ jobs:
         with:
           hugo-version: latest
           extended: true
+      - name: Install helm-schema
+        # gen-docs-data.sh generates each chart's values.schema.json on the fly
+        # from values.yaml (the committed schema + its drift gate were removed),
+        # so the docs build needs helm-schema on PATH. Version in lockstep with
+        # dev/Containerfile.
+        run: curl -fsSL "https://github.com/dadav/helm-schema/releases/download/${GO_HELM_SCHEMA_VERSION}/helm-schema_${GO_HELM_SCHEMA_VERSION}_Linux_x86_64.tar.gz" | tar -xz -C /usr/local/bin helm-schema
       - name: Generate docs data (flags + chart values)
         run: hack/gen-docs-data.sh
       - name: Build Website
@@ -164,11 +172,40 @@ jobs:
           ignore-unfixed: true
           vuln-type: 'os,library'
           severity: 'CRITICAL,HIGH'
+  dco:
+    # Developer Certificate of Origin: every commit must carry a Signed-off-by
+    # trailer. Skipped for bot-authored PRs (Renovate/Dependabot cannot sign off);
+    # a skipped job still satisfies the all-green gate below.
+    if: github.event.pull_request.user.type != 'Bot'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          fetch-depth: 0
+      - name: Verify Signed-off-by on every commit
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          status=0
+          for sha in $(git rev-list "$BASE..$HEAD"); do
+            name=$(git show -s --format='%an' "$sha")
+            case "$name" in
+              *'[bot]'*) echo "skip bot commit ${sha:0:8} ($name)"; continue ;;
+            esac
+            if git show -s --format='%B' "$sha" | grep -qiE '^Signed-off-by: .+ <.+@.+>$'; then
+              echo "ok   ${sha:0:8}"
+            else
+              echo "::error::commit ${sha:0:8} by '$name' is missing a Signed-off-by line (use git commit --signoff)"
+              status=1
+            fi
+          done
+          exit $status
   all-green:
     # Single required check covering every job above: mark only this one
     # required in branch protection and new jobs are covered automatically.
     name: Verify — all checks passed
-    needs: [test, lint-go, vulnerabilities, architecture, reuse, yaml, github-actions, markdown, typos, prose, docs-lint, container-image]
+    needs: [test, lint-go, vulnerabilities, architecture, reuse, yaml, github-actions, markdown, typos, prose, docs-lint, container-image, dco]
     if: always()
     runs-on: ubuntu-latest
     steps:
