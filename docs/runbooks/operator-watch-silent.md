@@ -32,7 +32,7 @@ This is the one diagnostic surface the operator can't unify with its other RBAC-
 The smoking gun is in the operator's logs:
 
 ```shell
-kubectl -n <jaas-ns> logs deploy/jaas --tail=2000 \
+kubectl --namespace <jaas-ns> logs deploy/jaas --tail=2000 \
   | grep -E 'Failed to watch|"reflector.go"' \
   | head -30
 ```
@@ -57,7 +57,7 @@ kubectl auth can-i list gitrepositories.source.toolkit.fluxcd.io \
 Compare against the chart-rendered ClusterRole:
 
 ```shell
-kubectl get clusterrole <release>-operator -o yaml | grep -A2 source.toolkit.fluxcd.io
+kubectl get clusterrole <release>-operator --output yaml | grep -A2 source.toolkit.fluxcd.io
 ```
 
 ## Remediation
@@ -79,7 +79,7 @@ The drift-gate test in the chart's `tests/clusterrole-operator_test.yaml` (metio
 After granting the verb, restart the operator pod so a fresh informer picks up the new ServiceAccount-token permissions:
 
 ```shell
-kubectl -n <jaas-ns> rollout restart deploy/jaas
+kubectl --namespace <jaas-ns> rollout restart deploy/jaas
 ```
 
 Watch-driven re-renders resume within seconds.

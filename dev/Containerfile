@@ -46,3 +46,19 @@ ARG ENVTEST_K8S_VERSION=1.31.0
 RUN setup-envtest use ${ENVTEST_K8S_VERSION} --bin-dir /usr/local/kubebuilder/bin \
     && ln -s "$(setup-envtest use ${ENVTEST_K8S_VERSION} --bin-dir /usr/local/kubebuilder/bin -p path)" /usr/local/kubebuilder/assets
 ENV KUBEBUILDER_ASSETS=/usr/local/kubebuilder/assets
+
+# htmltest + biome are the website linters — the rendered-HTML and CSS counterpart
+# to markdownlint above. htmltest checks the built site under docs/public/ (dead
+# internal links, missing alt text, broken anchors); biome lints the theme's CSS
+# (docs/themes/metio/assets/css). Both ship as single static binaries. Kept last
+# so a version bump here doesn't invalidate the expensive go-install layers.
+# renovate: datasource=github-releases depName=wjdp/htmltest
+ARG HTMLTEST_VERSION=0.17.0
+# renovate: datasource=github-releases depName=biomejs/biome extractVersion=^@biomejs/biome@(?<version>.+)$
+ARG BIOME_VERSION=2.5.0
+RUN ARCH="$(dpkg --print-architecture)" \
+    && case "$ARCH" in amd64) HT=amd64; BIO=x64 ;; arm64) HT=arm64; BIO=arm64 ;; *) HT="$ARCH"; BIO="$ARCH" ;; esac \
+    && curl -fsSL "https://github.com/wjdp/htmltest/releases/download/v${HTMLTEST_VERSION}/htmltest_${HTMLTEST_VERSION}_linux_${HT}.tar.gz" \
+       | tar -xz -C /usr/local/bin htmltest \
+    && curl -fsSL -o /usr/local/bin/biome "https://github.com/biomejs/biome/releases/download/@biomejs/biome@${BIOME_VERSION}/biome-linux-${BIO}" \
+    && chmod +x /usr/local/bin/biome

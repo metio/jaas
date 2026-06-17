@@ -22,14 +22,14 @@ Read the Message — it names the file and line. Reproduce locally:
 
 ```shell
 # Pull the snippet's files into a tempdir, then evaluate.
-kubectl get jsonnetsnippet <name> -o json | jq -r '.spec.files["main.jsonnet"]' > /tmp/main.jsonnet
+kubectl get jsonnetsnippet <name> --output json | jq -r '.spec.files["main.jsonnet"]' > /tmp/main.jsonnet
 jsonnet /tmp/main.jsonnet
 ```
 
 For sourceRef-based snippets, fetch the tarball:
 
 ```shell
-SOURCE_URL=$(kubectl get gitrepository <name> -o jsonpath='{.status.artifact.url}')
+SOURCE_URL=$(kubectl get gitrepository <name> --output jsonpath='{.status.artifact.url}')
 curl -sL "$SOURCE_URL" | tar -xz -C /tmp/snippet
 jsonnet /tmp/snippet/<entry-file>
 ```

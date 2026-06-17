@@ -24,7 +24,7 @@ kubectl describe <kind> <source-name>
 For Flux sources, also check the source-controller logs:
 
 ```shell
-kubectl logs -n flux-system deploy/source-controller | grep <source-name>
+kubectl --namespace flux-system logs deploy/source-controller | grep <source-name>
 ```
 
 ## Remediation

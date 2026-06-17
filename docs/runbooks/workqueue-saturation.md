@@ -30,7 +30,7 @@ The operator is dequeuing reconciles slower than the API server enqueues them. C
 
 ```shell
 # Per-controller queue depth — confirm which controller is saturated
-kubectl -n <jaas-ns> port-forward svc/jaas-metrics 8083:8083 &
+kubectl --namespace <jaas-ns> port-forward svc/jaas-metrics 8083:8083 &
 curl -s localhost:8083/metrics | grep -E 'workqueue_depth|workqueue_adds_total'
 
 # Reconcile-time histogram — separates "lots of queued items" (fan-out)
@@ -41,7 +41,7 @@ curl -s localhost:8083/metrics | grep 'controller_runtime_reconcile_time_seconds
 Cross-reference operator logs for the slow path:
 
 ```shell
-kubectl -n <jaas-ns> logs deploy/jaas --tail=500 \
+kubectl --namespace <jaas-ns> logs deploy/jaas --tail=500 \
   | grep -E 'reconcile|publisher|s3|webhook'
 ```
 
@@ -53,7 +53,7 @@ If `controller_runtime_reconcile_time_seconds` p99 is also high, the alert is th
 - **Apiserver slow.** Pause spec-update churn (`spec.interval` longer on hot snippets), then wait for control-plane health to return.
 - **Rate-limiter exhaustion.** Increase `operator.rerenderBurst` to absorb the spike, then investigate why a snippet is flapping (typically a `Reason*` other than `Synced` keeps firing — check `kubectl get events`).
 - **Fan-out from a single source.** Stagger snippet intervals so their watch events don't all settle at once. The controller serializes per-snippet; concurrency across snippets is bounded by `MaxConcurrentReconciles` (set high enough at chart default — 5 — that drag from a single fan-out is unusual).
-- **Webhook latency.** `kubectl get validatingwebhookconfiguration jaas-jsonnetsnippet -o yaml` and confirm the `caBundle` is current; restart the operator if the cert was rotated externally.
+- **Webhook latency.** `kubectl get validatingwebhookconfiguration jaas-jsonnetsnippet --output yaml` and confirm the `caBundle` is current; restart the operator if the cert was rotated externally.
 
 ## Prevention
 

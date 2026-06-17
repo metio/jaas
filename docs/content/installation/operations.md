@@ -120,21 +120,21 @@ Calendar-based releases ship every Monday. The chart version and the binary
 version advance together.
 
 ```shell
-helm upgrade jaas oci://ghcr.io/metio/helm-charts/jaas \
+helm upgrade --install jaas oci://ghcr.io/metio/helm-charts/jaas \
   --namespace jaas-system \
-  -f my-values.yaml \
+  --values my-values.yaml \
   --wait --timeout 5m
 ```
 
-The chart ships CRDs under `templates/` so `helm upgrade` applies schema changes
-automatically.
+The chart ships CRDs under `templates/` so `helm upgrade --install` applies schema
+changes automatically.
 
 **Before each upgrade**, read
 [MIGRATIONS.md](https://github.com/metio/jaas/blob/main/MIGRATIONS.md):
 
 - Releases that change `spec.selector.matchLabels` on the Deployment require a
   manual `kubectl delete deployment/jaas` first — that field is immutable and
-  `helm upgrade` will fail otherwise.
+  `helm upgrade --install` will fail otherwise.
 - The pre-delete cleanup Job (`operator.cleanupOnDelete.enabled: true`, the
   default) runs on `helm uninstall` and drops every snippet's finalizer so
   `ExternalArtifact` resources are unwound before the operator pod is removed.

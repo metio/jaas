@@ -34,7 +34,7 @@ A separate controller (admission policy automation, GitOps drift correction) ren
 
 ```shell
 kubectl get validatingwebhookconfigurations \
-  -l 'app.kubernetes.io/instance=<release-name>'
+  --selector 'app.kubernetes.io/instance=<release-name>'
 ```
 
 If the live name differs from the operator's `--webhook-validating-config-name` flag, redeploy the operator with the correct flag or rename the VWC back.
@@ -44,8 +44,8 @@ If the live name differs from the operator's `--webhook-validating-config-name` 
 The chart mounts `CertDir` as an `emptyDir` by default. A `kubectl apply` that adds a `readOnlyRootFilesystem: true` security context or a sidecar that re-mounts the volume can break writes.
 
 ```shell
-kubectl exec -n <ns> <operator-pod> -- ls -l /tmp/k8s-webhook-server/serving-certs/
-kubectl exec -n <ns> <operator-pod> -- touch /tmp/k8s-webhook-server/serving-certs/.write-probe
+kubectl --namespace <ns> exec <operator-pod> -- ls -l /tmp/k8s-webhook-server/serving-certs/
+kubectl --namespace <ns> exec <operator-pod> -- touch /tmp/k8s-webhook-server/serving-certs/.write-probe
 ```
 
 If the touch fails, the security-context or volume mount needs fixing.
@@ -56,7 +56,7 @@ If the touch fails, the security-context or volume mount needs fixing.
 2. **Roll the operator pod** to force a fresh bootstrap of the cert and a re-patch of the VWC:
 
    ```shell
-   kubectl rollout restart deployment -n <ns> <operator-deployment>
+   kubectl --namespace <ns> rollout restart deployment <operator-deployment>
    ```
 
    The new pod's bootstrap path goes through the dual-CA union (DD8), so existing replicas stay trusted across the rotation.

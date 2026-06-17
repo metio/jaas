@@ -25,8 +25,11 @@ recommended backend. Pair it with leader election (on by default) so only the
 lease-holder writes. For on-prem, a PVC with the access mode your storage class
 supports is the practical path.
 
-Full configuration options, the pin→fetch GC race, and artifact retention are
-covered in [Storage and HA](/usage/storage-and-ha/).
+Full configuration options and artifact retention are covered in
+[Storage and HA](/usage/storage-and-ha/) — including the garbage-collection grace
+period (`--artifact-gc-grace`) that keeps a just-superseded revision fetchable for
+a short window, so a consumer that read `status.artifact` moments before pruning
+doesn't 404 on the revision it pinned.
 
 Minimal S3 values (IRSA on EKS):
 
@@ -101,7 +104,7 @@ individual alerts (for Alertmanager), not to the rule object.
 The shipped alert set and all custom JaaS metrics are documented in
 [Observability](/usage/observability/).
 
-## 4. Enable the admission webhook
+## 4. Enable the admission webhook {#admission-webhook-tls}
 
 The webhook rejects spec invariant violations — ext-var key collisions, library
 alias shadowing, import cycles — at `kubectl apply` time instead of at
@@ -272,9 +275,9 @@ arguments:
 Apply with:
 
 ```shell
-helm install jaas oci://ghcr.io/metio/helm-charts/jaas \
+helm upgrade --install jaas oci://ghcr.io/metio/helm-charts/jaas \
   --namespace jaas-system --create-namespace \
-  -f production-values.yaml \
+  --values production-values.yaml \
   --wait --timeout 5m
 ```
 

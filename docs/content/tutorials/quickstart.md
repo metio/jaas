@@ -26,7 +26,7 @@ optional knobs — no webhook, no S3, no Flux source CRs — and a single
 ## Step 1 — Install the chart
 
 ```shell
-helm install jaas oci://ghcr.io/metio/helm-charts/jaas \
+helm upgrade --install jaas oci://ghcr.io/metio/helm-charts/jaas \
   --namespace jaas-system --create-namespace \
   --set operator.enabled=true \
   --set operator.defaultServiceAccount=default \

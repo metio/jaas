@@ -16,7 +16,7 @@ The snippet's `spec.externalVariables` declares a key that the operator already 
 
 ```shell
 # Which keys does the operator own?
-kubectl get pod -n <jaas-ns> -l app.kubernetes.io/name=jaas -o yaml | grep -A1 "\--ext-var="
+kubectl --namespace <jaas-ns> get pod --selector app.kubernetes.io/name=jaas --output yaml | grep -A1 "\--ext-var="
 ```
 
 Cross-reference with the snippet's `spec.externalVariables`.

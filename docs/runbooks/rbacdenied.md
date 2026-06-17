@@ -46,7 +46,7 @@ The `NoMatchError` variant means the apiserver doesn't know about the resource k
 Verify the SA exists and inspect its current permissions:
 
 ```shell
-kubectl -n <tenant-namespace> get sa <sa-name>
+kubectl --namespace <tenant-namespace> get sa <sa-name>
 kubectl auth can-i --as=system:serviceaccount:<tenant-namespace>:<sa-name> \
     --namespace <tenant-namespace> \
     <verb> <resource>
@@ -64,7 +64,7 @@ kubectl get crd | grep -E 'source.toolkit.fluxcd.io|jaas.metio.wtf'
 
 ## Remediation
 
-Grant the missing verb to the tenant SA. The minimum verbs JaaS expects are documented in the README's [Tenant ServiceAccount RBAC](../../README.md#tenant-serviceaccount-rbac) section. Typical fix:
+Grant the missing verb to the tenant SA. The minimum verbs JaaS expects are documented in the [Tenancy and RBAC](https://jaas.projects.metio.wtf/usage/tenancy-and-rbac/#the-tenant-role) guide. Typical fix:
 
 ```yaml
 apiVersion: rbac.authorization.k8s.io/v1

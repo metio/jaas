@@ -39,12 +39,12 @@ Slow reconciles are almost always one of:
 ```shell
 # Where is the time going? OTel spans break Reconcile into sub-stages.
 # Requires --tracing-endpoint set on the operator.
-kubectl -n <jaas-ns> get deploy jaas \
-  -o jsonpath='{.spec.template.spec.containers[0].args}' \
+kubectl --namespace <jaas-ns> get deploy jaas \
+  --output jsonpath='{.spec.template.spec.containers[0].args}' \
   | tr ',' '\n' | grep tracing
 
 # Without tracing: the histograms expose enough to triangulate.
-kubectl -n <jaas-ns> port-forward svc/jaas-metrics 8083:8083 &
+kubectl --namespace <jaas-ns> port-forward svc/jaas-metrics 8083:8083 &
 curl -s localhost:8083/metrics | grep -E 'reconcile_time|rendered_bytes'
 ```
 
@@ -55,7 +55,7 @@ For a single suspect snippet, force a reconcile under load and observe:
 ```shell
 kubectl annotate jsonnetsnippet <ns>/<name> \
   jaas.metio.wtf/reconcile-at=$(date -u +%FT%TZ) --overwrite
-kubectl -n <jaas-ns> logs deploy/jaas --tail=50 | grep <name>
+kubectl --namespace <jaas-ns> logs deploy/jaas --tail=50 | grep <name>
 ```
 
 ## Remediation

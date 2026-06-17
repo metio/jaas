@@ -26,14 +26,14 @@ Read the leak gauge. If it's non-zero and trending up, evaluations are starting 
 
 ```shell
 # Live count of evals whose parent reconcile already timed out:
-kubectl -n <jaas-ns> exec deploy/jaas -- \
+kubectl --namespace <jaas-ns> exec deploy/jaas -- \
   wget -qO- http://localhost:8083/metrics | grep jaas_eval_outstanding_timed_out
 ```
 
 To find the culprit, scan recent reconcile logs for `Jsonnet evaluation timed out` followed by repeated `EvalUnavailable` warnings on the same snippet:
 
 ```shell
-kubectl -n <jaas-ns> logs deploy/jaas --since=15m \
+kubectl --namespace <jaas-ns> logs deploy/jaas --since=15m \
   | grep -E 'EvaluationTimeout|EvalUnavailable' \
   | sort | uniq -c | sort -rn | head
 ```
@@ -52,7 +52,7 @@ Leak gauge is at zero (or steady, not growing), `jaas_eval_in_flight` is pegged 
 # Distribution of which snippets are seeing rejections — a flat
 # distribution across many snippets is path B; a single dominant
 # snippet is path A.
-kubectl -n <jaas-ns> exec deploy/jaas -- \
+kubectl --namespace <jaas-ns> exec deploy/jaas -- \
   wget -qO- http://localhost:8083/metrics \
   | grep jaas_snippet_eval_unavailable_total
 ```
@@ -64,8 +64,8 @@ kubectl -n <jaas-ns> exec deploy/jaas -- \
 1. **Suspend the offender** to stop new evals while you fix the snippet:
 
    ```shell
-   kubectl -n <ns> patch jsonnetsnippet <name> --type merge \
-     -p '{"spec":{"suspend":true}}'
+   kubectl --namespace <ns> patch jsonnetsnippet <name> --type merge \
+     --patch '{"spec":{"suspend":true}}'
    ```
 
 2. **Inspect the snippet** to understand the cost. Lower `--max-stack` is a blunt clamp that rejects pathological recursion before it can leak. The chart's `operator.maxStack` defaults to 500; pull it down to ~200 if the snippet doesn't legitimately need deeper recursion.
@@ -75,8 +75,8 @@ kubectl -n <jaas-ns> exec deploy/jaas -- \
 4. **Re-enable** after the snippet spec is fixed:
 
    ```shell
-   kubectl -n <ns> patch jsonnetsnippet <name> --type merge \
-     -p '{"spec":{"suspend":false}}'
+   kubectl --namespace <ns> patch jsonnetsnippet <name> --type merge \
+     --patch '{"spec":{"suspend":false}}'
    ```
 
 ### Path B — genuine load

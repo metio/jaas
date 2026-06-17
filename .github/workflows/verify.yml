@@ -96,6 +96,40 @@ jobs:
         with:
           files: docs/content
           fail_on_error: true
+  docs-lint:
+    # Build the site and lint the rendered HTML (htmltest: dead internal links,
+    # missing alt text, broken anchors) plus the theme CSS (biome). Mirrors the
+    # tools pre-staged in dev/Containerfile. Versions are kept in lockstep with
+    # that Containerfile so local and CI runs agree.
+    runs-on: ubuntu-latest
+    env:
+      # renovate: datasource=github-releases depName=wjdp/htmltest
+      HTMLTEST_VERSION: 0.17.0
+      # renovate: datasource=github-releases depName=biomejs/biome extractVersion=^@biomejs/biome@(?<version>.+)$
+      BIOME_VERSION: 2.5.0
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          submodules: recursive
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: peaceiris/actions-hugo@2752ce1d29631191ea3f27c23495fa06139a5b78 # v3
+        with:
+          hugo-version: latest
+          extended: true
+      - name: Generate docs data (flags + chart values)
+        run: hack/gen-docs-data.sh
+      - name: Build Website
+        run: hugo --minify --source docs
+      - name: Lint rendered HTML (htmltest)
+        run: go run "github.com/wjdp/htmltest@v${HTMLTEST_VERSION}"
+      - name: Lint theme CSS (biome)
+        run: |
+          curl -fsSL -o "${RUNNER_TEMP}/biome" "https://github.com/biomejs/biome/releases/download/@biomejs/biome@${BIOME_VERSION}/biome-linux-x64"
+          chmod +x "${RUNNER_TEMP}/biome"
+          "${RUNNER_TEMP}/biome" lint docs/themes/metio/assets/css
   container-image:
     runs-on: ubuntu-latest
     steps:
@@ -128,7 +162,7 @@ jobs:
     # Single required check covering every job above: mark only this one
     # required in branch protection and new jobs are covered automatically.
     name: Verify — all checks passed
-    needs: [test, lint-go, vulnerabilities, architecture, reuse, yaml, github-actions, markdown, typos, prose, container-image]
+    needs: [test, lint-go, vulnerabilities, architecture, reuse, yaml, github-actions, markdown, typos, prose, docs-lint, container-image]
     if: always()
     runs-on: ubuntu-latest
     steps:

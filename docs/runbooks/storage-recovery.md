@@ -11,15 +11,15 @@ Not tied to a single `Reason` — this page covers what to do when the artifact 
 One or more of:
 
 - Downstream Flux consumers report `404 Not Found` or `connection refused` against the JaaS storage URL.
-- `kubectl get externalartifact -A` shows resources whose URL is unreachable from the consumer pods.
+- `kubectl get externalartifact --all-namespaces` shows resources whose URL is unreachable from the consumer pods.
 - The operator pod is healthy (Ready=True on snippets), but the storage Service is unresponsive.
 - `helm upgrade` of the chart from `persistence.enabled: false` to `true` — or vice versa — caused a gap.
 
 ## Triage: which backend are you running?
 
 ```shell
-kubectl -n <jaas-ns> get deploy jaas \
-  -o jsonpath='{.spec.template.spec.containers[0].args}' \
+kubectl --namespace <jaas-ns> get deploy jaas \
+  --output jsonpath='{.spec.template.spec.containers[0].args}' \
   | tr ',' '\n' | grep -E 'storage-backend|storage-path|s3-endpoint'
 ```
 
@@ -37,13 +37,13 @@ Symptom: every `ExternalArtifact` URL returns 404 even though the snippet's Read
 # snippet is reconciled. Each reconcile re-runs the Publisher, which
 # writes the tarball back to disk. With a clean PVC, the gap closes in
 # one reconcile loop.
-kubectl -n <jaas-ns> rollout restart deploy/jaas
+kubectl --namespace <jaas-ns> rollout restart deploy/jaas
 ```
 
 If reconciles do not produce tarballs again, force a reconcile per snippet:
 
 ```shell
-kubectl annotate -A jsonnetsnippet --all \
+kubectl annotate --all-namespaces jsonnetsnippet --all \
   jaas.metio.wtf/reconcile-at=$(date -u +%FT%TZ) --overwrite
 ```
 
@@ -54,8 +54,8 @@ The window between PVC loss and the first re-render is the only outage downstrea
 `persistence.enabled: false` is fine for low-stakes deployments but every pod restart re-renders every snippet. The "fix" is to enable persistence:
 
 ```shell
-helm upgrade jaas oci://ghcr.io/metio/helm-charts/jaas \
-  -n <jaas-ns> --reuse-values \
+helm --namespace <jaas-ns> upgrade jaas oci://ghcr.io/metio/helm-charts/jaas \
+  --reuse-values \
   --set operator.storage.persistence.enabled=true \
   --set operator.storage.persistence.size=10Gi
 ```
@@ -67,14 +67,14 @@ After the upgrade, follow the PVC-lost steps above to repopulate the new volume.
 Diagnose:
 
 ```shell
-kubectl -n <jaas-ns> port-forward svc/jaas-storage <port>:8082 &
+kubectl --namespace <jaas-ns> port-forward svc/jaas-storage <port>:8082 &
 curl -fsSL http://localhost:<port>/<namespace>/<snippet>/<rev>.tar.gz | wc -c
 ```
 
 If port-forward works but in-cluster fetches fail, look at NetworkPolicy:
 
 ```shell
-kubectl get networkpolicy -A | grep -i jaas
+kubectl get networkpolicy --all-namespaces | grep -i jaas
 ```
 
 The chart's optional NetworkPolicy locks the storage port to a single source-controller selector. If your Flux install lives elsewhere or carries different labels, the NetworkPolicy will silently drop the traffic. Either widen `networkPolicy.fromSourceControllerSelector` or disable the NetworkPolicy on this chart and rely on a cluster-wide policy.
@@ -89,7 +89,7 @@ Diagnose:
 
 ```shell
 # Pull a recent tarball directly to confirm it's the upstream
-kubectl -n <jaas-ns> exec deploy/jaas -- \
+kubectl --namespace <jaas-ns> exec deploy/jaas -- \
   wget -O- http://localhost:8082/<namespace>/<snippet>/<rev>.tar.gz | wc -c
 ```
 
@@ -100,7 +100,7 @@ If the in-pod fetch fails too, check the operator logs for `minio-go` errors. Au
 If the bucket was emptied or the `--s3-prefix` changed, the proxy returns 404 even though the snippet is Ready. Re-render every snippet to repopulate:
 
 ```shell
-kubectl annotate -A jsonnetsnippet --all \
+kubectl annotate --all-namespaces jsonnetsnippet --all \
   jaas.metio.wtf/reconcile-at=$(date -u +%FT%TZ) --overwrite
 ```
 
@@ -113,7 +113,7 @@ With static credentials (`--s3-access-key` / `--s3-secret-key` / inline chart va
 Force the new keys to take effect:
 
 ```shell
-kubectl -n <jaas-ns> rollout restart deploy/jaas
+kubectl --namespace <jaas-ns> rollout restart deploy/jaas
 ```
 
 ## Disk full (`ENOSPC`)
@@ -124,7 +124,7 @@ When the volume backing `--storage-path` fills up, `Store.Put` returns the kerne
 
 - Multiple snippets simultaneously flip to `Ready=False` with messages mentioning `no space left on device`.
 - `JaaSControllerWorkqueueDepthHigh` alert fires (the backoff queue saturates).
-- `kubectl -n <jaas-ns> exec deploy/jaas -- df -h /var/lib/jaas/artifacts` shows the volume at 100%.
+- `kubectl --namespace <jaas-ns> exec deploy/jaas -- df -h /var/lib/jaas/artifacts` shows the volume at 100%.
 
 ### Recovery
 
@@ -134,13 +134,13 @@ When the volume backing `--storage-path` fills up, `Store.Put` returns the kerne
    # Lower spec.history on noisy snippets so the next reconcile prunes
    # older revisions. The Publisher's Prune step removes everything
    # outside the keep-set, freeing space proportional to the change.
-   kubectl patch jsonnetsnippet <name> --type=merge -p '{"spec":{"history":1}}'
+   kubectl patch jsonnetsnippet <name> --type=merge --patch '{"spec":{"history":1}}'
    ```
 
    For an immediate flush, force-prune by removing the artifact directory of a snippet you're certain doesn't need its history:
 
    ```shell
-   kubectl -n <jaas-ns> exec deploy/jaas -- \
+   kubectl --namespace <jaas-ns> exec deploy/jaas -- \
        rm -rf /var/lib/jaas/artifacts/<namespace>/<expendable-snippet>
    ```
 
@@ -148,10 +148,10 @@ When the volume backing `--storage-path` fills up, `Store.Put` returns the kerne
 
    ```shell
    # Annotate every snippet that flipped to Ready=False:
-   kubectl get jsonnetsnippets -A \
-     -o jsonpath='{range .items[?(@.status.conditions[?(@.type=="Ready")].status=="False")]}{.metadata.namespace}/{.metadata.name}{"\n"}{end}' \
+   kubectl get jsonnetsnippets --all-namespaces \
+     --output jsonpath='{range .items[?(@.status.conditions[?(@.type=="Ready")].status=="False")]}{.metadata.namespace}/{.metadata.name}{"\n"}{end}' \
      | xargs -n1 -I {} sh -c 'ns=$(echo "{}" | cut -d/ -f1); n=$(echo "{}" | cut -d/ -f2); \
-         kubectl -n "$ns" annotate jsonnetsnippet "$n" \
+         kubectl --namespace "$ns" annotate jsonnetsnippet "$n" \
          jaas.metio.wtf/reconcile-at=$(date -u +%FT%TZ) --overwrite'
    ```
 
@@ -177,7 +177,7 @@ A snippet that evaluates into a multi-MB JSON tree can push the operator past it
 The killing snippet is whichever the operator was reconciling when memory peaked. Easiest way to identify:
 
 ```shell
-kubectl -n <jaas-ns> logs deploy/jaas --previous --tail=200 \
+kubectl --namespace <jaas-ns> logs deploy/jaas --previous --tail=200 \
     | grep -B2 -i 'reconcil\|publish' | tail -30
 ```
 
@@ -190,7 +190,7 @@ The last `Reconcile` log line before the kill names the snippet. Confirm via `ja
 2. **Raise operator memory.** The chart's `resources.memory` default is conservative (`64Mi`); a cluster with large rendered artifacts may need `256Mi` or more. Update via:
 
    ```shell
-   helm upgrade jaas oci://ghcr.io/metio/helm-charts/jaas -n <jaas-ns> \
+   helm --namespace <jaas-ns> upgrade jaas oci://ghcr.io/metio/helm-charts/jaas \
      --reuse-values --set resources.memory=256Mi
    ```
 
@@ -203,7 +203,7 @@ For S3 backends, OOM during a multipart upload leaves an incomplete upload at th
 With leader election on (the chart default when operator mode is enabled), only the lease-holder writes to storage. A storage-incident on the lease-holder is the worst case: the standby reads but cannot fill the gap until the lease transfers. To force a handover during a storage incident on one replica:
 
 ```shell
-kubectl -n <jaas-ns> delete lease <release-name>-operator
+kubectl --namespace <jaas-ns> delete lease <release-name>-operator
 ```
 
 The next replica acquires the lease within `LeaseDuration` (15s default), and its Publisher writes against its own (presumably healthy) view of the backend.
@@ -225,15 +225,15 @@ Linked from the alert by name. The sweep is a background GC that removes orphane
 
 ```shell
 # Operator logs carry the underlying sweep error:
-kubectl -n <jaas-ns> logs deploy/jaas --tail=200 | grep "Storage sweep failed"
+kubectl --namespace <jaas-ns> logs deploy/jaas --tail=200 | grep "Storage sweep failed"
 
 # For local backend: check the volume's free space + permissions.
-kubectl -n <jaas-ns> exec deploy/jaas -- df -h /var/lib/jaas/artifacts
-kubectl -n <jaas-ns> exec deploy/jaas -- ls -la /var/lib/jaas/artifacts
+kubectl --namespace <jaas-ns> exec deploy/jaas -- df -h /var/lib/jaas/artifacts
+kubectl --namespace <jaas-ns> exec deploy/jaas -- ls -la /var/lib/jaas/artifacts
 
 # For S3 backend: sweep is a no-op (Put is atomic, no .tmp residue),
 # so this alert firing on S3 is a wiring bug. Confirm backend:
-kubectl -n <jaas-ns> get deploy jaas -o jsonpath='{.spec.template.spec.containers[0].args}' | tr ',' '\n' | grep storage-backend
+kubectl --namespace <jaas-ns> get deploy jaas --output jsonpath='{.spec.template.spec.containers[0].args}' | tr ',' '\n' | grep storage-backend
 ```
 
 **Remediate:**
@@ -245,7 +245,7 @@ kubectl -n <jaas-ns> get deploy jaas -o jsonpath='{.spec.template.spec.container
 Manual cleanup once the underlying issue is fixed:
 
 ```shell
-kubectl -n <jaas-ns> exec deploy/jaas -- find /var/lib/jaas/artifacts -name '*.tar.gz.tmp' -mmin +30 -delete
+kubectl --namespace <jaas-ns> exec deploy/jaas -- find /var/lib/jaas/artifacts -name '*.tar.gz.tmp' -mmin +30 -delete
 ```
 
 ## `WithdrawForced` event on snippet deletion

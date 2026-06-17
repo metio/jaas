@@ -35,7 +35,7 @@ the consumer's concern, documented on that consumer's own site.
 
 ## Where to start
 
-- [Quickstart](/tutorials/quickstart/) — from `helm install` to a published
+- [Quickstart](/tutorials/quickstart/) — from a Helm install to a published
   artifact in a few steps.
 - [Tutorials](/tutorials/) — the two integrations above, plus running JaaS as a
   cluster-free local renderer.

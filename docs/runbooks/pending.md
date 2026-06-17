@@ -20,9 +20,9 @@ kubectl describe jsonnetsnippet <name>
 
 If the timestamp on the `Pending` condition is older than ~30 seconds, the operator is either:
 
-- not running (`kubectl get pods -n <jaas-namespace>`)
+- not running (`kubectl --namespace <jaas-namespace> get pods`)
 - backed up on its work queue (check `kubectl logs deploy/jaas` and the `workqueue_depth` metric)
-- not the leader (multi-replica install, `kubectl get lease -n <jaas-namespace>` shows the holder)
+- not the leader (multi-replica install, `kubectl --namespace <jaas-namespace> get lease` shows the holder)
 
 ## Remediation
 

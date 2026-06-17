@@ -17,7 +17,7 @@ This is a normal, intentional state. It is not a failure.
 ## Diagnosis
 
 ```shell
-kubectl get jsonnetsnippet <name> -o jsonpath='{.spec.suspend}'
+kubectl get jsonnetsnippet <name> --output jsonpath='{.spec.suspend}'
 ```
 
 If the value is `true`, the suspension is set on the spec. Check `kubectl describe` for the last condition transition timestamp to see when it happened.
@@ -27,7 +27,7 @@ If the value is `true`, the suspension is set on the spec. Check `kubectl descri
 To resume reconciliation:
 
 ```shell
-kubectl patch jsonnetsnippet <name> --type=merge -p '{"spec":{"suspend":false}}'
+kubectl patch jsonnetsnippet <name> --type=merge --patch '{"spec":{"suspend":false}}'
 ```
 
 Or remove the field entirely:

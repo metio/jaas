@@ -20,7 +20,7 @@ The visible symptom is that snippets with `spec.sourceRef.Kind=<the affected kin
 
 ```shell
 kubectl get crd <plural>.source.toolkit.fluxcd.io \
-  -o jsonpath='{.status.conditions[?(@.type=="Established")].status}{"\n"}'
+  --output jsonpath='{.status.conditions[?(@.type=="Established")].status}{"\n"}'
 ```
 
 Expect `True`. If the CRD is not installed or not yet Established, the watcher is correct to skip; install / wait.
@@ -39,7 +39,7 @@ If either is "no", the chart's `operator-tenants` ClusterRole (or per-namespace 
 ### Step 3 — check controller-runtime cache state
 
 ```shell
-kubectl logs -n <ns> <operator-pod> | grep -E 'engage|Failed to watch|cache' | tail -20
+kubectl --namespace <ns> logs <operator-pod> | grep -E 'engage|Failed to watch|cache' | tail -20
 ```
 
 Look for `cache reconnect`, `informer failed`, or `Watch failed: forbidden`. A transient cache reconnect during a heavy load period can trip engagement once; the DD7 bounded-retry mechanism re-engages automatically. Sustained failures point at RBAC or a misconfigured `MetricsBindAddress`.
@@ -50,7 +50,7 @@ Look for `cache reconnect`, `informer failed`, or `Watch failed: forbidden`. A t
 2. **Roll the operator pod** to force a fresh `SetupWithManager` pass, which re-detects every Flux CRD and re-engages watches that succeed on first try:
 
    ```shell
-   kubectl rollout restart deployment -n <ns> <operator-deployment>
+   kubectl --namespace <ns> rollout restart deployment <operator-deployment>
    ```
 
 3. **Verify** the counter stops increasing and the alert clears.

@@ -35,27 +35,27 @@ Frequent causes:
 
 ```shell
 # Which probes are failing? Events tell you.
-kubectl -n <jaas-ns> describe pod -l app.kubernetes.io/name=jaas
+kubectl --namespace <jaas-ns> describe pod --selector app.kubernetes.io/name=jaas
 
 # Pod logs — the boot sequence prints every listener it binds.
-kubectl -n <jaas-ns> logs -l app.kubernetes.io/name=jaas --tail=300
+kubectl --namespace <jaas-ns> logs --selector app.kubernetes.io/name=jaas --tail=300
 
 # Compare against the expected listener set.
-kubectl -n <jaas-ns> get svc -l app.kubernetes.io/name=jaas
+kubectl --namespace <jaas-ns> get svc --selector app.kubernetes.io/name=jaas
 ```
 
 For OOM:
 
 ```shell
-kubectl -n <jaas-ns> top pod -l app.kubernetes.io/name=jaas
-kubectl -n <jaas-ns> get pod -l app.kubernetes.io/name=jaas -o yaml \
+kubectl --namespace <jaas-ns> top pod --selector app.kubernetes.io/name=jaas
+kubectl --namespace <jaas-ns> get pod --selector app.kubernetes.io/name=jaas --output yaml \
   | grep -A3 lastState
 ```
 
 For lease problems (multi-replica only):
 
 ```shell
-kubectl -n <jaas-ns> get lease <release-name>-operator -o yaml
+kubectl --namespace <jaas-ns> get lease <release-name>-operator --output yaml
 ```
 
 `holderIdentity` flipping every renewal interval is a sign of network flake or apiserver pressure — the replicas can't keep the lease stable.
@@ -66,7 +66,7 @@ kubectl -n <jaas-ns> get lease <release-name>-operator -o yaml
 - **OOMKilled.** Raise `resources.memory`, then identify the runaway snippet (the bench in `internal/operator/bench_test.go` is a regression baseline; the runaway is usually obvious from `jaas_snippet_rendered_bytes`).
 - **Image pull.** Standard k8s drill: check secrets, registry, tag.
 - **TLS cert.** With `certMode=cert-manager`, confirm the Issuer / Certificate are ready. With `certMode=self-signed`, the operator regenerates on boot — a permission error on the cert-dir mount blocks it.
-- **Lease flap.** Try `kubectl -n <jaas-ns> delete lease <release-name>-operator` to force a fresh election. If it keeps flapping, the cluster has bigger problems than JaaS.
+- **Lease flap.** Try `kubectl --namespace <jaas-ns> delete lease <release-name>-operator` to force a fresh election. If it keeps flapping, the cluster has bigger problems than JaaS.
 
 ## Prevention
 

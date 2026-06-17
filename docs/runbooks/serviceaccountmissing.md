@@ -15,7 +15,7 @@ The snippet omitted `spec.serviceAccountName` AND the operator was started witho
 ## Diagnosis
 
 ```shell
-kubectl get jsonnetsnippet <name> -o jsonpath='{.spec.serviceAccountName}'
+kubectl get jsonnetsnippet <name> --output jsonpath='{.spec.serviceAccountName}'
 ```
 
 Empty? Either the snippet must set it, or the cluster operator must configure a default.

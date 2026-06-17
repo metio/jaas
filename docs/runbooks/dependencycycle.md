@@ -24,7 +24,7 @@ The validating webhook (`--enable-webhook`) rejects new CRs that introduce a cyc
 Walk the chain manually:
 
 ```shell
-kubectl get jsonnetsnippet <name> -o jsonpath='{.spec.sourceRef}' && echo
+kubectl get jsonnetsnippet <name> --output jsonpath='{.spec.sourceRef}' && echo
 # Then inspect what that sourceRef points at, and what it sources from in turn.
 ```
 

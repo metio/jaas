@@ -28,6 +28,17 @@ ignoreFiles = ['README\.md$']
   mainSections = ["installation", "tutorials", "usage", "api", "comparisons", "runbooks", "contributing"]
   author = "metio.wtf"
   github = "metio/jaas"
+  # Header mark (rendered left of the title) plus the favicon link set; the image
+  # assets live under docs/static/.
+  logo = "/images/logo.svg"
+  favicons = true
+  # 1200x630 link-preview card (Open Graph / Twitter image). Read by Mastodon,
+  # Bluesky, LinkedIn, Facebook, Instagram and X when a page URL is shared.
+  socialImage = "/og-image.png"
+  # Author byline that Mastodon renders on a shared page's link-preview card.
+  # Metadata only — this does not add any link to the site header.
+  fediverseCreator = "@sebhoss@mastodon.online"
+  # twitter = "metio_wtf"   # X/Twitter @site handle (no account yet)
   # Render the per-page "see history" / "edit this page" icons next to the title.
   # editContentPath is the repo-root-relative path to this content tree, joined
   # with each page's .File.Path to build the GitHub URLs.

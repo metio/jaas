@@ -20,7 +20,7 @@ A `spec.libraries[*]` entry references a `JsonnetLibrary` CR that the operator c
 
 ```shell
 # Confirm the library exists.
-kubectl get jsonnetlibrary <name> -n <ns>
+kubectl --namespace <ns> get jsonnetlibrary <name>
 
 # Test the tenant's RBAC.
 kubectl auth can-i get jsonnetlibrary <name> \

@@ -19,7 +19,7 @@ This is a deliberate isolation control — it mirrors Flux's `--no-cross-namespa
 Inspect the spec and identify which reference points outside the snippet's namespace:
 
 ```shell
-kubectl get jsonnetsnippet <name> -n <ns> -o yaml | grep -E "namespace:|sourceRef:|libraries:"
+kubectl --namespace <ns> get jsonnetsnippet <name> --output yaml | grep -E "namespace:|sourceRef:|libraries:"
 ```
 
 ## Remediation
