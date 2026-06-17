@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
@@ -157,6 +158,11 @@ func runWithBuilder(ctx context.Context, cfg Config, restCfg *rest.Config, build
 	if logger == nil {
 		logger = slog.Default()
 	}
+
+	// Route controller-runtime's own logs (leader election, cache, manager,
+	// internal reconcile) through the same slog handler so they share its
+	// level and JSON/text format instead of being dropped.
+	ctrl.SetLogger(logr.FromSlogHandler(logger.Handler()))
 
 	scheme := runtime.NewScheme()
 	if err := jaasv1.AddToScheme(scheme); err != nil {

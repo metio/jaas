@@ -35,31 +35,6 @@ func discardLogger() *slog.Logger {
 	return slog.New(slog.NewJSONHandler(io.Discard, nil))
 }
 
-func TestParseLogLevel(t *testing.T) {
-	tests := map[string]slog.Level{
-		"error":   slog.LevelError,
-		"ERROR":   slog.LevelError,
-		"Error":   slog.LevelError,
-		"warn":    slog.LevelWarn,
-		"WARN":    slog.LevelWarn,
-		"debug":   slog.LevelDebug,
-		"DEBUG":   slog.LevelDebug,
-		"info":    slog.LevelInfo,
-		"INFO":    slog.LevelInfo,
-		"":        slog.LevelInfo,
-		"unknown": slog.LevelInfo,
-		"warning": slog.LevelInfo,
-	}
-	for input, want := range tests {
-		t.Run(input, func(t *testing.T) {
-			got := parseLogLevel(input)
-			if got != want {
-				t.Errorf("parseLogLevel(%q) = %v, want %v", input, got, want)
-			}
-		})
-	}
-}
-
 func TestResolveCommit(t *testing.T) {
 	bi := func(settings ...debug.BuildSetting) *debug.BuildInfo {
 		return &debug.BuildInfo{Settings: settings}
@@ -437,113 +412,10 @@ func TestRun_ExtVarFlag_RepeatableAndNotCommaSplit(t *testing.T) {
 	}
 }
 
-// ---- configureLogger -------------------------------------------------------
-
 func withRestoredSlogDefault(t *testing.T) {
 	t.Helper()
 	prev := slog.Default()
 	t.Cleanup(func() { slog.SetDefault(prev) })
-}
-
-func TestConfigureLogger_RoutesToProvidedWriter(t *testing.T) {
-	withRestoredSlogDefault(t)
-	var buf bytes.Buffer
-	configureLogger(&buf, "debug")
-
-	slog.Info("hello from test")
-	if !strings.Contains(buf.String(), "hello from test") {
-		t.Errorf("buffer = %q, want it to contain 'hello from test'", buf.String())
-	}
-}
-
-func TestConfigureLogger_FiltersBelowConfiguredLevel(t *testing.T) {
-	withRestoredSlogDefault(t)
-	var buf bytes.Buffer
-	configureLogger(&buf, "error")
-
-	slog.Debug("debug — should be dropped")
-	slog.Info("info — should be dropped")
-	slog.Warn("warn — should be dropped")
-	slog.Error("error — should pass")
-
-	out := buf.String()
-	if strings.Contains(out, "should be dropped") {
-		t.Errorf("level=error did not filter lower levels; got: %q", out)
-	}
-	if !strings.Contains(out, "error — should pass") {
-		t.Errorf("error record missing from output: %q", out)
-	}
-}
-
-func TestConfigureLogger_DebugLevelPassesEverything(t *testing.T) {
-	withRestoredSlogDefault(t)
-	var buf bytes.Buffer
-	configureLogger(&buf, "debug")
-
-	slog.Debug("dbg")
-	slog.Info("inf")
-	slog.Warn("wrn")
-	slog.Error("err")
-
-	for _, msg := range []string{"dbg", "inf", "wrn", "err"} {
-		if !strings.Contains(buf.String(), msg) {
-			t.Errorf("output = %q, want %q (level=debug should pass everything)", buf.String(), msg)
-		}
-	}
-}
-
-func TestConfigureLogger_UnknownLevelDefaultsToInfo(t *testing.T) {
-	withRestoredSlogDefault(t)
-	var buf bytes.Buffer
-	configureLogger(&buf, "garbage")
-
-	slog.Debug("dbg — should be dropped at info default")
-	slog.Info("inf — should pass")
-
-	out := buf.String()
-	if strings.Contains(out, "dbg") {
-		t.Errorf("debug record leaked through info-default filter: %q", out)
-	}
-	if !strings.Contains(out, "inf — should pass") {
-		t.Errorf("info record missing from output: %q", out)
-	}
-}
-
-func TestConfigureLogger_EmitsJSON(t *testing.T) {
-	withRestoredSlogDefault(t)
-	var buf bytes.Buffer
-	configureLogger(&buf, "info")
-
-	slog.Info("json check", slog.String("k", "v"))
-	out := buf.String()
-	// JSONHandler emits one record per line, starts with `{`, contains the key.
-	if !strings.HasPrefix(strings.TrimSpace(out), "{") {
-		t.Errorf("output does not look like JSON: %q", out)
-	}
-	if !strings.Contains(out, `"k":"v"`) {
-		t.Errorf("expected key/value in JSON output; got %q", out)
-	}
-}
-
-func TestConfigureLogger_MutatesGlobalDefault(t *testing.T) {
-	withRestoredSlogDefault(t)
-	var bufA, bufB bytes.Buffer
-	configureLogger(&bufA, "info")
-	original := slog.Default()
-	configureLogger(&bufB, "info")
-	replaced := slog.Default()
-
-	if original == replaced {
-		t.Error("expected the second configureLogger call to replace slog.Default")
-	}
-
-	slog.Info("only B")
-	if bufA.Len() != 0 {
-		t.Errorf("buffer A received output after being replaced: %q", bufA.String())
-	}
-	if !strings.Contains(bufB.String(), "only B") {
-		t.Errorf("buffer B = %q, want 'only B'", bufB.String())
-	}
 }
 
 // ---- run: helpers ----------------------------------------------------------

@@ -29,6 +29,7 @@ import (
 	"k8s.io/client-go/util/retry"
 
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
 	corev1 "k8s.io/api/core/v1"
@@ -254,6 +255,7 @@ func (r *SnippetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 		return ctrl.Result{}, err
 	}
+	span.SetAttributes(attribute.Int64("jaas.generation", snip.Generation))
 
 	if !snip.DeletionTimestamp.IsZero() {
 		return r.reconcileDelete(ctx, logger, &snip)
@@ -743,6 +745,10 @@ func (r *SnippetReconciler) tracedResolveSource(ctx context.Context, tenant clie
 		span.SetAttributes(attribute.String("jaas.reason", reason))
 		span.SetAttributes(attribute.Bool("jaas.transient", transient))
 	}
+	if transientErr != nil {
+		span.RecordError(transientErr)
+		span.SetStatus(codes.Error, "source resolution failed")
+	}
 	return files, reason, msg, transient, transientErr
 }
 
@@ -758,6 +764,7 @@ func (r *SnippetReconciler) tracedResolveLibraries(ctx context.Context, tenant c
 	libs, reason, msg, err := r.resolveLibraries(ctx, tenant, snip)
 	if err != nil {
 		span.RecordError(err)
+		span.SetStatus(codes.Error, "library resolution failed")
 	}
 	if reason != "" {
 		span.SetAttributes(attribute.String("jaas.reason", reason))
@@ -778,6 +785,7 @@ func (r *SnippetReconciler) tracedEvaluate(ctx context.Context, snip *jaasv1.Jso
 	rendered, reason, msg, err := r.evaluate(ctx, snip, files, mainSource, libs)
 	if err != nil {
 		span.RecordError(err)
+		span.SetStatus(codes.Error, "evaluation failed")
 	}
 	span.SetAttributes(attribute.Int("jaas.eval.renderedBytes", len(rendered)))
 	if reason != "" {
@@ -803,6 +811,7 @@ func (r *SnippetReconciler) tracedPublish(ctx context.Context, tenant client.Cli
 	pr, err := r.publish(ctx, tenant, snip, rendered, sourceFiles, keepShortRevs)
 	if err != nil {
 		span.RecordError(err)
+		span.SetStatus(codes.Error, "publish failed")
 	}
 	if pr.Revision != "" {
 		span.SetAttributes(attribute.String("jaas.publish.revision", pr.Revision))

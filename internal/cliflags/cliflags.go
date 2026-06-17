@@ -48,6 +48,7 @@ type Flags struct {
 	ExtVarFlags        *[]string
 	ShowVersion        *bool
 	LogLevel           *string
+	LogFormat          *string
 
 	ListenAddress       *string
 	Port                *string
@@ -138,6 +139,7 @@ func Register(fs *pflag.FlagSet, maxConcurrentEvalsDefault DefaultFunc) *Flags {
 	f.ExtVarFlags = fs.StringArray("ext-var", nil, "External variable as KEY=VALUE for std.extVar lookups (can be specified multiple times). Takes precedence over JAAS_EXT_VAR_* env vars on conflict.")
 	f.ShowVersion = fs.Bool("version", false, "Print version and exit")
 	f.LogLevel = fs.String("log-level", "info", "The log level to use (debug, info, warn, error)")
+	f.LogFormat = fs.String("log-format", "json", "The log output format to use (json, text)")
 	f.ListenAddress = fs.String("listen-address", "127.0.0.1", "The listen address to bind to for the Jsonnet server")
 	f.Port = fs.String("port", "8080", "The port to bind to for the Jsonnet server")
 	f.JsonnetEndpointPath = fs.String("jsonnet-endpoint-path", "jsonnet", "The path to the jsonnet endpoint")
@@ -229,7 +231,7 @@ func Register(fs *pflag.FlagSet, maxConcurrentEvalsDefault DefaultFunc) *Flags {
 		"Leader election":       {"leader-election", "leader-election-id", "leader-election-namespace"},
 		"Metrics":               {"metrics-bind-address"},
 		"Tracing":               {"tracing-endpoint", "tracing-insecure", "tracing-sample-ratio"},
-		"Logging and lifecycle": {"log-level", "version"},
+		"Logging and lifecycle": {"log-level", "log-format", "version"},
 	}
 	for group, names := range groups {
 		for _, name := range names {

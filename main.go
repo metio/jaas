@@ -129,7 +129,7 @@ func run(args, env []string, stdout, stderr io.Writer, sigs <-chan os.Signal) in
 		return 2
 	}
 
-	configureLogger(stdout, *f.LogLevel)
+	slog.SetDefault(observability.NewLogger(stdout, *f.LogLevel, *f.LogFormat))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -637,13 +637,6 @@ func loadOCILibraries(ctx context.Context, libraryPaths []string) map[string]eva
 	return libs
 }
 
-func configureLogger(out io.Writer, logLevel string) {
-	logHandler := slog.NewJSONHandler(out, &slog.HandlerOptions{
-		Level: parseLogLevel(logLevel),
-	})
-	slog.SetDefault(slog.New(logHandler))
-}
-
 // drainBeforeShutdown flips readiness off and (if delay > 0) blocks for `delay`
 // so Kubernetes can propagate the not-ready status to its endpoint controllers
 // before in-flight requests start being aborted by Shutdown. A second signal
@@ -905,17 +898,4 @@ func readOCILibraryFiles(libDir string) (map[string]string, error) {
 		return nil, err
 	}
 	return files, nil
-}
-
-func parseLogLevel(s string) slog.Level {
-	switch strings.ToLower(s) {
-	case "error":
-		return slog.LevelError
-	case "warn":
-		return slog.LevelWarn
-	case "debug":
-		return slog.LevelDebug
-	default:
-		return slog.LevelInfo
-	}
 }

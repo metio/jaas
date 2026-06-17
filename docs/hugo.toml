@@ -175,10 +175,31 @@ ignoreFiles = ['README\.md$']
     url = "/usage/admission-webhook/"
     weight = 12
   [[menu.main]]
+    identifier = "observability"
     parent = "usage"
     name = "Observability"
     url = "/usage/observability/"
     weight = 13
+  [[menu.main]]
+    parent = "observability"
+    name = "Logging"
+    url = "/usage/logging/"
+    weight = 1
+  [[menu.main]]
+    parent = "observability"
+    name = "Tracing"
+    url = "/usage/tracing/"
+    weight = 2
+  [[menu.main]]
+    parent = "observability"
+    name = "Metrics"
+    url = "/usage/metrics/"
+    weight = 3
+  [[menu.main]]
+    parent = "observability"
+    name = "Alerting"
+    url = "/usage/alerting/"
+    weight = 4
   [[menu.main]]
     parent = "usage"
     name = "Network policy"
