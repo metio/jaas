@@ -1598,6 +1598,9 @@ func (r *SnippetReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	if resetter, ok := mapper.(interface{ Reset() }); ok {
 		resetter.Reset()
 	}
+	if err := ensureOwnCRDsInstalled(mapper); err != nil {
+		return err
+	}
 	r.missingMu.Lock()
 	r.missingFluxKinds = nil
 	for _, kind := range FluxSourceKinds {
@@ -1653,6 +1656,25 @@ func (r *SnippetReconciler) EngageFluxWatch(ctx context.Context, gvk schema.Grou
 	r.missingMu.Unlock()
 	r.logger().InfoContext(ctx, "Engaged dynamic watch on newly-installed Flux source kind",
 		slog.String("gvk", gvk.String()))
+	return nil
+}
+
+// ensureOwnCRDsInstalled fails fast when the operator's own CRDs are absent.
+// The Flux source kinds are optional — watched only when installed — but the
+// operator cannot do anything without JsonnetSnippet/JsonnetLibrary:
+// controller-runtime would otherwise spin indefinitely logging "failed to
+// watch" with no actionable hint, and the pod can still report Ready. Naming
+// the missing kind and the remedy turns that silent hang into a clear startup
+// failure.
+func ensureOwnCRDsInstalled(mapper apimeta.RESTMapper) error {
+	for _, gvk := range []schema.GroupVersionKind{
+		jaasv1.GroupVersion.WithKind("JsonnetSnippet"),
+		jaasv1.GroupVersion.WithKind("JsonnetLibrary"),
+	} {
+		if _, err := mapper.RESTMapping(gvk.GroupKind(), gvk.Version); err != nil {
+			return fmt.Errorf("%s CRD (%s) is not installed — apply the JaaS CRDs (config/crd/bases/, or the Helm chart's CRDs) before starting the operator: %w", gvk.Kind, gvk.GroupVersion().String(), err)
+		}
+	}
 	return nil
 }
 

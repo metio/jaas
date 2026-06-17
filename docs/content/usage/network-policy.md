@@ -288,5 +288,3 @@ tenancy on the [tenancy and RBAC page](/usage/tenancy-and-rbac/).
 
 For the full set of chart values, see the
 [chart README](https://github.com/metio/helm-charts/tree/main/charts/jaas).
-</content>
-</invoke>

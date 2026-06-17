@@ -129,7 +129,13 @@ jobs:
         run: |
           curl -fsSL -o "${RUNNER_TEMP}/biome" "https://github.com/biomejs/biome/releases/download/@biomejs/biome@${BIOME_VERSION}/biome-linux-x64"
           chmod +x "${RUNNER_TEMP}/biome"
-          "${RUNNER_TEMP}/biome" lint docs/themes/metio/assets/css
+          # Run from inside the theme dir with no path argument: biome v2 treats a
+          # biome.json as a project root, so invoking from the repo root flags the
+          # theme config as a root nested under the repo-root project. From the
+          # theme dir its biome.json is the sole root, and omitting the path lets
+          # files.includes scope the run to the authored CSS (a path argument would
+          # override the config and pull in the vendored normalize.css/syntax.css).
+          ( cd docs/themes/metio && "${RUNNER_TEMP}/biome" lint )
   container-image:
     runs-on: ubuntu-latest
     steps:

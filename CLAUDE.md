@@ -246,7 +246,7 @@ Two website linters are pre-staged in the Go `dev/Containerfile` (alongside mark
 
 ```shell
 ilo bash -c 'htmltest'                          # rendered HTML: dead internal links, missing alt, broken anchors (.htmltest.yml)
-ilo bash -c 'biome lint docs/themes/metio/assets/css'   # theme CSS (config: docs/themes/metio/biome.json)
+ilo bash -c 'cd docs/themes/metio && biome lint'   # theme CSS (run from theme dir, no path; biome v2 treats its biome.json as the project root and files.includes scopes the run)
 ```
 
 `htmltest` reads `.htmltest.yml` (rooted at `docs/public`, external links off for a deterministic offline gate — flip `CheckExternal` to verify outbound URLs). The CSS lives in the theme submodule, so `biome` is configured by `biome.json` *in the theme repo* (it excludes the vendored `normalize.css` / `syntax.css`); fix CSS findings there, not in the submodule checkout.

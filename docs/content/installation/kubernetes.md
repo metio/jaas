@@ -64,7 +64,7 @@ snippets:
 
 additionalLibraries:
   - name: grafonnet
-    image: ghcr.io/metio/jsonnet-oci-images/grafonnet:latest
+    image: ghcr.io/metio/joi-grafana-grafonnet:latest
     mountPath: /libraries/grafonnet
 
 arguments:
@@ -107,8 +107,11 @@ operator:
 ```
 
 The operator publishes artifacts at the URL configured via
-`operator.storageBaseURL` (required); downstream snippets reference that URL in
-their `ExternalArtifact` status.
+`operator.storage.baseURL`. Left empty, it defaults to the in-cluster Service
+DNS name (`http://jaas-storage.<namespace>.svc.cluster.local:<port>`), which is
+correct when downstream Flux consumers fetch artifacts from inside the cluster.
+Set it explicitly only when consumers dereference the artifacts through an
+Ingress or external hostname.
 
 ### How CRDs are handled
 

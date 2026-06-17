@@ -24,15 +24,26 @@ RUN ARCH="$(dpkg --print-architecture)" \
        | tar -xz -C /usr/local --strip-components=1 \
     && npm install -g markdownlint-cli2
 
+# typos: the spell-checker the CI `typos` job runs against .typos.toml. It is a
+# Rust binary with no Go/Node/Python toolchain in this image, so fetch the
+# prebuilt release tarball rather than `cargo install`.
+ARG TYPOS_VERSION=1.28.4
+RUN ARCH="$(uname -m)" \
+    && case "$ARCH" in x86_64) T=x86_64 ;; aarch64) T=aarch64 ;; *) T="$ARCH" ;; esac \
+    && curl -fsSL "https://github.com/crate-ci/typos/releases/download/v${TYPOS_VERSION}/typos-v${TYPOS_VERSION}-${T}-unknown-linux-musl.tar.gz" \
+       | tar -xz -C /usr/local/bin ./typos
+
 # Standalone static-analysis tools — the CI verify gate runs these directly.
 # golangci-lint is intentionally NOT installed (banned project-wide).
 # gofumpt: strict formatting; gosec: security scanner; arch-go: architecture
-# rules (arch-go.yml); actionlint: GitHub Actions workflow linter.
+# rules (arch-go.yml); actionlint: GitHub Actions workflow linter; govulncheck:
+# known-vulnerability scanner (the CI vulnerabilities job).
 RUN go install honnef.co/go/tools/cmd/staticcheck@latest
 RUN go install mvdan.cc/gofumpt@latest
 RUN go install github.com/securego/gosec/v2/cmd/gosec@latest
 RUN go install github.com/arch-go/arch-go@latest
 RUN go install github.com/rhysd/actionlint/cmd/actionlint@latest
+RUN go install golang.org/x/vuln/cmd/govulncheck@latest
 
 # Code generation + envtest assets for the controller tests.
 RUN go install sigs.k8s.io/controller-tools/cmd/controller-gen@latest
