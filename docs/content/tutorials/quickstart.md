@@ -41,7 +41,7 @@ tenant — see [Tenancy and RBAC](/usage/tenancy-and-rbac/).
 Verify the operator is running:
 
 ```shell
-kubectl -n jaas-system get deploy jaas
+kubectl --namespace jaas-system get deploy jaas
 # NAME   READY   UP-TO-DATE   AVAILABLE   AGE
 # jaas   1/1     1            1           30s
 ```
@@ -87,7 +87,7 @@ The operator impersonates the tenant ServiceAccount to upsert the
 Verify the binding:
 
 ```shell
-kubectl -n default get rolebinding jaas-tenant
+kubectl --namespace default get rolebinding jaas-tenant
 # NAME          ROLE               AGE
 # jaas-tenant   Role/jaas-tenant   5s
 ```
@@ -125,13 +125,13 @@ This is a complete `JsonnetSnippet`. Three fields carry it:
 Verify the resource exists:
 
 ```shell
-kubectl -n default get jsonnetsnippet hello
+kubectl --namespace default get jsonnetsnippet hello
 ```
 
 ## Step 4 — Confirm it reconciled
 
 ```shell
-kubectl -n default get jsonnetsnippet hello
+kubectl --namespace default get jsonnetsnippet hello
 # NAME    READY   URL                                                                                    AGE
 # hello   True    http://jaas-storage.jaas-system.svc.cluster.local:8082/default/hello/<sha256>.tar.gz   5s
 ```
@@ -141,13 +141,13 @@ resource — the `Reason` and `Message` on the Ready condition name the problem
 (most commonly an RBAC gap or a Jsonnet syntax error):
 
 ```shell
-kubectl -n default describe jsonnetsnippet hello
+kubectl --namespace default describe jsonnetsnippet hello
 ```
 
 The `ExternalArtifact` is the resource downstream Flux consumers read:
 
 ```shell
-kubectl -n default get externalartifact hello -o yaml
+kubectl --namespace default get externalartifact hello -o yaml
 # status:
 #   artifact:
 #     url: http://jaas-storage.jaas-system.svc.cluster.local:8082/default/hello/<sha256>.tar.gz
@@ -161,7 +161,7 @@ kubectl -n default get externalartifact hello -o yaml
 The URL resolves in-cluster only. Fetch the tarball from a one-shot pod:
 
 ```shell
-URL=$(kubectl -n default get jsonnetsnippet hello -o jsonpath='{.status.artifactURL}')
+URL=$(kubectl --namespace default get jsonnetsnippet hello -o jsonpath='{.status.artifactURL}')
 kubectl run --rm -i --restart=Never --image=docker.io/curlimages/curl:8.10.1 fetch -- \
     sh -c "curl -fsSL '$URL' | tar -xzO rendered.json"
 # {
@@ -177,10 +177,10 @@ The tarball carries a single `rendered.json` because `spec.output` defaults to
 ## Clean up
 
 ```shell
-kubectl -n default delete jsonnetsnippet hello
-kubectl -n default delete rolebinding jaas-tenant
-kubectl -n default delete role jaas-tenant
-helm uninstall jaas -n jaas-system
+kubectl --namespace default delete jsonnetsnippet hello
+kubectl --namespace default delete rolebinding jaas-tenant
+kubectl --namespace default delete role jaas-tenant
+helm --namespace jaas-system uninstall jaas
 kubectl delete namespace jaas-system
 ```
 

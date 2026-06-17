@@ -127,15 +127,16 @@ append under a separate group via `operator.metrics.prometheusRule.extraRules`.
 ## Runbooks
 
 Each alert and each Ready-condition reason maps to a remediation page under
-[`/runbooks/`](/runbooks/). The shipped alerts carry the page as a
-`runbook_url` annotation (the key is `operator.metrics.prometheusRule.runbookAnnotationKey`;
-the base is `runbookBaseURL`), so Alertmanager renders a direct link.
+[`/runbooks/`](/runbooks/). The shipped alerts carry the page as a `runbook_url`
+annotation (the key is configurable via
+`operator.metrics.prometheusRule.runbookAnnotationKey`), so Alertmanager renders
+a direct link.
 
-`--runbook-base-url` threads the same prefix into the operator's own status: when
-set, every Ready-condition Message gains a `(runbook: <base>/<reason>.md)`
-suffix, so `kubectl describe jsonnetsnippet` points straight at the matching
-page. Healthy or intentional states (`Synced`, `Suspended`, `Pending`) get no
-suffix.
+The operator threads the same links into its own status automatically: every
+actionable Ready-condition Message gains a
+`(runbook: https://jaas.projects.metio.wtf/runbooks/<reason>/)` suffix, so
+`kubectl describe jsonnetsnippet` points straight at the matching page. Healthy
+or intentional states (`Synced`, `Suspended`, `Pending`) get no suffix.
 
 ## Kubernetes Events and notifications
 

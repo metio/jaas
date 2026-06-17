@@ -8,8 +8,7 @@ One page per Ready-condition `Reason` the operator sets, plus cross-cutting
 incident guides. Each page covers the symptom, the cause, how to diagnose it, and
 how to remediate.
 
-Point the operator at a published copy of these pages with `--runbook-base-url`
-(for example `https://jaas.projects.metio.wtf/runbooks`); the reason is then
-appended to each actionable Ready message so `kubectl describe` links straight to
-the remediation page. Healthy reasons (`Synced`, `Suspended`, `Pending`) get no
-link.
+The operator automatically appends a link to the matching page on each actionable
+Ready-condition message — `(runbook: https://jaas.projects.metio.wtf/runbooks/<reason>/)` —
+so `kubectl describe` points straight at the remediation page. Healthy reasons
+(`Synced`, `Suspended`, `Pending`) get no link.

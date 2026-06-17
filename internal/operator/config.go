@@ -177,12 +177,6 @@ type Config struct {
 	// controller-runtime's downward-API discovery.
 	LeaderElectionNamespace string
 
-	// RunbookBaseURL is an optional URL prefix the reconciler appends to
-	// every Ready condition Message ("Runbook: <base>/<reason>.md").
-	// Empty disables the suffix. Lets operators jump from `kubectl
-	// describe` straight to the per-reason remediation page.
-	RunbookBaseURL string
-
 	// MaxWithdrawWait bounds how long a deleted JsonnetSnippet may
 	// stay stuck in the finalizer while its Publisher.Withdraw keeps
 	// failing. Past the bound the reconciler force-drops the

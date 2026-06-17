@@ -12,6 +12,8 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -243,6 +245,59 @@ func TestRunWithBuilder_PropagatesMetricsBindAddress(t *testing.T) {
 			}
 			if tc.wantSet && gotVal != tc.wantVal {
 				t.Errorf("Metrics.BindAddress = %q, want %q", gotVal, tc.wantVal)
+			}
+		})
+	}
+}
+
+// TestRunWithBuilder_PropagatesWatchNamespaces proves the watch-scope behavior
+// at the options layer: the listed namespaces — and only those — land in
+// Cache.DefaultNamespaces, the map controller-runtime uses to restrict every
+// informer. A JsonnetSnippet in a namespace absent from this map never enters
+// the cache, so the reconciler can't see it; one in a listed namespace does.
+func TestRunWithBuilder_PropagatesWatchNamespaces(t *testing.T) {
+	cases := []struct {
+		name string
+		nss  []string
+		want []string // nil == cluster-wide (DefaultNamespaces unset)
+	}{
+		{"empty is cluster-wide", nil, nil},
+		{"single namespace", []string{"team-a"}, []string{"team-a"}},
+		{"multiple namespaces", []string{"team-a", "team-b", "team-c"}, []string{"team-a", "team-b", "team-c"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var seenOpts ctrl.Options
+			fake := &fakeRunner{}
+			build := func(_ *rest.Config, opts ctrl.Options, _ Config) (runner, error) {
+				seenOpts = opts
+				return fake, nil
+			}
+			cfg := Config{WatchNamespaces: tc.nss}
+			if err := runWithBuilder(context.Background(), cfg, &rest.Config{}, build); err != nil {
+				t.Fatalf("unexpected: %v", err)
+			}
+
+			if tc.want == nil {
+				if seenOpts.Cache.DefaultNamespaces != nil {
+					t.Fatalf("cluster-wide expected, but DefaultNamespaces = %v", seenOpts.Cache.DefaultNamespaces)
+				}
+				return
+			}
+			got := make([]string, 0, len(seenOpts.Cache.DefaultNamespaces))
+			for ns := range seenOpts.Cache.DefaultNamespaces {
+				got = append(got, ns)
+			}
+			sort.Strings(got)
+			want := append([]string(nil), tc.want...)
+			sort.Strings(want)
+			if !reflect.DeepEqual(got, want) {
+				t.Errorf("DefaultNamespaces keys = %v, want %v", got, want)
+			}
+			// A namespace outside the watch set must be absent — that absence
+			// is exactly what keeps its snippets out of the cache.
+			if _, present := seenOpts.Cache.DefaultNamespaces["unwatched-namespace"]; present {
+				t.Errorf("unwatched namespace leaked into DefaultNamespaces")
 			}
 		})
 	}

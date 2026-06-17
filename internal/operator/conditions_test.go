@@ -74,44 +74,19 @@ func TestAllReasons_CoversEveryConstant(t *testing.T) {
 }
 
 func TestSnippetReconciler_DecorateMessage(t *testing.T) {
-	cases := []struct {
-		name string
-		base string
-		want string
-	}{
-		{
-			name: "no base URL: message unchanged",
-			base: "",
-			want: "boom",
-		},
-		{
-			name: "base URL appended with lowercase reason",
-			base: "https://example/docs/runbooks",
-			want: "boom (runbook: https://example/docs/runbooks/invalidspec.md)",
-		},
-		{
-			name: "trailing slash stripped",
-			base: "https://example/docs/runbooks/",
-			want: "boom (runbook: https://example/docs/runbooks/invalidspec.md)",
-		},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			r := &SnippetReconciler{RunbookBaseURL: tc.base}
-			got := r.decorateMessage(ReasonInvalidSpec, "boom")
-			if got != tc.want {
-				t.Errorf("got %q, want %q", got, tc.want)
-			}
-		})
+	r := &SnippetReconciler{}
+	got := r.decorateMessage(ReasonInvalidSpec, "boom")
+	want := "boom (runbook: https://jaas.projects.metio.wtf/runbooks/invalidspec/)"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
 	}
 }
 
-// Regression: healthy / intentional reasons (Synced, Suspended,
-// Pending) must NOT carry a runbook suffix even when RunbookBaseURL
-// is set — these states are not actionable and the link would point
-// at a page that doesn't exist.
+// Healthy / intentional reasons (Synced, Suspended, Pending) must NOT
+// carry a runbook suffix — these states are not actionable and the link
+// would point at a page that doesn't exist.
 func TestDecorateMessage_HappyReasonsHaveNoRunbookSuffix(t *testing.T) {
-	r := &SnippetReconciler{RunbookBaseURL: "https://example/docs/runbooks"}
+	r := &SnippetReconciler{}
 	for _, reason := range []string{ReasonSynced, ReasonSuspended, ReasonPending} {
 		t.Run(reason, func(t *testing.T) {
 			got := r.decorateMessage(reason, "all good")

@@ -172,20 +172,7 @@ ClusterRoleBinding to per-namespace RoleBindings. Full RBAC layout and
 NetworkPolicy notes for `spec.sourceRef` fetches are in
 [Tenancy and RBAC](/usage/tenancy-and-rbac/).
 
-## 6. Set the runbook base URL
-
-Wire `--runbook-base-url` so `kubectl describe` on a failing snippet surfaces a
-direct link to the remediation page:
-
-```yaml
-arguments:
-  runbookBaseURL: https://jaas.projects.metio.wtf/runbooks
-```
-
-The operator appends `/<Reason>.md` to the base URL in every Ready condition
-message.
-
-## 7. Plan for upgrades and disaster recovery
+## 6. Plan for upgrades and disaster recovery
 
 Calendar-based releases run every Monday. Chart upgrades are `helm upgrade
 --install`; the chart ships CRDs under `templates/` so schema changes apply
@@ -267,9 +254,6 @@ operator:
 
   cleanupOnDelete:
     enabled: true
-
-arguments:
-  runbookBaseURL: https://jaas.projects.metio.wtf/runbooks
 ```
 
 Apply with:

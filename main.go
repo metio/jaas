@@ -262,7 +262,6 @@ func run(args, env []string, stdout, stderr io.Writer, sigs <-chan os.Signal) in
 			KnownLibraryAliases:     ociLibraryAliasesFromPaths(*f.LibraryPaths),
 			OCILibraries:            loadOCILibraries(ctx, *f.LibraryPaths),
 			MetricsBindAddress:      *f.MetricsBindAddress,
-			RunbookBaseURL:          *f.RunbookBaseURL,
 			MaxWithdrawWait:         *f.MaxWithdrawWait,
 			MaxArtifactBytes:        *f.MaxArtifactBytes,
 			ArtifactGCGrace:         *f.ArtifactGCGrace,

@@ -105,6 +105,28 @@ type S3Config struct {
 	ReadTimeout time.Duration
 }
 
+// s3Credentials selects the minio credential provider from the config:
+// anonymous → nil (unsigned), an explicit access key → static V4, otherwise the
+// discovery chain (env → shared file → EC2/EKS IAM). AWS_* environment variables
+// and IRSA web-identity tokens are honored through the env entry, so a Secret of
+// AWS_* keys mounted via envFrom authenticates here.
+func s3Credentials(cfg S3Config) *credentials.Credentials {
+	switch {
+	case cfg.UseAnonymous:
+		return nil
+	case cfg.AccessKeyID != "":
+		return credentials.NewStaticV4(cfg.AccessKeyID, cfg.SecretAccessKey, cfg.SessionToken)
+	default:
+		// Discovery chain: env vars first, then EC2/EKS metadata.
+		// IRSA web-identity tokens are honored via the env chain.
+		return credentials.NewChainCredentials([]credentials.Provider{
+			&credentials.EnvAWS{},
+			&credentials.FileAWSCredentials{},
+			&credentials.IAM{Client: &http.Client{Timeout: 5 * time.Second}},
+		})
+	}
+}
+
 // NewS3 constructs an S3Backend against the configured endpoint. The
 // bucket is NOT created — callers (or the cluster operator) provision it.
 func NewS3(cfg S3Config) (*S3Backend, error) {
@@ -117,20 +139,7 @@ func NewS3(cfg S3Config) (*S3Backend, error) {
 	opts := &minio.Options{
 		Secure: cfg.UseSSL,
 		Region: cfg.Region,
-	}
-	switch {
-	case cfg.UseAnonymous:
-		opts.Creds = nil
-	case cfg.AccessKeyID != "":
-		opts.Creds = credentials.NewStaticV4(cfg.AccessKeyID, cfg.SecretAccessKey, cfg.SessionToken)
-	default:
-		// Discovery chain: env vars first, then EC2/EKS metadata.
-		// IRSA web-identity tokens are honored via the env chain.
-		opts.Creds = credentials.NewChainCredentials([]credentials.Provider{
-			&credentials.EnvAWS{},
-			&credentials.FileAWSCredentials{},
-			&credentials.IAM{Client: &http.Client{Timeout: 5 * time.Second}},
-		})
+		Creds:  s3Credentials(cfg),
 	}
 	client, err := minio.New(cfg.Endpoint, opts)
 	if err != nil {

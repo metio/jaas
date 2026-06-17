@@ -195,12 +195,6 @@ type SnippetReconciler struct {
 	// library names.
 	KnownLibraryAliases []string
 
-	// RunbookBaseURL is an optional URL prefix appended to the Ready
-	// condition Message as "(runbook: <base>/<reason>.md)". Empty
-	// disables the suffix. Lets operators jump from `kubectl describe`
-	// straight to the per-reason remediation page.
-	RunbookBaseURL string
-
 	// MaxWithdrawWait bounds the time a deleted snippet's finalizer
 	// can hold while Publisher.Withdraw keeps failing. Past the
 	// bound, reconcileDelete force-drops the finalizer, emits a
@@ -1368,22 +1362,20 @@ var happyReasonsNoRunbook = map[string]bool{
 	ReasonPending:   true,
 }
 
-// decorateMessage appends a "Runbook: <url>" suffix when RunbookBaseURL
-// is set, so kubectl describe surfaces a direct link to the per-reason
-// remediation page. The base URL is treated as a directory: the reason
-// is lower-cased and appended as a path segment ending in ".md".
+// runbookBaseURL is the fixed location of the per-reason remediation pages on the JaaS docs site. Pages live at <base><reason-lowercased>/.
+const runbookBaseURL = "https://jaas.projects.metio.wtf/runbooks/"
+
+// decorateMessage appends a "(runbook: <url>)" suffix so kubectl describe
+// surfaces a direct link to the per-reason remediation page. The reason is
+// lower-cased and appended to runbookBaseURL as a path segment ending in "/".
 //
 // Reasons in happyReasonsNoRunbook (Synced, Suspended, Pending) get
 // no suffix — those states are healthy or intentional, not actionable.
 func (r *SnippetReconciler) decorateMessage(reason, message string) string {
-	if r.RunbookBaseURL == "" {
-		return message
-	}
 	if happyReasonsNoRunbook[reason] {
 		return message
 	}
-	base := strings.TrimRight(r.RunbookBaseURL, "/")
-	return message + " (runbook: " + base + "/" + strings.ToLower(reason) + ".md)"
+	return message + " (runbook: " + runbookBaseURL + strings.ToLower(reason) + "/)"
 }
 
 // markSynced records the successful render via Status.Revision and flips

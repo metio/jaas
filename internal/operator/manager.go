@@ -110,7 +110,6 @@ func newSnippetReconciler(mgr ctrl.Manager, cfg Config) (*SnippetReconciler, err
 		Fetcher:               sources.New(),
 		KnownLibraryAliases:   cfg.KnownLibraryAliases,
 		OCILibraries:          cfg.OCILibraries,
-		RunbookBaseURL:        cfg.RunbookBaseURL,
 		MaxWithdrawWait:       cfg.MaxWithdrawWait,
 		// GetEventRecorder returns events.v1 EventRecorder.
 		// notification-controller listens on both the v1 events API

@@ -72,8 +72,8 @@ EOF
 Verify the ServiceAccount and binding:
 
 ```shell
-kubectl -n default get serviceaccount dashboards-tenant
-kubectl -n default get rolebinding dashboards-tenant
+kubectl --namespace default get serviceaccount dashboards-tenant
+kubectl --namespace default get rolebinding dashboards-tenant
 ```
 
 ## Step 2 — Publish the dashboard helpers as a JsonnetLibrary
@@ -120,7 +120,7 @@ EOF
 Verify the library:
 
 ```shell
-kubectl -n default get jsonnetlibrary grafana-helpers
+kubectl --namespace default get jsonnetlibrary grafana-helpers
 ```
 
 ## Step 3 — Author and apply the dashboard snippet
@@ -165,7 +165,7 @@ naming the library `grafana` would let you drop the field. `kind` is always
 ## Step 4 — Confirm the dashboard rendered
 
 ```shell
-kubectl -n default get jsonnetsnippet api-latency
+kubectl --namespace default get jsonnetsnippet api-latency
 # NAME          READY   URL                                                                                         AGE
 # api-latency   True    http://jaas-storage.jaas-system.svc.cluster.local:8082/default/api-latency/<sha256>.tar.gz  5s
 ```
@@ -175,7 +175,7 @@ If `READY` is `False`, describe the snippet — the Ready condition's `Reason` a
 or a Jsonnet error):
 
 ```shell
-kubectl -n default describe jsonnetsnippet api-latency
+kubectl --namespace default describe jsonnetsnippet api-latency
 ```
 
 ## Step 5 — Inspect the published dashboard JSON
@@ -183,7 +183,7 @@ kubectl -n default describe jsonnetsnippet api-latency
 Fetch the artifact from a one-shot pod to see the rendered dashboard:
 
 ```shell
-URL=$(kubectl -n default get jsonnetsnippet api-latency -o jsonpath='{.status.artifactURL}')
+URL=$(kubectl --namespace default get jsonnetsnippet api-latency -o jsonpath='{.status.artifactURL}')
 kubectl run --rm -i --restart=Never --image=docker.io/curlimages/curl:8.10.1 fetch -- \
     sh -c "curl -fsSL '$URL' | tar -xzO rendered.json"
 # {
@@ -195,6 +195,46 @@ kubectl run --rm -i --restart=Never --image=docker.io/curlimages/curl:8.10.1 fet
 
 `rendered.json` is the Grafana dashboard model — the exact JSON the
 grafana-operator hands to Grafana's dashboard API.
+
+## Use real grafonnet instead of the toy helpers
+
+`grafana-helpers` kept this tutorial self-contained, but in production you import
+the real [grafonnet](https://github.com/grafana/grafonnet) library from a JOI
+image rather than hand-rolling constructors. Install it as a `JsonnetLibrary`
+with the [`joi` Helm chart](https://github.com/metio/helm-charts/tree/main/charts/joi):
+
+```shell
+helm upgrade --install joi oci://ghcr.io/metio/helm-charts/joi \
+  --namespace default \
+  --set libraries.grafonnet.enabled=true
+```
+
+That renders an `OCIRepository` plus a `JsonnetLibrary` named `grafonnet`,
+sourcing `ghcr.io/metio/joi-grafana-grafonnet`. The snippet then references that
+library in place of `grafana-helpers` and imports the real grafonnet API by its
+full jb-vendor path:
+
+```yaml
+apiVersion: jaas.metio.wtf/v1
+kind: JsonnetSnippet
+metadata:
+  name: api-latency
+  namespace: default
+spec:
+  serviceAccountName: dashboard-renderer
+  libraries:
+    - kind: JsonnetLibrary
+      name: grafonnet
+  files:
+    main.jsonnet: |
+      local g = import 'github.com/grafana/grafonnet/gen/grafonnet-latest/main.libsonnet';
+      g.dashboard.new('API Latency')
+      + g.dashboard.withUid('api-latency')
+```
+
+Everything downstream is unchanged — it reconciles and publishes an
+`ExternalArtifact` exactly as in Steps 4–5; only the source of the library
+differs.
 
 ## Handoff: reconcile the dashboard into Grafana
 

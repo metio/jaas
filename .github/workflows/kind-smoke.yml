@@ -350,10 +350,10 @@ jobs:
           wait: 180s
       - name: Load image into kind
         run: kind load docker-image jaas:smoke --name jaas-chain
-      - name: Cluster prereqs (Flux + MinIO bucket)
+      - name: Cluster prereqs (Flux + S3Mock bucket)
         run: |
           hack/smoke/setup-flux.sh ${{ needs.discover.outputs.flux_latest }}
-          hack/smoke/setup-minio.sh
+          hack/smoke/setup-s3mock.sh
       - name: Install released chart (no webhook) with the dev image
         run: |
           kubectl create namespace jaas-system
@@ -380,7 +380,7 @@ jobs:
         if: failure()
         run: |
           kubectl -n flux-system logs deploy/source-controller --tail=300 || true
-          kubectl -n minio logs deploy/minio --tail=200 || true
+          kubectl -n s3mock logs deploy/s3mock --tail=200 || true
           kubectl -n jaas-system logs deploy/jaas --tail=300 || true
           kubectl describe bucket dashboards || true
           kubectl describe jsonnetsnippet chain-demo || true
@@ -450,6 +450,271 @@ jobs:
           kubectl -n jaas-system logs deploy/jaas --tail=500 || true
           kubectl get jsonnetsnippet -n default -o wide || true
 
+  s3:
+    name: S3 storage backend (Adobe S3Mock)
+    needs: discover
+    if: needs.discover.outputs.chart_version != '' && needs.discover.outputs.relevant == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone Git Repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build container image (dev / HEAD)
+        run: docker build --build-arg VERSION=smoke --build-arg COMMIT=${{ github.sha }} -t jaas:smoke .
+      - name: Create kind cluster
+        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1
+        with:
+          version: ${{ needs.discover.outputs.kind_latest }}
+          cluster_name: jaas-s3
+          node_image: kindest/node:${{ needs.discover.outputs.k8s_latest }}
+          wait: 180s
+      - name: Load image into kind
+        run: kind load docker-image jaas:smoke --name jaas-s3
+      - name: Cluster prereqs (Flux + S3Mock)
+        run: |
+          hack/smoke/setup-flux.sh ${{ needs.discover.outputs.flux_latest }}
+          hack/smoke/setup-s3mock.sh
+      - name: Install released chart (S3Mock backend) with the dev image
+        run: |
+          kubectl create namespace jaas-system
+          # S3Mock validates no signature, so anonymous mode is correct here; do
+          # NOT assert SSE — S3Mock only fakes it. The SeaweedFS job covers real
+          # SigV4 / multipart / SSE. The chart's JOI image-volumes need the
+          # ImageVolume feature gate kind lacks, so disable them.
+          helm upgrade --install jaas oci://ghcr.io/metio/helm-charts/jaas \
+            --version "${{ needs.discover.outputs.chart_version }}" \
+            --namespace jaas-system \
+            --set image.registry=docker.io \
+            --set image.repository=library/jaas \
+            --set-string image.tag=smoke \
+            --set operator.enabled=true \
+            --set operator.defaultServiceAccount=default \
+            --set libraries.grafonnet.enabled=false \
+            --set libraries.docsonnet.enabled=false \
+            --set libraries.xtd.enabled=false \
+            --set operator.storage.backend=s3 \
+            --set operator.storage.s3.endpoint=s3mock.s3mock.svc:9090 \
+            --set operator.storage.s3.bucket=jaas-artifacts \
+            --set operator.storage.s3.useSSL=false \
+            --set operator.storage.s3.anonymous=true \
+            --wait --timeout 5m
+          kubectl apply --server-side --force-conflicts -f config/crd/bases/
+      - name: Operator scenario — S3 round-trip
+        run: hack/smoke/scenario-s3.sh
+      - name: Diagnostics on failure
+        if: failure()
+        run: |
+          kubectl -n jaas-system get all || true
+          kubectl -n jaas-system logs deploy/jaas --tail=300 || true
+          kubectl -n s3mock logs deploy/s3mock --tail=200 || true
+          kubectl describe jsonnetsnippet s3-demo || true
+          kubectl describe externalartifact s3-demo || true
+
+  s3-seaweedfs:
+    name: S3 storage backend (SeaweedFS — real SigV4 + multipart + SSE)
+    needs: discover
+    if: needs.discover.outputs.chart_version != '' && needs.discover.outputs.relevant == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone Git Repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build container image (dev / HEAD)
+        run: docker build --build-arg VERSION=smoke --build-arg COMMIT=${{ github.sha }} -t jaas:smoke .
+      - name: Create kind cluster
+        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1
+        with:
+          version: ${{ needs.discover.outputs.kind_latest }}
+          cluster_name: jaas-seaweedfs
+          node_image: kindest/node:${{ needs.discover.outputs.k8s_latest }}
+          wait: 180s
+      - name: Load image into kind
+        run: kind load docker-image jaas:smoke --name jaas-seaweedfs
+      - name: Cluster prereqs (Flux + SeaweedFS)
+        run: |
+          hack/smoke/setup-flux.sh ${{ needs.discover.outputs.flux_latest }}
+          hack/smoke/setup-seaweedfs.sh
+      - name: Install released chart (SeaweedFS backend, real creds) with the dev image
+        run: |
+          kubectl create namespace jaas-system
+          # Real credentialed access: SeaweedFS validates SigV4, so anonymous is
+          # off and the keys ride in via a credentials Secret (AWS_* keys) the
+          # chart wires onto the pod with envFrom. This exercises real signing,
+          # genuine multipart, and SeaweedFS's default server-side encryption —
+          # the fidelity the in-memory S3Mock job can't provide.
+          kubectl -n jaas-system create secret generic jaas-s3-creds \
+            --from-literal=AWS_ACCESS_KEY_ID=jaas-smoke \
+            --from-literal=AWS_SECRET_ACCESS_KEY=jaas-smoke-secret
+          # The chart's JOI image-volumes need the ImageVolume feature gate kind
+          # lacks, so disable them.
+          helm upgrade --install jaas oci://ghcr.io/metio/helm-charts/jaas \
+            --version "${{ needs.discover.outputs.chart_version }}" \
+            --namespace jaas-system \
+            --set image.registry=docker.io \
+            --set image.repository=library/jaas \
+            --set-string image.tag=smoke \
+            --set operator.enabled=true \
+            --set operator.defaultServiceAccount=default \
+            --set libraries.grafonnet.enabled=false \
+            --set libraries.docsonnet.enabled=false \
+            --set libraries.xtd.enabled=false \
+            --set operator.storage.backend=s3 \
+            --set operator.storage.s3.endpoint=seaweedfs.seaweedfs.svc:8333 \
+            --set operator.storage.s3.bucket=jaas-artifacts \
+            --set operator.storage.s3.useSSL=false \
+            --set operator.storage.s3.anonymous=false \
+            --set operator.storage.s3.credentialsSecret.name=jaas-s3-creds \
+            --wait --timeout 5m
+          kubectl apply --server-side --force-conflicts -f config/crd/bases/
+      - name: Operator scenario — S3 round-trip (SeaweedFS)
+        run: NAME=seaweedfs-demo hack/smoke/scenario-s3.sh
+      - name: Diagnostics on failure
+        if: failure()
+        run: |
+          kubectl -n jaas-system get all || true
+          kubectl -n jaas-system logs deploy/jaas --tail=300 || true
+          kubectl -n seaweedfs logs deploy/seaweedfs --tail=200 || true
+          kubectl describe jsonnetsnippet seaweedfs-demo || true
+          kubectl describe externalartifact seaweedfs-demo || true
+
+  ha:
+    name: HA (2 replicas, leader election failover)
+    needs: discover
+    if: needs.discover.outputs.chart_version != '' && needs.discover.outputs.relevant == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone Git Repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build container image (dev / HEAD)
+        run: docker build --build-arg VERSION=smoke --build-arg COMMIT=${{ github.sha }} -t jaas:smoke .
+      - name: Create kind cluster
+        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1
+        with:
+          version: ${{ needs.discover.outputs.kind_latest }}
+          cluster_name: jaas-ha
+          node_image: kindest/node:${{ needs.discover.outputs.k8s_latest }}
+          wait: 180s
+      - name: Load image into kind
+        run: kind load docker-image jaas:smoke --name jaas-ha
+      - name: Cluster prereqs (Flux)
+        run: hack/smoke/setup-flux.sh ${{ needs.discover.outputs.flux_latest }}
+      - name: Install released chart (2 replicas) with the dev image
+        run: |
+          kubectl create namespace jaas-system
+          # replicas.min=2 runs two operator pods; leader election gates which one
+          # reconciles. The chart's JOI image-volumes need the ImageVolume feature
+          # gate kind lacks, so disable them.
+          helm upgrade --install jaas oci://ghcr.io/metio/helm-charts/jaas \
+            --version "${{ needs.discover.outputs.chart_version }}" \
+            --namespace jaas-system \
+            --set image.registry=docker.io \
+            --set image.repository=library/jaas \
+            --set-string image.tag=smoke \
+            --set operator.enabled=true \
+            --set operator.defaultServiceAccount=default \
+            --set libraries.grafonnet.enabled=false \
+            --set libraries.docsonnet.enabled=false \
+            --set libraries.xtd.enabled=false \
+            --set replicas.min=2 \
+            --set replicas.max=2 \
+            --wait --timeout 5m
+          kubectl apply --server-side --force-conflicts -f config/crd/bases/
+      - name: Operator scenario — leader failover
+        run: hack/smoke/scenario-ha.sh
+      - name: Diagnostics on failure
+        if: failure()
+        run: |
+          kubectl -n jaas-system get all || true
+          kubectl -n jaas-system get lease || true
+          kubectl -n jaas-system logs deploy/jaas --tail=300 --all-pods || true
+          kubectl describe jsonnetsnippet ha-demo || true
+
+  image-volume:
+    name: OCI image-volume mount (k8s >= 1.33)
+    needs: discover
+    if: needs.discover.outputs.chart_version != '' && needs.discover.outputs.relevant == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone Git Repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - id: gate
+        name: Gate on k8s >= 1.33 (ImageVolume beta-on + containerd 2.x)
+        run: |
+          # The OCI image-volume mount the chart uses for library bundles needs
+          # the ImageVolume feature gate, which is beta-on (and backed by
+          # containerd 2.x in kindest/node) only from k8s 1.33. On older nodes the
+          # pod wedges in ContainerCreating, so skip the install/assert there and
+          # keep the job green — it's the version that's unsupported, not a bug.
+          v="${{ needs.discover.outputs.k8s_latest }}"; v="${v#v}"
+          minor="$(echo "$v" | cut -d. -f2)"
+          if [ "$minor" -ge 33 ]; then
+            echo "supported=true" >> "$GITHUB_OUTPUT"
+            echo "k8s $v supports ImageVolume — running the mount assertion."
+          else
+            echo "supported=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::k8s $v < 1.33 has no ImageVolume support; image-volume job skips the install/assert (stays green)."
+          fi
+      - name: Set up Go
+        if: steps.gate.outputs.supported == 'true'
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build container image (dev / HEAD)
+        if: steps.gate.outputs.supported == 'true'
+        run: docker build --build-arg VERSION=smoke --build-arg COMMIT=${{ github.sha }} -t jaas:smoke .
+      - name: Create kind cluster
+        if: steps.gate.outputs.supported == 'true'
+        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1
+        with:
+          version: ${{ needs.discover.outputs.kind_latest }}
+          cluster_name: jaas-imgvol
+          node_image: kindest/node:${{ needs.discover.outputs.k8s_latest }}
+          wait: 180s
+      - name: Load image into kind
+        if: steps.gate.outputs.supported == 'true'
+        run: kind load docker-image jaas:smoke --name jaas-imgvol
+      - name: Install released chart (renderer mode, real OCI image-volume) with the dev image
+        if: steps.gate.outputs.supported == 'true'
+        run: |
+          kubectl create namespace jaas-system
+          # Standalone HTTP-renderer mode (operator.enabled=false) with a real
+          # additionalLibraries OCI mount — the volumes[].image other jobs DISABLE.
+          # This is the sole job that exercises the image-volume runtime; helm
+          # --wait gates on the pod becoming Ready, which only happens if the
+          # kubelet mounted the OCI image.
+          helm upgrade --install jaas oci://ghcr.io/metio/helm-charts/jaas \
+            --version "${{ needs.discover.outputs.chart_version }}" \
+            --namespace jaas-system \
+            --set image.registry=docker.io \
+            --set image.repository=library/jaas \
+            --set-string image.tag=smoke \
+            --set operator.enabled=false \
+            --set additionalLibraries.xtd=ghcr.io/metio/joi-jsonnet-libs-xtd:latest \
+            --wait --timeout 5m
+      - name: Operator scenario — image-volume mount
+        if: steps.gate.outputs.supported == 'true'
+        run: hack/smoke/scenario-image-volume.sh
+      - name: Diagnostics on failure
+        if: failure() && steps.gate.outputs.supported == 'true'
+        run: |
+          kubectl -n jaas-system get all || true
+          kubectl -n jaas-system describe pods -l app.kubernetes.io/name=jaas || true
+          kubectl -n jaas-system logs deploy/jaas --tail=200 || true
+
   # Single stably-named aggregate — the only check to mark "required". It always
   # runs (if: always()) so it reports on every PR, including ones where the kind
   # jobs skip (not operator-relevant, or no released chart yet) — those pass.
@@ -462,6 +727,10 @@ jobs:
       - new-fields
       - source-chain
       - scale-smoke
+      - s3
+      - s3-seaweedfs
+      - ha
+      - image-volume
     if: always()
     runs-on: ubuntu-latest
     steps:

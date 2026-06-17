@@ -67,8 +67,8 @@ EOF
 Verify the ServiceAccount and binding:
 
 ```shell
-kubectl -n default get serviceaccount manifests-tenant
-kubectl -n default get rolebinding manifests-tenant
+kubectl --namespace default get serviceaccount manifests-tenant
+kubectl --namespace default get rolebinding manifests-tenant
 ```
 
 ## Step 2 — Author and apply the manifest snippet
@@ -143,7 +143,7 @@ External variables seed `std.extVar` lookups.
 ## Step 3 — Confirm the manifests rendered
 
 ```shell
-kubectl -n default get jsonnetsnippet web-app
+kubectl --namespace default get jsonnetsnippet web-app
 # NAME      READY   URL                                                                                     AGE
 # web-app   True    http://jaas-storage.jaas-system.svc.cluster.local:8082/default/web-app/<sha256>.tar.gz  5s
 ```
@@ -152,7 +152,7 @@ If `READY` is `False`, describe the snippet — the Ready condition's `Reason` a
 `Message` name the cause:
 
 ```shell
-kubectl -n default describe jsonnetsnippet web-app
+kubectl --namespace default describe jsonnetsnippet web-app
 ```
 
 ## Step 4 — Inspect the published manifests
@@ -160,7 +160,7 @@ kubectl -n default describe jsonnetsnippet web-app
 Fetch the artifact from a one-shot pod to see the rendered manifests:
 
 ```shell
-URL=$(kubectl -n default get jsonnetsnippet web-app -o jsonpath='{.status.artifactURL}')
+URL=$(kubectl --namespace default get jsonnetsnippet web-app -o jsonpath='{.status.artifactURL}')
 kubectl run --rm -i --restart=Never --image=docker.io/curlimages/curl:8.10.1 fetch -- \
     sh -c "curl -fsSL '$URL' | tar -xzO rendered.json"
 # {

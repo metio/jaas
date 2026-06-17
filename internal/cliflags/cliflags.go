@@ -74,7 +74,6 @@ type Flags struct {
 	RerenderRate          *string
 	RerenderBurst         *int
 	Kubeconfig            *string
-	RunbookBaseURL        *string
 	MaxWithdrawWait       *time.Duration
 	MaxArtifactBytes      *int64
 	ArtifactGCGrace       *time.Duration
@@ -189,7 +188,6 @@ func Register(fs *pflag.FlagSet, maxConcurrentEvalsDefault DefaultFunc) *Flags {
 	f.S3SecretKey = fs.String("s3-secret-key", "", "Static AWS_SECRET_ACCESS_KEY. Pairs with --s3-access-key.")
 	f.S3SessionToken = fs.String("s3-session-token", "", "Optional AWS_SESSION_TOKEN, paired with --s3-access-key/--s3-secret-key for temporary credentials.")
 	f.S3Anonymous = fs.Bool("s3-anonymous", false, "Skip request signing entirely. Only useful against a public bucket — test/dev only.")
-	f.RunbookBaseURL = fs.String("runbook-base-url", "", "Optional URL prefix appended to every Ready condition Message as (runbook: <base>/<reason>.md). Empty disables.")
 	f.MaxWithdrawWait = fs.Duration("max-withdraw-wait", 1*time.Hour, "Bound the time a deleted JsonnetSnippet's finalizer can hold while Publisher.Withdraw keeps failing. Past this, the operator emits a Warning WithdrawForced event, drops the finalizer, and lets the snippet be garbage-collected — possibly leaving an orphan tarball in storage. Required so a permanently-broken backend doesn't block namespace teardown.")
 	f.MaxArtifactBytes = fs.Int64("max-artifact-bytes", 0, "Cap the rendered artifact size in bytes. Snippets whose rendered output exceeds this fail with ReasonArtifactTooLarge. Zero disables.")
 	f.ArtifactGCGrace = fs.Duration("artifact-gc-grace", 5*time.Minute, "Minimum time a superseded artifact revision is retained after being evicted from the keep-set. Closes the pin→fetch race in which a Flux consumer reads status.artifact a moment before the operator garbage-collects the superseded revision. Zero disables and restores eager pruning. The deletion path (snippet teardown) is unaffected.")
@@ -212,7 +210,7 @@ func Register(fs *pflag.FlagSet, maxConcurrentEvalsDefault DefaultFunc) *Flags {
 		"Operator (Flux integration)": {
 			"enable-flux-integration", "default-service-account", "no-cross-namespace-refs",
 			"label-selector", "watch-namespaces", "rerender-rate", "rerender-burst",
-			"kubeconfig", "runbook-base-url", "max-withdraw-wait", "max-artifact-bytes", "artifact-gc-grace",
+			"kubeconfig", "max-withdraw-wait", "max-artifact-bytes", "artifact-gc-grace",
 		},
 		"Storage server (local and S3)": {
 			"storage-path", "storage-base-url", "storage-backend", "storage-listen-address",

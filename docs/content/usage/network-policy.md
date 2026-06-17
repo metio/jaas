@@ -232,7 +232,7 @@ cuts the operator off.
 Find the apiserver's address with:
 
 ```shell
-kubectl get endpoints kubernetes -n default -o jsonpath='{.subsets[*].addresses[*].ip}'
+kubectl --namespace default get endpoints kubernetes -o jsonpath='{.subsets[*].addresses[*].ip}'
 ```
 
 Use that IP as a `/32` (or your control plane's CIDR for an HA apiserver). A

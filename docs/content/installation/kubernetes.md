@@ -54,28 +54,40 @@ helm upgrade --install jaas oci://ghcr.io/metio/helm-charts/jaas \
   --wait
 ```
 
-A minimal `my-values.yaml` that mounts a snippet image and a library image:
+A minimal `my-values.yaml` — `snippets` and `additionalLibraries` are maps of
+`name: image-reference`:
 
 ```yaml
+# Snippets to render — a map of name: image. The name becomes the URL path, so
+# this snippet is served at GET /jsonnet/dashboards.
 snippets:
-  - name: dashboards
-    image: ghcr.io/my-org/my-dashboards:latest
-    mountPath: /snippets/dashboards
+  dashboards: ghcr.io/my-org/my-dashboards:latest
 
+# Well-known libraries have a built-in toggle — enable grafonnet with one flag
+# (the chart already knows its JOI image). docsonnet and xtd work the same way.
+libraries:
+  grafonnet:
+    enabled: true
+
+# additionalLibraries mounts any OTHER library image — a JOI library without a
+# built-in toggle, or your own private bundle. The map KEY is the directory the
+# image mounts under and that the renderer adds to its import search path
+# (`--library-path /srv/libraries/<key>`); it must be unique. The entry below
+# mounts ghcr.io/acme/jsonnet-acme-lib at /srv/libraries/acme.
 additionalLibraries:
-  - name: grafonnet
-    image: ghcr.io/metio/joi-grafana-grafonnet:latest
-    mountPath: /libraries/grafonnet
-
-arguments:
-  snippetDirectories:
-    - /snippets/dashboards
-  libraryPaths:
-    - /libraries/grafonnet
+  acme: ghcr.io/acme/jsonnet-acme-lib:latest
 ```
 
-The Jsonnet HTTP server listens on port `8080` (configurable via
-`arguments.port`).
+The chart mounts each image read-only and wires the renderer for you. The
+`dashboards` snippet is then reachable at `GET /jsonnet/dashboards`. A library is
+imported by the path it resolves to under its search directory — for a
+jb-vendored image like grafonnet, the full vendor path baked into it:
+
+```jsonnet
+import 'github.com/grafana/grafonnet/gen/grafonnet-latest/main.libsonnet'
+```
+
+The Jsonnet HTTP server listens on port `8080` (configurable via `ports.http`).
 
 ### Mode 2 — Flux CR-based (operator)
 
