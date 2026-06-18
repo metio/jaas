@@ -52,10 +52,12 @@ RUN go install sigs.k8s.io/controller-runtime/tools/setup-envtest@latest
 # Pre-stage an envtest asset bundle (kube-apiserver + etcd) so envtest-based
 # controller tests run without network access. The `assets` symlink keeps the
 # path stable across image rebuilds; KUBEBUILDER_ASSETS points the
-# controller-runtime envtest package at it.
-ARG ENVTEST_K8S_VERSION=1.31.0
-RUN setup-envtest use ${ENVTEST_K8S_VERSION} --bin-dir /usr/local/kubebuilder/bin \
-    && ln -s "$(setup-envtest use ${ENVTEST_K8S_VERSION} --bin-dir /usr/local/kubebuilder/bin -p path)" /usr/local/kubebuilder/assets
+# controller-runtime envtest package at it. The version floats to the newest
+# bundle envtest publishes at build time — no pin to bump (CI's verify.yml tests
+# the newest several minors via the same `setup-envtest list` discovery).
+RUN k8s="$(setup-envtest list 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | sort -V | tail -1)" \
+    && setup-envtest use "${k8s}" --bin-dir /usr/local/kubebuilder/bin \
+    && ln -s "$(setup-envtest use "${k8s}" --bin-dir /usr/local/kubebuilder/bin -p path)" /usr/local/kubebuilder/assets
 ENV KUBEBUILDER_ASSETS=/usr/local/kubebuilder/assets
 
 # htmltest + biome are the website linters — the rendered-HTML and CSS counterpart

@@ -15,12 +15,36 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
 
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 )
+
+// syncBuffer is a bytes.Buffer safe for concurrent Write and String. A test that
+// boots the operator manager and then reads the captured log output can race
+// controller-runtime's shutdown logging, which a background goroutine emits via
+// the slog handler after run() returns. A plain bytes.Buffer is not safe for
+// that concurrent Write/read; in production the sink is os.Stdout, where this
+// does not arise.
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
 
 // envtestMainSetup spins up a one-off envtest with the JaaS CRDs installed
 // and writes a kubeconfig for it to a tempfile. Both are returned so the
@@ -147,7 +171,7 @@ func TestRun_FluxIntegration_BootsAgainstEnvtestAndShutsDownCleanly(t *testing.T
 
 	sigs := make(chan os.Signal, 1)
 	done := make(chan int, 1)
-	var stdout, stderr bytes.Buffer
+	var stdout, stderr syncBuffer
 
 	withRestoredSlogDefault(t)
 	go func() {
