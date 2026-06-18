@@ -7,7 +7,7 @@ tags: [runbooks, troubleshooting, rbac]
 ## Symptom
 
 ```text
-kubectl describe jsonnetsnippet <name>
+kubectl --namespace <ns> describe jsonnetsnippet <name>
 ...
 Status:
   Conditions:
@@ -101,7 +101,7 @@ roleRef:
 After the RBAC change, force the next reconcile (the snippet's last spec edit doesn't auto-retrigger because the failure was non-transient):
 
 ```shell
-kubectl annotate jsonnetsnippet <name> jaas.metio.wtf/reconcile-at=$(date -u +%FT%TZ) --overwrite
+kubectl --namespace <ns> annotate jsonnetsnippet <name> jaas.metio.wtf/reconcile-at=$(date -u +%FT%TZ) --overwrite
 ```
 
 For the missing-CRD case, installing the CRD fires the operator's `crdWatcher`, which engages the watch automatically — no manual nudge needed.

@@ -4,7 +4,7 @@ description: A runtime watch on a Flux source CRD failed to engage, so snippets 
 tags: [runbooks, troubleshooting, lifecycle]
 ---
 
-Fires when `jaas_crd_watch_engagement_failures_total{gvk=...}` has increased above the per-hour threshold for the alert window. JaaS lazy-watches Flux source CRDs: at boot, only the CRDs already installed get a watch; when a previously-missing CRD becomes `Established=True` (operator installed source-controller post hoc, say), the `crdWatcher` engages a runtime watch on it via `Controller.Watch`. **When that engagement fails, the apiextensions informer fires no further events on a stable CRD** — meaning the watch stays un-engaged forever until either the CRD object's metadata/status is changed by something else, or the operator restarts.
+Fires when `jaas_crd_watch_engagement_failures_total{gvk=...}` has increased above the per-hour threshold for the alert window. The operator lazy-watches Flux source CRDs: at boot, only the CRDs already installed get a watch; when a previously-missing CRD becomes `Established=True` (you installed source-controller after the operator, say), the `crdWatcher` engages a runtime watch on it via `Controller.Watch`. **When that engagement fails, the apiextensions informer fires no further events on a stable CRD** — so the watch stays un-engaged until either the CRD object's metadata/status is changed by something else, or the operator restarts.
 
 The visible symptom is that snippets with `spec.sourceRef.Kind=<the affected kind>` stop re-rendering on upstream source updates. There is no per-snippet status signal — they sit at their last-rendered revision, drifting from upstream.
 
@@ -42,7 +42,7 @@ If either is "no", the chart's `operator-tenants` ClusterRole (or per-namespace 
 kubectl --namespace <ns> logs <operator-pod> | grep -E 'engage|Failed to watch|cache' | tail -20
 ```
 
-Look for `cache reconnect`, `informer failed`, or `Watch failed: forbidden`. A transient cache reconnect during a heavy load period can trip engagement once; the DD7 bounded-retry mechanism re-engages automatically. Sustained failures point at RBAC or a misconfigured `MetricsBindAddress`.
+Look for `cache reconnect`, `informer failed`, or `Watch failed: forbidden`. A transient cache reconnect during a heavy load period can trip engagement once; the bounded-retry mechanism re-engages automatically. Sustained failures point at RBAC or a misconfigured `MetricsBindAddress`.
 
 ## Remediation
 
@@ -57,4 +57,4 @@ Look for `cache reconnect`, `informer failed`, or `Watch failed: forbidden`. A t
 
 ## When the alert is noisy
 
-If `jaas_crd_watch_engagement_failures_total` ticks once at boot but never again, that's the expected DD7 bounded-retry behavior: the first attempt failed (transient race during cache start), the retry succeeded. Raise `crdWatchEngagementFailuresPerHour` if the boot-time blip is noisy enough to page.
+If `jaas_crd_watch_engagement_failures_total` ticks once at boot but never again, that's the expected bounded-retry behavior: the first attempt failed (transient race during cache start), the retry succeeded. Raise `crdWatchEngagementFailuresPerHour` if the boot-time blip is noisy enough to page.

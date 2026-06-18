@@ -5,7 +5,7 @@ tags: [operator, alerts, prometheus, observability]
 ---
 
 JaaS turns a sustained problem into a notification two ways: a Prometheus
-`PrometheusRule` that pages on its [metrics](/usage/metrics/), and Kubernetes
+`PrometheusRule` that pages on its [metrics](/observability/metrics/), and Kubernetes
 Events that Flux's notification-controller can route to chat or e-mail.
 
 ## The binary

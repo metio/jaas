@@ -36,7 +36,7 @@ golangci-lint is not used. The tools below run directly, both in CI and locally 
 
 | Job | What it runs |
 |-----|--------------|
-| `test` | `go build ./...` then `go test -v -cover ./...` |
+| `test` | `go build ./...` then `go test -v -race -shuffle=on -coverprofile=cover.out ./...` |
 | `lint-go` | `go vet ./...`, `staticcheck ./...`, `gosec ./...`, `gofumpt -l .` (fails on any output) |
 | `vulnerabilities` | `govulncheck ./...` — reachable-from-code advisories are a hard merge gate |
 | `architecture` | `arch-go` against `arch-go.yml` |

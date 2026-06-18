@@ -14,12 +14,11 @@ The snippet sets `spec.sourceRef` but the operator was built without a Fetcher w
 
 - a test/dev binary
 - a custom build where `defaultBuilder` was modified
-- a future code path that hasn't enabled sourceRef yet
 
 ## Diagnosis
 
 ```shell
-kubectl logs deploy/jaas | grep -i "fetcher"
+kubectl --namespace <jaas-ns> logs deploy/jaas | grep -i "fetcher"
 ```
 
 If the operator logs no Fetcher initialization, the binary is incomplete.

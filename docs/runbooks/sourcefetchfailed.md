@@ -21,7 +21,7 @@ The Fetcher resolved the source CR and started downloading the artifact, but the
 Check the source CR's `status.artifact.url` is reachable from the operator pod:
 
 ```shell
-kubectl exec deploy/jaas -- wget -O- <status.artifact.url> | wc -c
+kubectl --namespace <jaas-ns> exec deploy/jaas -- wget -O- <status.artifact.url> | wc -c
 ```
 
 A connection refused means the storage endpoint of source-controller (or another publisher) is unreachable — usually a NetworkPolicy issue.
@@ -33,5 +33,5 @@ For oversized tarballs, the snippet's `spec.sourceRef.path` filter is too broad 
 ## Remediation
 
 - **Network**: fix the NetworkPolicy / DNS / TLS that's blocking the fetch
-- **Digest**: re-reconcile (manual: `kubectl annotate jsonnetsnippet <name> jaas.metio.wtf/reconcile-at=$(date -u +%FT%TZ) --overwrite`)
+- **Digest**: re-reconcile (manual: `kubectl --namespace <ns> annotate jsonnetsnippet <name> jaas.metio.wtf/reconcile-at=$(date -u +%FT%TZ) --overwrite`)
 - **Oversized**: narrow `spec.sourceRef.path` to the subdirectory the snippet needs, or split the source repo

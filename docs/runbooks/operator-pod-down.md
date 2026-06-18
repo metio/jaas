@@ -63,7 +63,7 @@ kubectl --namespace <jaas-ns> get lease <release-name>-operator --output yaml
 ## Remediation
 
 - **Bind failure.** Free the colliding port (often `8080`, when the controller-runtime metrics endpoint defaults conflict with the jsonnet HTTP port — confirm `--metrics-bind-address` is `:8083`).
-- **OOMKilled.** Raise `resources.memory`, then identify the runaway snippet (the bench in `internal/operator/bench_test.go` is a regression baseline; the runaway is usually obvious from `jaas_snippet_rendered_bytes`).
+- **OOMKilled.** Raise `resources.memory`, then identify the runaway snippet — it is usually obvious from `jaas_snippet_rendered_bytes`.
 - **Image pull.** Standard k8s drill: check secrets, registry, tag.
 - **TLS cert.** With `certMode=cert-manager`, confirm the Issuer / Certificate are ready. With `certMode=self-signed`, the operator regenerates on boot — a permission error on the cert-dir mount blocks it.
 - **Lease flap.** Try `kubectl --namespace <jaas-ns> delete lease <release-name>-operator` to force a fresh election. If it keeps flapping, the cluster has bigger problems than JaaS.
@@ -72,4 +72,4 @@ kubectl --namespace <jaas-ns> get lease <release-name>-operator --output yaml
 
 - Pin `replicas.max: 1` and `LeaderElectionReleaseOnCancel: true` (chart defaults). Multi-replica is only worth it for storage-backed HA — single-replica is the simpler operational story.
 - Run the cleanup Job (`operator.cleanupOnDelete.enabled: true`, chart default) so a `helm uninstall` of a wedged operator unwinds the finalizers instead of leaving orphaned snippets.
-- Pair this alert with `JaaSControllerWorkqueueDepthHigh` ([workqueue-saturation.md](workqueue-saturation.md)). A pod-down event almost always coincides with a saturated queue from snippets piling up.
+- Pair this alert with `JaaSControllerWorkqueueDepthHigh` ([workqueue-saturation](/runbooks/workqueue-saturation/)). A pod-down event almost always coincides with a saturated queue from snippets piling up.

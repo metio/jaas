@@ -4,10 +4,9 @@ description: Complete reference for every JaaS command-line flag, organized by s
 tags: [installation, configuration, flags, reference]
 ---
 
-Every JaaS flag is listed here with its default and a one-line description. Run
-`jaas --help` to see the same list at runtime. The tables on this page are
-generated from the binary's own flag definitions, so they never drift from the
-runtime contract.
+Every JaaS flag below carries its default and a one-line description. Run
+`jaas --help` to see the same list at runtime. The tables are generated from the
+binary's own flag definitions, so they never drift from the runtime contract.
 
 The Helm chart exposes most flags under `arguments.*`; operator-specific flags
 are under `operator.*`. The full set of chart values is in the

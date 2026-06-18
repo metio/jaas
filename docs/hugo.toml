@@ -25,7 +25,7 @@ ignoreFiles = ['README\.md$']
   term = ["HTML", "RSS", "ATOM"]
 
 [params]
-  mainSections = ["installation", "tutorials", "usage", "api", "comparisons", "runbooks", "contributing"]
+  mainSections = ["installation", "tutorials", "usage", "observability", "api", "comparisons", "runbooks", "contributing"]
   author = "metio.wtf"
   github = "metio/jaas"
   # Header mark (rendered left of the title) plus the favicon link set; the image
@@ -175,41 +175,41 @@ ignoreFiles = ['README\.md$']
     url = "/usage/admission-webhook/"
     weight = 12
   [[menu.main]]
-    identifier = "observability"
-    parent = "usage"
-    name = "Observability"
-    url = "/usage/observability/"
-    weight = 13
-  [[menu.main]]
-    parent = "observability"
-    name = "Logging"
-    url = "/usage/logging/"
-    weight = 1
-  [[menu.main]]
-    parent = "observability"
-    name = "Tracing"
-    url = "/usage/tracing/"
-    weight = 2
-  [[menu.main]]
-    parent = "observability"
-    name = "Metrics"
-    url = "/usage/metrics/"
-    weight = 3
-  [[menu.main]]
-    parent = "observability"
-    name = "Alerting"
-    url = "/usage/alerting/"
-    weight = 4
-  [[menu.main]]
     parent = "usage"
     name = "Network policy"
     url = "/usage/network-policy/"
-    weight = 14
+    weight = 13
   [[menu.main]]
     parent = "usage"
     name = "Service mesh"
     url = "/usage/service-mesh/"
-    weight = 15
+    weight = 14
+
+  [[menu.main]]
+    identifier = "observability"
+    name = "Observability"
+    url = "/observability/"
+    weight = 25
+  [[menu.main]]
+    parent = "observability"
+    name = "Logging"
+    url = "/observability/logging/"
+    weight = 1
+  [[menu.main]]
+    parent = "observability"
+    name = "Tracing"
+    url = "/observability/tracing/"
+    weight = 2
+  [[menu.main]]
+    parent = "observability"
+    name = "Metrics"
+    url = "/observability/metrics/"
+    weight = 3
+  [[menu.main]]
+    parent = "observability"
+    name = "Alerting"
+    url = "/observability/alerting/"
+    weight = 4
 
   [[menu.main]]
     identifier = "api"

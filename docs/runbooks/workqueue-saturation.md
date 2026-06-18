@@ -45,11 +45,11 @@ kubectl --namespace <jaas-ns> logs deploy/jaas --tail=500 \
   | grep -E 'reconcile|publisher|s3|webhook'
 ```
 
-If `controller_runtime_reconcile_time_seconds` p99 is also high, the alert is the symptom — `JaaSReconcileLatencyHigh` is the more useful page; see [reconcile-latency.md](reconcile-latency.md).
+If `controller_runtime_reconcile_time_seconds` p99 is also high, the alert is the symptom — `JaaSReconcileLatencyHigh` is the more useful page; see [reconcile-latency](/runbooks/reconcile-latency/).
 
 ## Remediation
 
-- **Storage backend slow.** Switch from `local` (PVC) to `s3` for higher write throughput, or vice versa if S3 is throttled. See [storage-recovery.md](storage-recovery.md).
+- **Storage backend slow.** Switch from `local` (PVC) to `s3` for higher write throughput, or vice versa if S3 is throttled. See [storage-recovery](/runbooks/storage-recovery/).
 - **Apiserver slow.** Pause spec-update churn (`spec.interval` longer on hot snippets), then wait for control-plane health to return.
 - **Rate-limiter exhaustion.** Increase `operator.rerenderBurst` to absorb the spike, then investigate why a snippet is flapping (typically a `Reason*` other than `Synced` keeps firing — check `kubectl get events`).
 - **Fan-out from a single source.** Stagger snippet intervals so their watch events don't all settle at once. The controller serializes per-snippet; concurrency across snippets is bounded by `MaxConcurrentReconciles` (set high enough at chart default — 5 — that drag from a single fan-out is unusual).

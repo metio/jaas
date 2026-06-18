@@ -17,7 +17,7 @@ For chained snippets specifically: the upstream snippet may have failed reconcil
 ## Diagnosis
 
 ```shell
-kubectl describe <kind> <source-name>
+kubectl --namespace <ns> describe <kind> <source-name>
 # Look for the Ready condition and any error messages.
 ```
 

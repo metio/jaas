@@ -17,13 +17,13 @@ The most recent reconcile pass completed end-to-end: source resolved, libraries 
 To inspect the published artifact:
 
 ```shell
-kubectl get externalartifact <snippet-name> --output yaml
+kubectl --namespace <ns> get externalartifact <snippet-name> --output yaml
 ```
 
 The `status.artifact.url` points at the operator's storage HTTP server. Curl it from a pod in the cluster to confirm the bytes match:
 
 ```shell
-kubectl run --rm --stdin --tty --restart=Never tmp --image=docker.io/library/curlimages/curl -- \
+kubectl --namespace <ns> run --rm --stdin --tty --restart=Never tmp --image=docker.io/library/curlimages/curl -- \
   curl -sL <status.artifact.url> | tar tzv
 ```
 

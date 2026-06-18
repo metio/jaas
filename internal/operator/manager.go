@@ -196,12 +196,10 @@ func runWithBuilder(ctx context.Context, cfg Config, restCfg *rest.Config, build
 		// access. Multi-tenant operator-instances pattern: one
 		// operator deployment per tenant-group, disjoint watch sets.
 		//
-		// The chart's RBAC stays cluster-wide for backwards compat,
-		// so the apiserver still permits the (now-empty) list/watch
-		// against outside namespaces; the cache scoping is the real
-		// boundary here. Operators wanting tighter RBAC switch to
-		// per-namespace RoleBindings — tracked separately in
-		// open-items.md.
+		// Cache scoping is the boundary enforced here in the binary.
+		// The chart narrows RBAC to match by binding the tenant
+		// ClusterRole through one RoleBinding per listed namespace
+		// instead of a cluster-wide ClusterRoleBinding.
 		nsCache := make(map[string]cache.Config, len(cfg.WatchNamespaces))
 		for _, ns := range cfg.WatchNamespaces {
 			nsCache[ns] = cache.Config{}

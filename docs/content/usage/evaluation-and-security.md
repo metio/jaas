@@ -59,7 +59,7 @@ The Prometheus metrics `jaas_eval_in_flight` (gauge: live in-flight count),
 `jaas_eval_unavailable_total` (counter: cumulative cap rejections), and
 `jaas_eval_outstanding_timed_out` (gauge: evals still running after their
 request timed out) surface how close evaluation runs to these caps. See
-[Observability](/usage/observability/) for detail.
+[Observability](/observability/) for detail.
 
 The HTTP status codes these caps produce are documented in the
 [rendering endpoint](/usage/rendering-endpoint/) error contract.

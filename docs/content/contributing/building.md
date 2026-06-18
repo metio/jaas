@@ -111,7 +111,7 @@ ilo bash -c 'go test -bench=. -benchmem -run=^$ ./internal/operator/'
 The cluster-level layer runs outside `go test`. Pure-`kubectl` bash scenarios in `hack/smoke/` run against a real kind cluster via `.github/workflows/kind-smoke.yml`. To run a scenario locally against any reachable cluster, deploy JaaS and invoke the scenario scripts directly:
 
 ```shell
-hack/smoke/scenario-inline-files.sh
+hack/smoke/scenario-basic.sh
 ```
 
 See [CI and releases](/contributing/ci-and-release/) for how the smoke layer fits into the two-angle end-to-end strategy.

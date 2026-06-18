@@ -84,7 +84,7 @@ serviceMesh:
     from: []
 ```
 
-## Non-mesh clients keep working
+## Non-mesh clients
 
 The kube-apiserver (which dials the admission webhook) and the kubelet (which dials
 the readiness, liveness, and startup probes) are **not part of the mesh**. They carry
@@ -102,7 +102,7 @@ non-mesh clients always connect:
 - **Linkerd** renders no `Server` for those ports, leaving them outside the mesh's
   authorization scope entirely.
 
-This is why admission and probes keep working with the mesh fully enabled.
+Admission and probes therefore connect even with the mesh fully enabled.
 Authenticity on the webhook port is enforced by TLS and the CA bundle on the
 `ValidatingWebhookConfiguration`, not by the mesh — see the
 [admission webhook page](/usage/admission-webhook/).

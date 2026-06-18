@@ -796,9 +796,9 @@ func TestReconcile_EvalUnavailable_ReturnsRequeueAfter(t *testing.T) {
 // TestReconcileDelete_NoFinalizer_StillForgetsCaches pins that a snippet
 // that hits reconcileDelete with our finalizer absent (transient 5xx
 // during finalizer-add, prior force-drop, manual edit) must still evict
-// its per-snippet cache entries. Before the fix the function returned
-// early without touching them, leaking entries until process restart on
-// high-churn workloads.
+// its per-snippet cache entries. A reconcileDelete that returned early
+// here would leak those entries until process restart on high-churn
+// workloads.
 //
 // The fake apiserver refuses to construct an object that carries a
 // DeletionTimestamp but no finalizers (it'd be GC'd immediately), so we

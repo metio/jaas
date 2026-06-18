@@ -184,8 +184,10 @@ func TestEvaluateAnonymousSnippet_SlotHeldUntilEvalCompletes_NotParentReturn(t *
 		t.Fatalf("parent error = %v, want context.DeadlineExceeded", parentErr)
 	}
 
-	// THIS is the load-bearing assertion. Before the fix, this read
-	// observed 0 because `defer release()` fired on parent return.
+	// THIS is the load-bearing assertion. The slot must stay held while
+	// the orphaned eval goroutine runs, even though the parent has already
+	// returned. A `defer release()` that fired on parent return would let
+	// this read observe 0.
 	if got := InFlightEvals(); got != 1 {
 		t.Errorf("InFlightEvals after parent timeout = %d, want 1 (orphan still running, slot must stay held)", got)
 	}

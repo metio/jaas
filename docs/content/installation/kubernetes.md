@@ -125,7 +125,7 @@ correct when downstream Flux consumers fetch artifacts from inside the cluster.
 Set it explicitly only when consumers dereference the artifacts through an
 Ingress or external hostname.
 
-### How CRDs are handled
+### Manage the CRDs
 
 The chart ships its CRDs (`JsonnetSnippet`, `JsonnetLibrary`) inside the regular
 templates — not Helm's special `crds/` directory — so a `helm upgrade --install`

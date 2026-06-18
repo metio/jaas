@@ -20,7 +20,7 @@ Spec-level validation that admission should have caught but the reconciler is en
 ## Diagnosis
 
 ```shell
-kubectl describe jsonnetsnippet <name>
+kubectl --namespace <ns> describe jsonnetsnippet <name>
 ```
 
 Read the Message — it names the field.

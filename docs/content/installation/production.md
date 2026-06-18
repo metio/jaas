@@ -102,7 +102,7 @@ instance picks up each CRD object; `extraAlertLabels` adds routing labels to
 individual alerts (for Alertmanager), not to the rule object.
 
 The shipped alert set and all custom JaaS metrics are documented in
-[Observability](/usage/observability/).
+[Observability](/observability/).
 
 ## 4. Enable the admission webhook {#admission-webhook-tls}
 

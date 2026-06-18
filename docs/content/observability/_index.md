@@ -13,13 +13,13 @@ problem into a page or a notification.
 Each pillar has its own page covering both the binary's flags and the Helm chart
 keys that drive them:
 
-- [Logging](/usage/logging/) — the `log/slog` logger, `--log-level` and
+- [Logging](/observability/logging/) — the `log/slog` logger, `--log-level` and
   `--log-format`, and reading JSON logs with `kubectl logs` and `jq`.
-- [Tracing](/usage/tracing/) — OTLP gRPC export to an OpenTelemetry collector,
+- [Tracing](/observability/tracing/) — OTLP gRPC export to an OpenTelemetry collector,
   sampling, and viewing spans.
-- [Metrics](/usage/metrics/) — the Prometheus endpoint, the custom `jaas_*`
+- [Metrics](/observability/metrics/) — the Prometheus endpoint, the custom `jaas_*`
   metric family, scraping with a `ServiceMonitor`, and querying with PromQL.
-- [Alerting](/usage/alerting/) — the opt-in `PrometheusRule` alert catalog with
+- [Alerting](/observability/alerting/) — the opt-in `PrometheusRule` alert catalog with
   its runbook links, plus Kubernetes Events routed through Flux's
   notification-controller.
 

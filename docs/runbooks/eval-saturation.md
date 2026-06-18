@@ -4,7 +4,7 @@ description: The global concurrent-eval cap is full and the operator is shedding
 tags: [runbooks, troubleshooting, evaluation]
 ---
 
-Not tied to a single `Reason` — this page covers what to do when the global concurrent-eval cap (`--max-concurrent-evals`) is full and JaaS is shedding new evaluations. The cap exists because the synchronous go-jsonnet API has no context-aware cancellation: once an eval starts it runs to natural completion, so an unbounded queue lets a runaway snippet pile up goroutines that outlive every caller's deadline.
+The global concurrent-eval cap (`--max-concurrent-evals`, default `max(GOMAXPROCS*4, 16)`) is full and new evaluations are being shed. The cap exists because the synchronous go-jsonnet API has no context-aware cancellation: once an eval starts it runs to natural completion, so an unbounded queue lets a runaway snippet pile up goroutines that outlive every caller's deadline. This state is not tied to a single status `Reason`.
 
 ## Symptom
 
@@ -13,7 +13,7 @@ One or more of:
 - `JaaSEvalSaturation` is firing — `jaas_eval_in_flight / jaas_eval_max_concurrent` has been above the threshold (default `0.9`) for the alert window.
 - `JaaSEvalRejected` is firing — `rate(jaas_eval_unavailable_total[5m])` has been above the threshold.
 - HTTP clients see `503 Service Unavailable` with body `{"error": "evaluation_unavailable", "message": "concurrent-eval cap is full; retry after backoff"}`.
-- `kubectl describe jsonnetsnippet` shows recurring `Warning EvalUnavailable` events with message `reconcile deferred for 1s by --max-concurrent-evals`. Ready condition stays untouched (backpressure is not failure).
+- `kubectl describe jsonnetsnippet` shows recurring `Warning EvalUnavailable` events with message `reconcile deferred for 1s by --max-concurrent-evals`. The Ready condition is untouched — backpressure is not failure.
 - `jaas_eval_outstanding_timed_out` is also elevated — confirms the runaway-snippet diagnosis: orphaned evals are pinning slots while their parents have already given up.
 
 ## Diagnosis: why is the cap full?

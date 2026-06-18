@@ -23,8 +23,8 @@ A `spec.libraries[*]` entry references a `JsonnetLibrary` CR that the operator c
 kubectl --namespace <ns> get jsonnetlibrary <name>
 
 # Test the tenant's RBAC.
-kubectl auth can-i get jsonnetlibrary <name> \
-  --as=system:serviceaccount:<ns>:<tenant-sa> -n <library-ns>
+kubectl --namespace <library-ns> auth can-i get jsonnetlibrary <name> \
+  --as=system:serviceaccount:<ns>:<tenant-sa>
 ```
 
 If `can-i` returns `no`, RBAC is the gap.

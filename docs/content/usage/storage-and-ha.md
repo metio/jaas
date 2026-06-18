@@ -140,7 +140,8 @@ Two flags shape how superseded revisions age out:
   it leaves the keep-set. This closes the pin→fetch race in which a Flux consumer
   reads `status.artifact` a moment before the operator garbage-collects the
   revision that consumer pinned. Set it to `0` to disable the grace and restore
-  eager pruning. Snippet teardown (the deletion path) is unaffected by this flag.
+  eager pruning. The grace applies only to superseded revisions; snippet teardown
+  (the deletion path) prunes immediately regardless of this flag.
 - `--max-artifact-bytes` (default `0`, disabled) caps the rendered artifact size in
   bytes. A snippet whose render exceeds the cap fails with `ReasonArtifactTooLarge`
   rather than publishing an oversized tarball.

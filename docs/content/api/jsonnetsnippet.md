@@ -105,4 +105,4 @@ Every reason string is wire-stable — runbooks key off these values.
 | `ArtifactTooLarge` | False | Rendered content exceeds the operator's `--max-artifact-bytes` limit. |
 | `RBACDenied` | False | An apiserver call failed with Forbidden, or the source CR's kind is not registered. Non-transient — backoff is disabled. The message names the verb and resource the cluster operator must grant. |
 
-A runbook page for each reason lives at `/runbooks/<reason-lowercased>/` on this site. See [Operator mode](/usage/operator-mode/) for lifecycle details and [ExternalArtifact output contract](/api/externalartifact/) for the artifact contract.
+Each reason has a remediation page at `/runbooks/<reason-lowercased>/`. See [Operator mode](/usage/operator-mode/) for lifecycle details and [ExternalArtifact output contract](/api/externalartifact/) for the artifact contract.

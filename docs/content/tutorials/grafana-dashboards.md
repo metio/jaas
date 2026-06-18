@@ -12,9 +12,9 @@ operator renders it and publishes the dashboard JSON as a Flux
 Grafana instance.
 
 This tutorial covers the JaaS side — authoring the dashboard, importing
-grafonnet as a `JsonnetLibrary`, and publishing the rendered JSON. The
-grafana-operator side (the `GrafanaDashboard` CR, datasources, folders) lives on
-their site and is linked at the end.
+grafonnet as a `JsonnetLibrary`, and publishing the rendered JSON. For the
+grafana-operator side (the `GrafanaDashboard` CR, datasources, folders), see the
+links at the end.
 
 ## Prerequisites
 
@@ -221,7 +221,7 @@ metadata:
   name: api-latency
   namespace: default
 spec:
-  serviceAccountName: dashboard-renderer
+  serviceAccountName: dashboards-tenant
   libraries:
     - kind: JsonnetLibrary
       name: grafonnet
@@ -232,7 +232,7 @@ spec:
       + g.dashboard.withUid('api-latency')
 ```
 
-Everything downstream is unchanged — it reconciles and publishes an
+The rest of the flow is the same — the snippet reconciles and publishes an
 `ExternalArtifact` exactly as in Steps 4–5; only the source of the library
 differs.
 

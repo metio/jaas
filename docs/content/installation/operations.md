@@ -155,7 +155,7 @@ Key signals to watch:
 - `/ready` probe on the management port (default `8081`) — `503` after startup
   means the manager has not yet been elected or its cache has not synced.
 
-All metrics are documented in [Observability](/usage/observability/). All shipped
+All metrics are documented in [Observability](/observability/). All shipped
 alerts link to [Runbooks](/runbooks/).
 
 ## Next steps

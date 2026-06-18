@@ -232,7 +232,7 @@ cuts the operator off.
 Find the apiserver's address with:
 
 ```shell
-kubectl --namespace default get endpoints kubernetes -o jsonpath='{.subsets[*].addresses[*].ip}'
+kubectl --namespace default get endpointslice kubernetes --output jsonpath='{.endpoints[*].addresses[*]}'
 ```
 
 Use that IP as a `/32` (or your control plane's CIDR for an HA apiserver). A
@@ -281,7 +281,7 @@ networkPolicy:
 ```
 
 Trim this to what your install actually uses: drop the S3 block on the local storage
-backend, and drop the OTLP block when [tracing](/usage/observability/) is off. The
+backend, and drop the OTLP block when [tracing](/observability/) is off. The
 apiserver and DNS rules are non-negotiable for the operator. Storage destinations
 are covered on the [storage and high availability page](/usage/storage-and-ha/), and
 tenancy on the [tenancy and RBAC page](/usage/tenancy-and-rbac/).

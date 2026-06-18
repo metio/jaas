@@ -10,9 +10,9 @@ JaaS operator renders and publishes them as a Flux `ExternalArtifact`, and
 stageset-controller rolls that artifact out across ordered, gated stages.
 
 This tutorial covers the JaaS side — authoring the manifests with top-level
-arguments and external variables, and publishing the rendered JSON. The rollout
-side (the `StageSet` resource, its stages, gates, and actions) lives on the
-stageset-controller site and is linked at the end.
+arguments and external variables, and publishing the rendered JSON. For the
+rollout side (the `StageSet` resource, its stages, gates, and actions), see the
+links at the end.
 
 ## Prerequisites
 

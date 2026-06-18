@@ -4,9 +4,9 @@ description: The operator's own ClusterRole is missing a verb on a watched kind,
 tags: [runbooks, troubleshooting, rbac]
 ---
 
-Not tied to a per-snippet `Reason`. This page covers the one RBAC-denial path the reconciler cannot surface itself: when the **operator's own** ClusterRole is missing a verb on a watched resource kind, controller-runtime's informer fails to start its watch, logs warnings, and retries silently. The reconciler never sees the failure — and no snippet's status condition will tell you about it.
+The one RBAC-denial path the reconciler cannot surface itself: when the **operator's own** ClusterRole is missing a verb on a watched resource kind, controller-runtime's informer fails to start its watch, logs warnings, and retries silently. The reconciler never sees the failure, and no snippet's status condition reflects it. This is not tied to a per-snippet `Reason`.
 
-If a per-snippet runbook (`rbacdenied.md`, `sourcefetchfailed.md`, `sourcenotready.md`) doesn't match the symptoms, this is where to look next.
+If a per-snippet runbook ([rbacdenied](/runbooks/rbacdenied/), [sourcefetchfailed](/runbooks/sourcefetchfailed/), [sourcenotready](/runbooks/sourcenotready/)) doesn't match the symptoms, this is where to look next.
 
 ## Symptom
 
@@ -15,7 +15,7 @@ If a per-snippet runbook (`rbacdenied.md`, `sourcefetchfailed.md`, `sourcenotrea
 - Operator pod is `Ready=True`, all probes pass.
 - A `Flux GitRepository` (or `OCIRepository` / `Bucket` / `ExternalArtifact` / `JsonnetLibrary`) advances its `status.artifact` but no JaaS reconcile fires.
 
-## Why JaaS can't tell you directly
+## Why no status condition surfaces this
 
 controller-runtime's informer is what watches resource kinds at the apiserver. If the operator SA lacks `list`/`watch` on a kind:
 
@@ -25,7 +25,7 @@ controller-runtime's informer is what watches resource kinds at the apiserver. I
 4. The reconciler's reconcile loop never gets events from that kind.
 5. The reconciler itself is unaware that the watch is non-functional. The "no events arriving" condition is indistinguishable from "no actual changes upstream."
 
-This is the one diagnostic surface the operator can't unify with its other RBAC-denial paths (Fetcher / library Get / Publisher write — all per-reconcile and surfaced via `Reason=RBACDenied`).
+This is the one diagnostic surface the operator can't unify with its other RBAC-denial paths (Fetcher / library Get / Publisher write — all per-reconcile and surfaced via `Reason=RBACDenied`; see [rbacdenied](/runbooks/rbacdenied/)).
 
 ## Diagnosis
 
@@ -84,17 +84,15 @@ kubectl --namespace <jaas-ns> rollout restart deploy/jaas
 
 Watch-driven re-renders resume within seconds.
 
-## Why not detect this automatically
+## Why no automatic detection
 
-A startup probe (operator does a test `LIST` per kind and refuses to boot on Forbidden) was considered and rejected:
+The operator does not pre-flight a test `LIST` per kind at boot and refuse to start on Forbidden:
 
 - It would block startup on transient apiserver flakes during deploys.
-- The CRD-watcher pattern already handles the missing-CRD case gracefully (the `crdWatcher` engages a watch dynamically when the CRD becomes `Established=True`). Layering "and also fail on Forbidden" complicates that contract.
-- A misconfigured cluster should surface the issue via the existing logs + the `kubectl auth can-i` workflow, which is the standard k8s troubleshooting path.
-
-The diagnostic trail above is the supported recovery story. If a user reports hitting this in the wild and finds the log-grep step too obscure, a follow-up is a `jaas_informer_watch_failures_total` Prometheus counter plus a `JaaSInformerWatchFailing` alert — same shape as `JaaSStorageSweepFailures` from the storage layer. Track in `open-items.md` if it comes up.
+- The `crdWatcher` already handles the missing-CRD case gracefully — it engages a watch dynamically when the CRD becomes `Established=True`. Adding "and also fail on Forbidden" complicates that contract.
+- A misconfigured cluster surfaces the issue via the operator logs and the `kubectl auth can-i` workflow above, the standard Kubernetes troubleshooting path.
 
 ## Related runbooks
 
-- [rbacdenied.md](rbacdenied.md) — per-reconcile RBAC denials the reconciler CAN surface (tenant SA can't read a source CR / library, can't write ExternalArtifact). If a snippet's status says `Reason=RBACDenied`, start there instead.
-- [storage-recovery.md](storage-recovery.md) — different failure surface (storage backend rather than apiserver), same "graceful degradation, diagnosis via logs + metrics" shape.
+- [rbacdenied](/runbooks/rbacdenied/) — per-reconcile RBAC denials the reconciler CAN surface (tenant SA can't read a source CR / library, can't write ExternalArtifact). If a snippet's status says `Reason=RBACDenied`, start there instead.
+- [storage-recovery](/runbooks/storage-recovery/) — a different failure surface (storage backend rather than apiserver), same graceful-degradation shape diagnosed via logs and metrics.

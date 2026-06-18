@@ -6,8 +6,8 @@ tags: [api, libraries, operator]
 
 `JsonnetLibrary` (`jlib`) is a namespaced bundle of `.libsonnet` files that
 `JsonnetSnippet` CRs in the same namespace can import. The library carries no
-artifact of its own and has no controller reconciling it today — it exists purely
-as a supply-side source for snippets. The import alias is set on the snippet side
+artifact of its own and no controller reconciles it — it serves purely as a
+supply-side source for snippets. The import alias is set on the snippet side
 via `LibraryRef.importPath` (defaulting to the library's `metadata.name`); the
 library itself carries no registration name. Task-oriented guidance lives in
 [Jsonnet libraries](/usage/jsonnet-libraries/).
@@ -49,18 +49,18 @@ by `JsonnetSnippetSpec`).
 
 ## Status
 
-`JsonnetLibrary` shares the `SyncStatus` type with `JsonnetSnippet`, though no
-controller currently populates it. The `status` subresource exists so a future
-library reconciler can be added without a schema change.
+`JsonnetLibrary` shares the `SyncStatus` type with `JsonnetSnippet`. No controller
+populates it, so every field stays empty; the subresource is present on the type so
+a library reconciler can populate it without a schema change.
 
 | Field | Type | Description |
 |---|---|---|
-| `observedGeneration` | int64 | `.metadata.generation` last reconciled. Not currently populated. |
-| `conditions` | []Condition | Standard apimachinery conditions. Not currently populated. |
-| `revision` | string | Not currently populated. |
-| `artifactURL` | string | Not currently populated. |
-| `lastSyncTime` | Time | Not currently populated. |
-| `history` | []RevisionEntry | Not currently populated. |
+| `observedGeneration` | int64 | `.metadata.generation` last reconciled. Unpopulated. |
+| `conditions` | []Condition | Standard apimachinery conditions. Unpopulated. |
+| `revision` | string | Unpopulated. |
+| `artifactURL` | string | Unpopulated. |
+| `lastSyncTime` | Time | Unpopulated. |
+| `history` | []RevisionEntry | Unpopulated. |
 
 For how snippets reference libraries, see [/api/jsonnetsnippet/](/api/jsonnetsnippet/)
 (`spec.libraries`) and [Jsonnet libraries](/usage/jsonnet-libraries/).

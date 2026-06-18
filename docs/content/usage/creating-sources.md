@@ -16,8 +16,7 @@ operator consumes the artifact Flux already produced.
 The recipes below show how to produce each source kind so a snippet can reference
 it. [Snippet sources](/usage/snippet-sources/) covers wiring the finished source
 into a `JsonnetSnippet`. For the source CRDs themselves and their full field
-reference, see the [Flux documentation](https://fluxcd.io/) — only what a JaaS
-source needs is covered here.
+reference, see the [Flux documentation](https://fluxcd.io/).
 
 A `JsonnetSnippet` references the source you create with a `spec.sourceRef`:
 

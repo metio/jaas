@@ -13,7 +13,7 @@ ALERTS{alertname="JaaSReconcileLatencyHigh", controller="jsonnetsnippet"}
 ```
 
 - `kubectl get jsonnetsnippet` shows status updates trickling in well after spec changes.
-- Operator pod CPU is moderate-to-high but the queue is draining (distinguishes this from [workqueue-saturation.md](workqueue-saturation.md), where the queue itself is growing).
+- Operator pod CPU is moderate-to-high but the queue is draining (distinguishes this from [workqueue-saturation](/runbooks/workqueue-saturation/), where the queue itself is growing).
 
 ## Cause
 
@@ -53,7 +53,7 @@ The `jaas_snippet_rendered_bytes` histogram tells you whether a slow Publisher i
 For a single suspect snippet, force a reconcile under load and observe:
 
 ```shell
-kubectl annotate jsonnetsnippet <ns>/<name> \
+kubectl --namespace <ns> annotate jsonnetsnippet <name> \
   jaas.metio.wtf/reconcile-at=$(date -u +%FT%TZ) --overwrite
 kubectl --namespace <jaas-ns> logs deploy/jaas --tail=50 | grep <name>
 ```
@@ -62,11 +62,11 @@ kubectl --namespace <jaas-ns> logs deploy/jaas --tail=50 | grep <name>
 
 - **Slow Fetcher.** Narrow `spec.sourceRef.path` to the subdirectory the snippet actually needs. Tarballs balloon when an entire monorepo is published; the filter trims what JaaS has to download.
 - **Heavy eval.** Cap `--max-stack` to bound runaway recursion. Profile the snippet locally via `jsonnet` (the CLI) — the operator's evaluation is identical.
-- **Slow Publisher.** See [storage-recovery.md](storage-recovery.md) for backend-specific tuning.
+- **Slow Publisher.** See [storage-recovery](/runbooks/storage-recovery/) for backend-specific tuning.
 - **Cycle-detection blowup.** Reorganize snippets so the cross-reference graph is shallow; cycle detection visits every reachable node, so a fan-out of N snippets multiplies the cost.
 - **OTel for forensics.** Enable `--tracing-endpoint` and the per-stage spans turn this from guessing into measurement. The chart values key is `operator.tracing.endpoint`.
 
 ## Prevention
 
-- Pair the alert with `JaaSSnippetArtifactGrowing` ([artifacttoolarge.md](artifacttoolarge.md)). A snippet whose rendered bytes are climbing is almost always headed for a latency spike too.
+- Pair the alert with `JaaSSnippetArtifactGrowing` ([artifacttoolarge](/runbooks/artifacttoolarge/)). A snippet whose rendered bytes are climbing is almost always headed for a latency spike too.
 - For multi-replica HA, leader election keeps only one replica in the reconcile loop — sustained latency on the lease-holder is what matters; standby latency is not measured.

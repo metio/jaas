@@ -6,7 +6,7 @@ tags: [operator, metrics, prometheus, observability]
 
 The JaaS operator exposes a Prometheus metrics endpoint covering controller-runtime's
 standard families plus a custom `jaas_*` family the reconciler registers. Scrape
-it for dashboards and feed it into the shipped [alerts](/usage/alerting/).
+it for dashboards and feed it into the shipped [alerts](/observability/alerting/).
 
 ## The binary
 
@@ -47,7 +47,7 @@ and how to size `--max-concurrent-evals`.
 Alongside these, controller-runtime contributes its standard families for free —
 `controller_runtime_reconcile_total`, `controller_runtime_reconcile_time_seconds`,
 the `workqueue_*` series (depth, latency, retries), and the Go/process
-collectors. The shipped [alerts](/usage/alerting/) build on both the `jaas_*`
+collectors. The shipped [alerts](/observability/alerting/) build on both the `jaas_*`
 metrics and these controller-runtime signals.
 
 ### Querying with PromQL
@@ -102,4 +102,4 @@ Without the Prometheus Operator, point a plain Prometheus scrape config at the
 `prometheus.io/scrape` annotation set to the pod through `pod.additionalLabels`
 and let a kubernetes-pods scrape job discover it.
 
-To turn the alerts on, see [Alerting](/usage/alerting/).
+To turn the alerts on, see [Alerting](/observability/alerting/).

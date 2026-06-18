@@ -4,7 +4,7 @@ description: The artifact store is degraded (PVC lost, S3 endpoint down, or stor
 tags: [runbooks, troubleshooting, storage]
 ---
 
-Not tied to a single `Reason` — this page covers what to do when the artifact store itself is degraded (PVC lost, S3 endpoint unavailable, the storage HTTP server is down). Downstream Flux consumers (kustomize-controller, helm-controller, grafana-operator) dereference `ExternalArtifact.status.artifact.url` to fetch tarballs; when that URL stops returning bytes, dependent resources stall.
+The artifact store itself is degraded — a PVC was lost, the S3 endpoint is unavailable, or the storage HTTP server is down. Downstream Flux consumers (kustomize-controller, helm-controller, grafana-operator) dereference `ExternalArtifact.status.artifact.url` to fetch tarballs; when that URL stops returning bytes, dependent resources stall. This state is not tied to a single status `Reason`.
 
 ## Symptom
 
@@ -134,7 +134,7 @@ When the volume backing `--storage-path` fills up, `Store.Put` returns the kerne
    # Lower spec.history on noisy snippets so the next reconcile prunes
    # older revisions. The Publisher's Prune step removes everything
    # outside the keep-set, freeing space proportional to the change.
-   kubectl patch jsonnetsnippet <name> --type=merge --patch '{"spec":{"history":1}}'
+   kubectl --namespace <ns> patch jsonnetsnippet <name> --type=merge --patch '{"spec":{"history":1}}'
    ```
 
    For an immediate flush, force-prune by removing the artifact directory of a snippet you're certain doesn't need its history:
@@ -254,7 +254,7 @@ If a snippet stuck in `Terminating` carries a `Warning WithdrawForced` Kubernete
 
 ```shell
 # Read the elapsed time + last backend error from the event message:
-kubectl describe jsonnetsnippet <name>
+kubectl --namespace <ns> describe jsonnetsnippet <name>
 # Locate the orphan in the configured backend:
 #   local:  <--storage-path>/<namespace>/<name>/<rev>.tar.gz
 #   s3:     <--s3-prefix>/<namespace>/<name>/<rev>.tar.gz
@@ -265,5 +265,5 @@ A force-drop should be rare — it means the backend was broken for the full wai
 
 ## Related runbooks
 
-- [artifacttoolarge.md](artifacttoolarge.md) — one snippet's output exceeds the cap (different symptom: snippet Ready=False, not "URL unreachable")
-- [sourcefetchfailed.md](sourcefetchfailed.md) — JaaS *consuming* an upstream artifact, not its own storage
+- [artifacttoolarge](/runbooks/artifacttoolarge/) — one snippet's output exceeds the cap (different symptom: snippet Ready=False, not "URL unreachable")
+- [sourcefetchfailed](/runbooks/sourcefetchfailed/) — the operator *consuming* an upstream artifact, not its own storage

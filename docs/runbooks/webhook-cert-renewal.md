@@ -59,7 +59,7 @@ If the touch fails, the security-context or volume mount needs fixing.
    kubectl --namespace <ns> rollout restart deployment <operator-deployment>
    ```
 
-   The new pod's bootstrap path goes through the dual-CA union (DD8), so existing replicas stay trusted across the rotation.
+   The new pod's bootstrap path merges its CA into the VWC's existing CA set rather than replacing it, so existing replicas stay trusted across the rotation.
 
 3. **Verify renewal is healthy** after the bounce — the `jaas_webhook_cert_renewal_failures_total` counter should stop increasing, and the alert clears once the `for:` window passes.
 
