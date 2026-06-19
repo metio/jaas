@@ -14,8 +14,8 @@ that any consumer can deploy — the two flagship pairings are
 [grafana-operator](https://grafana.github.io/grafana-operator/) for dashboards and
 [stageset-controller](https://stageset.projects.metio.wtf/) for manifest delivery.
 
-**📖 Documentation — installation, usage, API reference, tutorials, and
-contributing — lives at <https://jaas.projects.metio.wtf/>.**
+📖 Documentation — installation, usage, API reference, tutorials, and
+contributing — lives at <https://jaas.projects.metio.wtf/>.
 
 Licensed under [0BSD](LICENSE); the repository is [REUSE](https://reuse.software/)
 compliant.
