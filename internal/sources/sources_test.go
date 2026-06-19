@@ -347,6 +347,41 @@ func TestExtractTarball_CorruptGzipReturnsError(t *testing.T) {
 	}
 }
 
+func TestExtractTarball_RejectsMultiMemberGzip(t *testing.T) {
+	// A concatenated multi-member .tar.gz: archive/tar stops at the first
+	// member's end-of-archive marker, so the second member's files would be
+	// silently dropped and the call would otherwise return success with a
+	// partial map. The trailing-data check must reject it instead.
+	first := buildTarGz(t, map[string]string{"main.jsonnet": `{ a: 1 }`})
+	second := buildTarGz(t, map[string]string{"sneaky.jsonnet": `{ b: 2 }`})
+	concatenated := append(append([]byte{}, first...), second...)
+
+	_, err := extractTarball(bytes.NewReader(concatenated), "", 1<<20)
+	if err == nil {
+		t.Fatal("multi-member gzip accepted; trailing data silently dropped")
+	}
+	if !errors.Is(err, ErrGzipTrailingData) {
+		t.Errorf("error = %v, want ErrGzipTrailingData", err)
+	}
+}
+
+func TestExtractTarball_SingleMemberWithTarPaddingAccepted(t *testing.T) {
+	// A well-formed single-member .tar.gz carries zero-padding after the
+	// tar end-of-archive marker, all within member one. The trailing-data
+	// check must drain that padding and NOT mistake it for a second member.
+	body := buildTarGz(t, map[string]string{
+		"main.jsonnet":     `{ ok: true }`,
+		"helper.libsonnet": `{ helper: true }`,
+	})
+	got, err := extractTarball(bytes.NewReader(body), "", 1<<20)
+	if err != nil {
+		t.Fatalf("well-formed single-member archive rejected: %v", err)
+	}
+	if got["main.jsonnet"] != `{ ok: true }` {
+		t.Errorf("main.jsonnet = %q", got["main.jsonnet"])
+	}
+}
+
 func TestExtractTarball_CorruptTarReturnsError(t *testing.T) {
 	// A valid gzip stream wrapping garbage bytes that don't form a tar.
 	var buf bytes.Buffer
@@ -799,6 +834,51 @@ func TestFetch_HTTPNon200ReturnsError(t *testing.T) {
 		&jaasv1.SourceRef{Kind: "GitRepository", Name: "configs", Namespace: "team-a"}, "team-a")
 	if err == nil || !strings.Contains(err.Error(), "HTTP 410") {
 		t.Errorf("got %v, want an HTTP 410 error", err)
+	}
+}
+
+// TestFetch_PermanentHTTPStatusWrapsSentinel pins that a permanent 4xx on the
+// artifact URL (404/403/410) is wrapped in ErrArtifactNotFound so the
+// reconciler's classifier treats it as non-transient — a retry can't fix a
+// deleted or forbidden artifact, and the snippet must not retry forever.
+func TestFetch_PermanentHTTPStatusWrapsSentinel(t *testing.T) {
+	for _, code := range []int{http.StatusNotFound, http.StatusForbidden, http.StatusGone} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(code)
+		}))
+		src := newFluxSourceUnstructured(t, "GitRepository", "configs", "team-a", srv.URL, "")
+		c := fake.NewClientBuilder().WithScheme(schemeWithGVK(t, "GitRepository")).WithObjects(src).Build()
+		f := newTestFetcher()
+		_, err := f.Fetch(context.Background(), c,
+			&jaasv1.SourceRef{Kind: "GitRepository", Name: "configs", Namespace: "team-a"}, "team-a")
+		srv.Close()
+		if err == nil || !errors.Is(err, ErrArtifactNotFound) {
+			t.Errorf("HTTP %d: got %v, want ErrArtifactNotFound", code, err)
+		}
+	}
+}
+
+// TestFetch_RetryableHTTPStatusStaysTransient pins that 408/429 and 5xx do
+// NOT wrap ErrArtifactNotFound — they're retryable and must fall through to
+// the classifier's transient default so backoff re-fetches.
+func TestFetch_RetryableHTTPStatusStaysTransient(t *testing.T) {
+	for _, code := range []int{http.StatusRequestTimeout, http.StatusTooManyRequests, http.StatusServiceUnavailable} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(code)
+		}))
+		src := newFluxSourceUnstructured(t, "GitRepository", "configs", "team-a", srv.URL, "")
+		c := fake.NewClientBuilder().WithScheme(schemeWithGVK(t, "GitRepository")).WithObjects(src).Build()
+		f := newTestFetcher()
+		_, err := f.Fetch(context.Background(), c,
+			&jaasv1.SourceRef{Kind: "GitRepository", Name: "configs", Namespace: "team-a"}, "team-a")
+		srv.Close()
+		if err == nil {
+			t.Errorf("HTTP %d: expected an error", code)
+			continue
+		}
+		if errors.Is(err, ErrArtifactNotFound) {
+			t.Errorf("HTTP %d: wrapped ErrArtifactNotFound but should stay transient: %v", code, err)
+		}
 	}
 }
 
