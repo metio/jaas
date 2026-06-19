@@ -1420,7 +1420,17 @@ func mergeExtVars(opLevel, snipLevel map[string]string) map[string]string {
 // (ObservedGeneration) merge-patch without a resourceVersion precondition,
 // so they can't conflict.
 func (r *SnippetReconciler) failReady(ctx context.Context, snip *jaasv1.JsonnetSnippet, reason, message string) (ctrl.Result, error) {
-	prev := apimeta.FindStatusCondition(snip.Status.Conditions, jaasv1.ConditionReady)
+	// FindStatusCondition returns a pointer INTO snip.Status.Conditions, and the
+	// fluxconditions.Set below updates that same element in place. Snapshot the
+	// prior status+reason by value first, so emitConditionEvent's dedup compares
+	// against the real previous condition rather than the one we just wrote —
+	// otherwise a transition into a new reason (e.g. Synced -> Suspended) reads
+	// prev as already-equal and suppresses the event.
+	var prev *metav1.Condition
+	if cur := apimeta.FindStatusCondition(snip.Status.Conditions, jaasv1.ConditionReady); cur != nil {
+		snapshot := *cur
+		prev = &snapshot
+	}
 	decorated := r.decorateMessage(reason, message)
 	helper, err := fluxpatch.NewHelper(snip, r.Client)
 	if err != nil {
