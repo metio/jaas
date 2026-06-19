@@ -107,18 +107,25 @@ ea_url() {
   kubectl -n "$2" get externalartifact "$1" -o jsonpath='{.status.artifact.url}' 2>/dev/null || true
 }
 
-# fetch_artifact <url> [grep_pattern] — fetch the artifact tarball from a
-# throwaway in-cluster curl pod. With grep_pattern set, also untars and asserts
-# the pattern appears in the rendered output (the Publisher writes rendered.json
-# into the tarball). curl image kept pinned and long-form per repo convention.
+# fetch_artifact <url> [grep_pattern] [namespace] — fetch the artifact tarball
+# from a throwaway in-cluster curl pod. With grep_pattern set, also untars and
+# asserts the pattern appears in the rendered output (the Publisher writes
+# rendered.json into the tarball). namespace pins which namespace the curl pod
+# runs in — default is the current context's namespace; the NetworkPolicy
+# scenario passes flux-system because the chart's storage-port ingress rule
+# admits only that namespace. curl image kept pinned and long-form per repo
+# convention.
 fetch_artifact() {
-  local url=$1 pat=${2:-} script
+  local url=$1 pat=${2:-} ns=${3:-} script ns_arg=()
+  if [ -n "$ns" ]; then
+    ns_arg=(-n "$ns")
+  fi
   if [ -n "$pat" ]; then
     script="set -eu; curl -fsSL '$url' -o /tmp/a.tgz; tar -xzf /tmp/a.tgz -C /tmp; grep -q '$pat' /tmp/rendered.json; echo 'artifact content verified'"
   else
     script="set -eu; curl -fsSL '$url' -o /tmp/a.tgz; echo 'artifact fetched OK'"
   fi
-  kubectl run --rm -i --restart=Never \
+  kubectl "${ns_arg[@]}" run --rm -i --restart=Never \
     --image=docker.io/curlimages/curl:8.10.1 "smoke-curl-$$" -- sh -c "$script"
 }
 
@@ -126,4 +133,19 @@ fetch_artifact() {
 has_event() {
   kubectl -n "$2" get events --field-selector "involvedObject.name=$1" \
     -o jsonpath="{.items[?(@.type==\"$3\")].reason}" 2>/dev/null | grep -qw "$4"
+}
+
+# wait_event <name> <ns> <type> <reason> [polls] [sleep] — block until a
+# matching event appears. The events.v1 recorder flushes asynchronously, so an
+# event emitted on a status transition can lag the status itself by seconds;
+# polling avoids a flaky miss right after the transition. Defaults to ~30s
+# (30 polls × 1s).
+wait_event() {
+  local name=$1 ns=$2 type=$3 reason=$4 polls=${5:-30} s=${6:-1} i
+  for i in $(seq 1 "$polls"); do
+    has_event "$name" "$ns" "$type" "$reason" && { log "$type/$reason event seen after $i polls"; return 0; }
+    sleep "$s"
+  done
+  kubectl -n "$ns" get events --field-selector "involvedObject.name=$name" >&2 || true
+  die "no $type/$reason event for $name in $ns"
 }

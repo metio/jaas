@@ -350,10 +350,10 @@ jobs:
           wait: 180s
       - name: Load image into kind
         run: kind load docker-image jaas:smoke --name jaas-chain
-      - name: Cluster prereqs (Flux + S3Mock bucket)
+      - name: Cluster prereqs (Flux + SeaweedFS bucket)
         run: |
           hack/smoke/setup-flux.sh ${{ needs.discover.outputs.flux_latest }}
-          hack/smoke/setup-s3mock.sh
+          hack/smoke/setup-seaweedfs.sh
       - name: Install released chart (no webhook) with the dev image
         run: |
           kubectl create namespace jaas-system
@@ -380,7 +380,7 @@ jobs:
         if: failure()
         run: |
           kubectl -n flux-system logs deploy/source-controller --tail=300 || true
-          kubectl -n s3mock logs deploy/s3mock --tail=200 || true
+          kubectl -n seaweedfs logs deploy/seaweedfs --tail=200 || true
           kubectl -n jaas-system logs deploy/jaas --tail=300 || true
           kubectl describe bucket dashboards || true
           kubectl describe jsonnetsnippet chain-demo || true
@@ -449,70 +449,6 @@ jobs:
           kubectl -n jaas-system get all || true
           kubectl -n jaas-system logs deploy/jaas --tail=500 || true
           kubectl get jsonnetsnippet -n default -o wide || true
-
-  s3:
-    name: S3 storage backend (Adobe S3Mock)
-    needs: discover
-    if: needs.discover.outputs.chart_version != '' && needs.discover.outputs.relevant == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Clone Git Repository
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
-      - name: Set up Go
-        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
-        with:
-          go-version-file: go.mod
-          cache: true
-      - name: Build container image (dev / HEAD)
-        run: docker build --build-arg VERSION=smoke --build-arg COMMIT=${{ github.sha }} -t jaas:smoke .
-      - name: Create kind cluster
-        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1
-        with:
-          version: ${{ needs.discover.outputs.kind_latest }}
-          cluster_name: jaas-s3
-          node_image: kindest/node:${{ needs.discover.outputs.k8s_latest }}
-          wait: 180s
-      - name: Load image into kind
-        run: kind load docker-image jaas:smoke --name jaas-s3
-      - name: Cluster prereqs (Flux + S3Mock)
-        run: |
-          hack/smoke/setup-flux.sh ${{ needs.discover.outputs.flux_latest }}
-          hack/smoke/setup-s3mock.sh
-      - name: Install released chart (S3Mock backend) with the dev image
-        run: |
-          kubectl create namespace jaas-system
-          # S3Mock validates no signature, so anonymous mode is correct here; do
-          # NOT assert SSE — S3Mock only fakes it. The SeaweedFS job covers real
-          # SigV4 / multipart / SSE. The chart's JOI image-volumes need the
-          # ImageVolume feature gate kind lacks, so disable them.
-          helm upgrade --install jaas oci://ghcr.io/metio/helm-charts/jaas \
-            --version "${{ needs.discover.outputs.chart_version }}" \
-            --namespace jaas-system \
-            --set image.registry=docker.io \
-            --set image.repository=library/jaas \
-            --set-string image.tag=smoke \
-            --set operator.enabled=true \
-            --set operator.defaultServiceAccount=default \
-            --set libraries.grafonnet.enabled=false \
-            --set libraries.docsonnet.enabled=false \
-            --set libraries.xtd.enabled=false \
-            --set operator.storage.backend=s3 \
-            --set operator.storage.s3.endpoint=s3mock.s3mock.svc:9090 \
-            --set operator.storage.s3.bucket=jaas-artifacts \
-            --set operator.storage.s3.useSSL=false \
-            --set operator.storage.s3.anonymous=true \
-            --wait --timeout 5m
-          kubectl apply --server-side --force-conflicts -f config/crd/bases/
-      - name: Operator scenario — S3 round-trip
-        run: hack/smoke/scenario-s3.sh
-      - name: Diagnostics on failure
-        if: failure()
-        run: |
-          kubectl -n jaas-system get all || true
-          kubectl -n jaas-system logs deploy/jaas --tail=300 || true
-          kubectl -n s3mock logs deploy/s3mock --tail=200 || true
-          kubectl describe jsonnetsnippet s3-demo || true
-          kubectl describe externalartifact s3-demo || true
 
   s3-seaweedfs:
     name: S3 storage backend (SeaweedFS — real SigV4 + multipart + SSE)
@@ -842,7 +778,6 @@ jobs:
       - new-fields
       - source-chain
       - scale-smoke
-      - s3
       - s3-seaweedfs
       - ha
       - image-volume

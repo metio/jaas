@@ -73,11 +73,17 @@ spec:
 EOF
 kubectl -n seaweedfs rollout status deploy/seaweedfs --timeout=180s
 
-# Create the bucket the operator publishes into. SeaweedFS's S3 API rejects a
-# PUT-bucket without a valid SigV4 signature, so a signing client is required —
-# the awscli image points at the gateway with the static identity above. This
-# also doubles as a smoke test that SigV4 against this identity works at all
-# before jaas tries it.
+# Create the buckets the operator and the sourceRef-chain scenario need.
+# SeaweedFS's S3 API rejects a PUT-bucket without a valid SigV4 signature, so a
+# signing client is required — the awscli image points at the gateway with the
+# static identity above. This also doubles as a smoke test that SigV4 against
+# this identity works at all before jaas tries it.
+#
+#   jaas-artifacts — the operator's S3 storage backend writes published
+#                    tarballs here (scenario-s3.sh round-trip).
+#   dashboards     — the Flux Bucket source the sourceRef-chain scenario reads
+#                    (scenario-chain.sh); seeded with main.jsonnet so the
+#                    Bucket has an artifact to publish.
 kubectl -n seaweedfs run seaweedfs-mkbucket \
   --image=docker.io/amazon/aws-cli:2.18.13 \
   --restart=Never --rm -i --quiet \
@@ -85,8 +91,11 @@ kubectl -n seaweedfs run seaweedfs-mkbucket \
   --env=AWS_SECRET_ACCESS_KEY=jaas-smoke-secret \
   --env=AWS_DEFAULT_REGION=us-east-1 \
   --command -- /bin/sh -ec '
-    aws --endpoint-url http://seaweedfs.seaweedfs.svc:8333 \
-      s3api create-bucket --bucket jaas-artifacts
-    aws --endpoint-url http://seaweedfs.seaweedfs.svc:8333 s3 ls
-    echo "created bucket jaas-artifacts"
+    EP=http://seaweedfs.seaweedfs.svc:8333
+    aws --endpoint-url "$EP" s3api create-bucket --bucket jaas-artifacts
+    aws --endpoint-url "$EP" s3api create-bucket --bucket dashboards
+    printf "%s" "{ ok: true, mode: \"sourceRef-bucket-chain\", n: 7 }" > /tmp/main.jsonnet
+    aws --endpoint-url "$EP" s3 cp /tmp/main.jsonnet s3://dashboards/main.jsonnet
+    aws --endpoint-url "$EP" s3 ls
+    echo "created buckets jaas-artifacts + dashboards (seeded main.jsonnet)"
   '
