@@ -196,14 +196,22 @@ func TestEnvtest_Watch_LibraryUpdate_TriggersSnippetReconcile(t *testing.T) {
 
 	pollUntil(t, 30*time.Second, snippetReady(c, key, metav1.ConditionTrue, ReasonSynced))
 
-	var first jaasv1.JsonnetSnippet
-	if err := c.Get(context.Background(), key, &first); err != nil {
-		t.Fatalf("get snippet: %v", err)
-	}
-	revV1 := first.Status.Revision
-	if revV1 == "" {
-		t.Fatalf("Status.Revision empty after first reconcile")
-	}
+	// Ready=Synced and Status.Revision are observed through the cached
+	// client, which is eventually consistent: a single Get right after the
+	// readiness poll can land before the revision is visible. Poll for the
+	// revision instead of asserting it once (flake guard).
+	var revV1 string
+	pollUntil(t, 10*time.Second, func() (bool, string) {
+		var s jaasv1.JsonnetSnippet
+		if err := c.Get(context.Background(), key, &s); err != nil {
+			return false, "get: " + err.Error()
+		}
+		revV1 = s.Status.Revision
+		if revV1 == "" {
+			return false, "Status.Revision still empty"
+		}
+		return true, ""
+	})
 
 	// Mutate the library's content; the watch must wake the snippet up and
 	// produce a new revision.
