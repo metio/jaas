@@ -412,6 +412,24 @@ func TestRun_ExtVarFlag_RepeatableAndNotCommaSplit(t *testing.T) {
 	}
 }
 
+// The webhook server is wired only inside the operator boot path, so
+// --enable-webhook without --enable-flux-integration would silently boot an
+// HTTP-only evaluator with no admission validation. run rejects that combo as
+// a flag error (exit 2) rather than booting a security-relevant no-op. This is
+// a pure flag-level check that needs no apiserver.
+func TestRun_EnableWebhookWithoutFluxIntegrationFailsWithExit2(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	sigs := make(chan os.Signal, 1)
+	withRestoredSlogDefault(t)
+	code := run([]string{"--enable-webhook"}, nil, &stdout, &stderr, sigs)
+	if code != 2 {
+		t.Fatalf("exit code = %d, want 2; stderr=%q", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "--enable-webhook requires --enable-flux-integration") {
+		t.Errorf("stderr = %q, want it to explain the flag dependency", stderr.String())
+	}
+}
+
 func withRestoredSlogDefault(t *testing.T) {
 	t.Helper()
 	prev := slog.Default()

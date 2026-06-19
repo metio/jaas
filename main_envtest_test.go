@@ -131,6 +131,74 @@ func TestRun_FluxIntegration_BindFailureOnStoragePort(t *testing.T) {
 	}
 }
 
+// TestRun_FluxIntegration_InvalidWebhookCertModeFailsWithExit1 pins the
+// --webhook-cert-mode enum: an unrecognised mode is rejected (exit 1) before
+// any listener binds, naming the two accepted values. The check sits inside
+// the --enable-flux-integration + --enable-webhook boot path, so it needs a
+// reachable apiserver to clear loadKubeconfig first.
+func TestRun_FluxIntegration_InvalidWebhookCertModeFailsWithExit1(t *testing.T) {
+	kubeconfig := envtestMainSetup(t)
+
+	var stdout, stderr bytes.Buffer
+	sigs := make(chan os.Signal, 1)
+	withRestoredSlogDefault(t)
+	code := run([]string{
+		"--listen-address=127.0.0.1",
+		"--port=" + freePort(t),
+		"--management-listen-address=127.0.0.1",
+		"--management-port=" + freePort(t),
+		"--shutdown-delay=0",
+		"--enable-flux-integration",
+		"--enable-webhook",
+		"--webhook-cert-mode=bogus",
+		"--kubeconfig=" + kubeconfig,
+		"--storage-path=" + t.TempDir(),
+		"--storage-base-url=http://example.test/artifacts",
+		"--leader-election-namespace=default",
+		"--metrics-bind-address=0",
+	}, nil, &stdout, &stderr, sigs)
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1; stderr=%q stdout=%q", code, stderr.String(), stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "Invalid --webhook-cert-mode") {
+		t.Errorf("stderr = %q, want it to name the invalid --webhook-cert-mode", stderr.String())
+	}
+}
+
+// TestRun_FluxIntegration_SelfSignedRequiresVWCName pins that the self-signed
+// cert mode rejects a missing --webhook-validating-config-name (exit 1) before
+// it tries to provision anything — the named VWC is where the issued CA bundle
+// is stamped, so the mode is inoperable without it.
+func TestRun_FluxIntegration_SelfSignedRequiresVWCName(t *testing.T) {
+	kubeconfig := envtestMainSetup(t)
+
+	var stdout, stderr bytes.Buffer
+	sigs := make(chan os.Signal, 1)
+	withRestoredSlogDefault(t)
+	code := run([]string{
+		"--listen-address=127.0.0.1",
+		"--port=" + freePort(t),
+		"--management-listen-address=127.0.0.1",
+		"--management-port=" + freePort(t),
+		"--shutdown-delay=0",
+		"--enable-flux-integration",
+		"--enable-webhook",
+		"--webhook-cert-mode=self-signed",
+		"--webhook-validating-config-name=",
+		"--kubeconfig=" + kubeconfig,
+		"--storage-path=" + t.TempDir(),
+		"--storage-base-url=http://example.test/artifacts",
+		"--leader-election-namespace=default",
+		"--metrics-bind-address=0",
+	}, nil, &stdout, &stderr, sigs)
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1; stderr=%q stdout=%q", code, stderr.String(), stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "Invalid --webhook-validating-config-name") {
+		t.Errorf("stderr = %q, want it to name the missing --webhook-validating-config-name", stderr.String())
+	}
+}
+
 // TestRun_FluxIntegration_BootsAgainstEnvtestAndShutsDownCleanly is the
 // end-to-end envtest for the main entry point: launches `run()` with
 // --enable-flux-integration pointing at a real apiserver, waits for the

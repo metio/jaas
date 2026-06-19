@@ -819,6 +819,68 @@ func TestFetch_DownloadExceedsMaxBytesReturnsError(t *testing.T) {
 	}
 }
 
+// The compressed-download cap (MaxArchiveBytes) and the decompressed
+// extracted-result cap (MaxExtractedBytes) are independent. A tarball whose
+// compressed body fits comfortably under MaxArchiveBytes but whose extracted
+// bodies sum past a small MaxExtractedBytes must be rejected with
+// ErrTarballTooLarge — proving the extracted cap is decompressed-based and
+// not tied to the on-the-wire size.
+func TestFetch_ExtractedExceedsMaxExtractedBytesIndependentOfArchiveCap(t *testing.T) {
+	// ~4 KiB of extractable content; highly compressible so the wire body
+	// stays well under the generous MaxArchiveBytes.
+	tarball := buildTarGz(t, map[string]string{
+		"main.jsonnet": strings.Repeat("A", 4<<10),
+	})
+	if len(tarball) >= 4096 {
+		t.Fatalf("compressed tarball %d bytes is not smaller than the extracted total; test premise broken", len(tarball))
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(tarball)
+	}))
+	defer srv.Close()
+	src := newFluxSourceUnstructured(t, "GitRepository", "configs", "team-a", srv.URL, sha256Hex(tarball))
+	c := fake.NewClientBuilder().WithScheme(schemeWithGVK(t, "GitRepository")).WithObjects(src).Build()
+	f := newTestFetcher()
+	// Generous compressed-download cap, tiny extracted cap: only the
+	// extracted (decompressed) budget can fire.
+	f.MaxArchiveBytes = 1 << 20
+	f.MaxExtractedBytes = 1024
+	f.MaxPerEntryBytes = 1 << 20
+	_, err := f.Fetch(context.Background(), c,
+		&jaasv1.SourceRef{Kind: "GitRepository", Name: "configs", Namespace: "team-a"}, "team-a")
+	if !errors.Is(err, ErrTarballTooLarge) {
+		t.Errorf("got %v, want ErrTarballTooLarge (extracted cap independent of compressed cap)", err)
+	}
+}
+
+// The inverse independence direction: a generous MaxExtractedBytes with a
+// tiny MaxArchiveBytes trips the compressed-download cap
+// (ErrArtifactBodyTooLarge) before extraction is ever reached.
+func TestFetch_GenerousExtractedCapStillTripsArchiveCapOnLargeBody(t *testing.T) {
+	tarball := buildTarGz(t, map[string]string{
+		"main.jsonnet": strings.Repeat("A", 4<<10),
+	})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(tarball)
+	}))
+	defer srv.Close()
+	src := newFluxSourceUnstructured(t, "GitRepository", "configs", "team-a", srv.URL, sha256Hex(tarball))
+	c := fake.NewClientBuilder().WithScheme(schemeWithGVK(t, "GitRepository")).WithObjects(src).Build()
+	f := newTestFetcher()
+	// Tiny compressed-download cap below the wire body, generous extracted
+	// cap: the body trips ErrArtifactBodyTooLarge before extraction.
+	f.MaxArchiveBytes = 16
+	f.MaxExtractedBytes = 1 << 30
+	if int64(len(tarball)) <= f.MaxArchiveBytes {
+		t.Fatalf("compressed tarball %d bytes does not exceed MaxArchiveBytes %d; test premise broken", len(tarball), f.MaxArchiveBytes)
+	}
+	_, err := f.Fetch(context.Background(), c,
+		&jaasv1.SourceRef{Kind: "GitRepository", Name: "configs", Namespace: "team-a"}, "team-a")
+	if !errors.Is(err, ErrArtifactBodyTooLarge) {
+		t.Errorf("got %v, want ErrArtifactBodyTooLarge (compressed cap independent of extracted cap)", err)
+	}
+}
+
 // Regression: the production validator (urlguard.ValidateHTTPURL) must
 // reject loopback URLs on status.artifact.url BEFORE any HTTP dial.
 // Defends against a tenant with status-write RBAC on a source CR (or a
@@ -902,11 +964,14 @@ func TestFetch_DefaultsAPIVersionAndNamespace(t *testing.T) {
 }
 
 func TestFetcher_FallbacksWhenZeroValuesSet(t *testing.T) {
-	// HTTPClient nil + MaxArchiveBytes 0 → maxArchiveBytes/httpClient
-	// fallbacks fire.
+	// HTTPClient nil + MaxArchiveBytes/MaxExtractedBytes 0 →
+	// maxArchiveBytes/maxExtractedBytes/httpClient fallbacks fire.
 	f := &Fetcher{}
 	if f.maxArchiveBytes() != defaultMaxArchiveBytes {
 		t.Errorf("maxArchiveBytes fallback = %d, want default", f.maxArchiveBytes())
+	}
+	if f.maxExtractedBytes() != defaultMaxExtractedBytes {
+		t.Errorf("maxExtractedBytes fallback = %d, want default", f.maxExtractedBytes())
 	}
 	if f.httpClient() != http.DefaultClient {
 		t.Errorf("httpClient fallback != http.DefaultClient")

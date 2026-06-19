@@ -450,13 +450,54 @@ func TestJsonnetHandler_TraversalReturnsNotFound(t *testing.T) {
 }
 
 func TestJsonnetHandler_MethodNotAllowed(t *testing.T) {
-	h := JsonnetHandler(Config{})
-	req := httptest.NewRequest(http.MethodPost, "/jsonnet/x", nil)
-	rr := httptest.NewRecorder()
-	h(rr, req)
-	if got, want := rr.Code, http.StatusMethodNotAllowed; got != want {
-		t.Errorf("status = %d, want %d", got, want)
+	// Every non-GET verb the rendering endpoint may receive must be rejected
+	// with 405 and the stable method_not_allowed problem code, while GET on a
+	// real snippet still renders. The 405 carries the RFC 9457 problem body.
+	dir := t.TempDir()
+	writeSnippet(t, dir, "ok", `{"ok": true}`)
+
+	rejected := []string{
+		http.MethodPost,
+		http.MethodPut,
+		http.MethodDelete,
+		http.MethodPatch,
+		http.MethodOptions,
+		http.MethodHead,
 	}
+	for _, method := range rejected {
+		t.Run("rejects "+method, func(t *testing.T) {
+			h := JsonnetHandler(Config{SnippetDirectories: []string{dir}})
+			req := httptest.NewRequest(method, "/jsonnet/ok", nil)
+			req.SetPathValue("snippet", "ok")
+			rr := httptest.NewRecorder()
+			h(rr, req)
+
+			if got, want := rr.Code, http.StatusMethodNotAllowed; got != want {
+				t.Fatalf("status = %d, want %d", got, want)
+			}
+			if got, want := rr.Header().Get("Content-Type"), "application/problem+json"; got != want {
+				t.Errorf("Content-Type = %q, want %q", got, want)
+			}
+			body := decodeError(t, rr)
+			if body.Code != ErrCodeMethodNotAllowed {
+				t.Errorf("code = %q, want %q", body.Code, ErrCodeMethodNotAllowed)
+			}
+			if body.Status != http.StatusMethodNotAllowed {
+				t.Errorf("body status = %d, want %d", body.Status, http.StatusMethodNotAllowed)
+			}
+		})
+	}
+
+	t.Run("GET still renders", func(t *testing.T) {
+		h := JsonnetHandler(Config{SnippetDirectories: []string{dir}})
+		req := httptest.NewRequest(http.MethodGet, "/jsonnet/ok", nil)
+		req.SetPathValue("snippet", "ok")
+		rr := httptest.NewRecorder()
+		h(rr, req)
+		if got, want := rr.Code, http.StatusOK; got != want {
+			t.Fatalf("status = %d, want %d (body: %s)", got, want, rr.Body.String())
+		}
+	})
 }
 
 func TestJsonnetHandler_NotFound(t *testing.T) {

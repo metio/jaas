@@ -129,6 +129,11 @@ func run(args, env []string, stdout, stderr io.Writer, sigs <-chan os.Signal) in
 		return 2
 	}
 
+	if err := f.Validate(); err != nil {
+		fmt.Fprintln(stderr, "jaas:", err)
+		return 2
+	}
+
 	slog.SetDefault(observability.NewLogger(stdout, *f.LogLevel, *f.LogFormat))
 
 	ctx, cancel := context.WithCancel(context.Background())

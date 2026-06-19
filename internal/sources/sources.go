@@ -53,9 +53,15 @@ import (
 // SourceRef; an empty value resolves to this.
 const defaultSourceAPIVersion = "source.toolkit.fluxcd.io/v1"
 
-// Default in-memory tarball size cap. Flux source artifacts are usually
-// well under 10 MiB; 64 MiB is generous as an aggregate.
+// Default cap on the compressed download body. Flux source artifacts are
+// usually well under 10 MiB; 64 MiB is generous for the on-the-wire tarball.
 const defaultMaxArchiveBytes int64 = 64 << 20
+
+// Default cap on the decompressed extracted result held in memory — the
+// sum of every extracted entry body. Independent of the compressed
+// download cap because gzip can hide the real expanded size behind a
+// small compressed body.
+const defaultMaxExtractedBytes int64 = 64 << 20
 
 // Default per-tar-entry body cap. A single 16 MiB entry is plenty for
 // a Jsonnet library .libsonnet or a small JSON resource; anything
@@ -98,15 +104,16 @@ var ErrDigestMismatch = errors.New("tarball digest does not match source artifac
 // classifier would fall through to the transient default branch,
 // pinning the snippet in a retry loop forever.
 
-// ErrArtifactBodyTooLarge reports that the HTTP body of the source artifact
-// exceeded the aggregate byte cap before the tar stage. The cap comes from
-// Fetcher.MaxArchiveBytes.
+// ErrArtifactBodyTooLarge reports that the compressed HTTP body of the source
+// artifact exceeded the download byte cap before the tar stage. The cap comes
+// from Fetcher.MaxArchiveBytes.
 var ErrArtifactBodyTooLarge = errors.New("artifact body exceeded aggregate cap")
 
-// ErrTarballTooLarge reports that the gzip-decompressed tar stream's total
-// payload exceeded Fetcher.MaxArchiveBytes during extraction. Distinct from
-// ErrArtifactBodyTooLarge because gzip can hide the real size behind a small
-// compressed body (gzip-bomb shape).
+// ErrTarballTooLarge reports that the gzip-decompressed extracted result —
+// the sum of every extracted entry body held in memory — exceeded
+// Fetcher.MaxExtractedBytes during extraction. Distinct from
+// ErrArtifactBodyTooLarge because gzip can hide the real expanded size behind
+// a small compressed body (gzip-bomb shape), so the two caps are independent.
 var ErrTarballTooLarge = errors.New("tarball aggregate size exceeded cap")
 
 // ErrTarEntryTooLarge reports that a single tar entry's body (or its claimed
@@ -134,10 +141,18 @@ type Fetcher struct {
 	// 30s timeout when constructed via New.
 	HTTPClient *http.Client
 
-	// MaxArchiveBytes bounds tarball extraction. Beyond this, Fetch
-	// returns an error rather than spend unbounded memory on a malicious
-	// or runaway source. Aggregate cap across all entries.
+	// MaxArchiveBytes bounds ONLY the compressed download body. Beyond
+	// this, Fetch returns ErrArtifactBodyTooLarge rather than stream an
+	// unbounded tarball off a malicious or runaway source. Zero falls
+	// back to defaultMaxArchiveBytes.
 	MaxArchiveBytes int64
+
+	// MaxExtractedBytes bounds the decompressed extracted result held in
+	// memory — the aggregate sum of every extracted entry body. Beyond
+	// this, Fetch returns ErrTarballTooLarge. Independent of
+	// MaxArchiveBytes because gzip can hide the expanded size behind a
+	// small compressed body. Zero falls back to defaultMaxExtractedBytes.
+	MaxExtractedBytes int64
 
 	// MaxPerEntryBytes caps an individual tar entry's body size. A
 	// lying header (small Size, gigabyte body) is also caught — the
@@ -191,6 +206,7 @@ type Fetcher struct {
 func New() *Fetcher {
 	f := &Fetcher{
 		MaxArchiveBytes:      defaultMaxArchiveBytes,
+		MaxExtractedBytes:    defaultMaxExtractedBytes,
 		MaxPerEntryBytes:     defaultMaxPerEntryBytes,
 		MaxDecompressedBytes: defaultMaxDecompressedBytes,
 	}
@@ -332,7 +348,7 @@ func (f *Fetcher) Fetch(ctx context.Context, c client.Client, ref *jaasv1.Source
 		return nil, fmt.Errorf("rewind %s: %w", artifact.URL, err)
 	}
 	files, err := extractTarballWithLimits(tmp, ref.Path,
-		f.maxArchiveBytes(), f.maxPerEntryBytes(), f.maxDecompressedBytes())
+		f.maxExtractedBytes(), f.maxPerEntryBytes(), f.maxDecompressedBytes())
 	if err != nil {
 		return nil, fmt.Errorf("extract %s: %w", artifact.URL, err)
 	}
@@ -345,6 +361,13 @@ func (f *Fetcher) maxArchiveBytes() int64 {
 		return f.MaxArchiveBytes
 	}
 	return defaultMaxArchiveBytes
+}
+
+func (f *Fetcher) maxExtractedBytes() int64 {
+	if f.MaxExtractedBytes > 0 {
+		return f.MaxExtractedBytes
+	}
+	return defaultMaxExtractedBytes
 }
 
 func (f *Fetcher) maxPerEntryBytes() int64 {
@@ -727,7 +750,8 @@ func (cr *cappedReader) Read(p []byte) (int, error) {
 // Three byte caps are enforced (zero on any falls back to its package
 // default):
 //
-//   - maxBytes: aggregate sum of entry bodies; defended against int64
+//   - maxBytes: aggregate sum of extracted entry bodies (the decompressed
+//     extracted-result budget, MaxExtractedBytes); defended against int64
 //     overflow by checking hdr.Size against the remaining budget before
 //     adding to total.
 //   - perEntryBytes: an individual tar entry body. The header is
@@ -738,7 +762,7 @@ func (cr *cappedReader) Read(p []byte) (int, error) {
 //     a Read error rather than OOM.
 func extractTarballWithLimits(r io.Reader, pathPrefix string, maxBytes, perEntryBytes, decompressedBytes int64) (map[string]string, error) {
 	if maxBytes <= 0 {
-		maxBytes = defaultMaxArchiveBytes
+		maxBytes = defaultMaxExtractedBytes
 	}
 	if perEntryBytes <= 0 {
 		perEntryBytes = defaultMaxPerEntryBytes

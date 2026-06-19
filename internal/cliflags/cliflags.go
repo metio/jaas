@@ -12,6 +12,8 @@
 package cliflags
 
 import (
+	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/spf13/pflag"
@@ -124,6 +126,74 @@ type Flags struct {
 // while the doc generator passes a stub (the generator never reads it, and the
 // published default is the symbolic formula — see hack/flaggen).
 type DefaultFunc func() int
+
+// Validate rejects flag values pflag accepts as well-typed but that are
+// semantically invalid: negative caps, ports outside 1..65535, and negative
+// durations. pflag only type-coerces, so these surface here. run maps a non-nil
+// result to exit code 2 (flag-usage error). Zero is a valid, documented value
+// for the caps (disable / use the engine default), so only negatives are
+// rejected.
+func (f *Flags) Validate() error {
+	nonNegInts := []struct {
+		name string
+		val  int
+	}{
+		{"--max-stack", *f.MaxStack},
+		{"--max-concurrent-evals", *f.MaxConcurrentEvals},
+		{"--rerender-burst", *f.RerenderBurst},
+	}
+	for _, c := range nonNegInts {
+		if c.val < 0 {
+			return fmt.Errorf("%s must be >= 0, got %d", c.name, c.val)
+		}
+	}
+	if *f.MaxArtifactBytes < 0 {
+		return fmt.Errorf("--max-artifact-bytes must be >= 0, got %d", *f.MaxArtifactBytes)
+	}
+
+	stringPorts := []struct {
+		name string
+		val  string
+	}{
+		{"--port", *f.Port},
+		{"--management-port", *f.ManagementPort},
+		{"--storage-port", *f.StoragePort},
+	}
+	for _, p := range stringPorts {
+		n, err := strconv.Atoi(p.val)
+		if err != nil || n < 1 || n > 65535 {
+			return fmt.Errorf("%s must be an integer in 1..65535, got %q", p.name, p.val)
+		}
+	}
+	if *f.WebhookPort < 1 || *f.WebhookPort > 65535 {
+		return fmt.Errorf("--webhook-port must be in 1..65535, got %d", *f.WebhookPort)
+	}
+
+	durations := []struct {
+		name string
+		val  time.Duration
+	}{
+		{"--write-timeout", *f.WriteTimeout},
+		{"--read-timeout", *f.ReadTimeout},
+		{"--management-write-timeout", *f.ManagementWriteTimeout},
+		{"--management-read-timeout", *f.ManagementReadTimeout},
+		{"--evaluation-timeout", *f.EvaluationTimeout},
+		{"--shutdown-delay", *f.ShutdownDelay},
+		{"--max-withdraw-wait", *f.MaxWithdrawWait},
+		{"--artifact-gc-grace", *f.ArtifactGCGrace},
+		{"--storage-read-timeout", *f.StorageReadTimeout},
+		{"--storage-write-timeout", *f.StorageWriteTimeout},
+		{"--storage-sweep-interval", *f.StorageSweepInterval},
+		{"--storage-sweep-max-tmp-age", *f.StorageSweepMaxTmpAge},
+		{"--webhook-cert-validity", *f.WebhookCertValidity},
+	}
+	for _, d := range durations {
+		if d.val < 0 {
+			return fmt.Errorf("%s must be >= 0, got %s", d.name, d.val)
+		}
+	}
+	return nil
+}
 
 // Register declares every CLI flag on fs, co-locates each with its
 // documentation group via the "group" annotation, and returns a struct of the
