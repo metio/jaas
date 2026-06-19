@@ -110,8 +110,9 @@ type Config struct {
 	// artifact's status.artifact.url. Required when Store is set.
 	StorageBaseURL string
 
-	// MaxArtifactBytes caps the rendered tarball size in bytes. A
-	// snippet whose rendered output exceeds this fails with
+	// MaxArtifactBytes caps the published content size in bytes — the
+	// rendered output in Output=rendered mode, the whole source tree in
+	// Output=source mode. A snippet over the cap fails with
 	// ReasonArtifactTooLarge before any disk/S3 write. Zero disables.
 	MaxArtifactBytes int64
 

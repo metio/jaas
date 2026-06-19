@@ -78,7 +78,8 @@ const (
 	// rejects new CRs that introduce the cycle at admission.
 	ReasonDependencyCycle = "DependencyCycle"
 
-	// ReasonArtifactTooLarge fires when a snippet's rendered content
+	// ReasonArtifactTooLarge fires when a snippet's published content
+	// (rendered output, or the whole source tree in Output=source mode)
 	// exceeds Publisher.MaxArtifactBytes. Stops one runaway snippet
 	// from filling the storage volume; operators tune the bound via
 	// --max-artifact-bytes.

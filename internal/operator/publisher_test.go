@@ -593,9 +593,11 @@ type mockStore struct {
 	putErr    error
 	pruneErr  error
 	deleteErr error
+	putCalls  int
 }
 
 func (m *mockStore) Put(_ context.Context, namespace, name, revision string, entries []storage.FileEntry) (storage.Result, error) {
+	m.putCalls++
 	if m.putErr != nil {
 		return storage.Result{}, m.putErr
 	}
@@ -670,6 +672,65 @@ func TestPublish_MaxArtifactBytes_RejectsOversizedRender(t *testing.T) {
 	}
 	if !errors.Is(err, ErrArtifactTooLarge) {
 		t.Errorf("got %v, want ErrArtifactTooLarge", err)
+	}
+}
+
+func TestPublish_MaxArtifactBytes_RejectsOversizedSourceTree(t *testing.T) {
+	// In Output=source mode the tarball carries sourceFiles, not rendered.
+	// The cap must measure the source tree's content, so an empty rendered
+	// string can't smuggle an oversized source tree past the gate.
+	c := newPublisherClient(t)
+	store := &mockStore{}
+	p := &Publisher{Store: store, BaseURL: "x", MaxArtifactBytes: 10}
+	snip := &jaasv1.JsonnetSnippet{
+		ObjectMeta: metav1.ObjectMeta{Name: "big", Namespace: "n"},
+		Spec: jaasv1.JsonnetSnippetSpec{
+			Output: jaasv1.OutputSource,
+		},
+	}
+	sourceFiles := map[string]string{
+		"main.jsonnet":     "abcdef", // 6 bytes
+		"helper.libsonnet": "ghijkl", // 6 bytes -> 12 total, cap is 10
+	}
+	_, err := p.Publish(context.Background(), c, snip, "", sourceFiles, nil)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !errors.Is(err, ErrArtifactTooLarge) {
+		t.Errorf("got %v, want ErrArtifactTooLarge", err)
+	}
+	if store.putCalls != 0 {
+		t.Errorf("Store.Put called %d times; oversized source tree must be rejected before any write", store.putCalls)
+	}
+}
+
+func TestPublish_MaxArtifactBytes_UnderCapPassesSourceMode(t *testing.T) {
+	c := newPublisherClient(t)
+	p := newTestPublisher(t, c)
+	p.MaxArtifactBytes = 1000
+	snip := &jaasv1.JsonnetSnippet{
+		ObjectMeta: metav1.ObjectMeta{Name: "ok", Namespace: "n"},
+		Spec: jaasv1.JsonnetSnippetSpec{
+			Output: jaasv1.OutputSource,
+			SnippetSource: jaasv1.SnippetSource{
+				Files: map[string]string{"main.jsonnet": "{ a: 1 }"},
+			},
+		},
+	}
+	if _, err := p.Publish(context.Background(), c, snip, "", snip.Spec.Files, nil); err != nil {
+		t.Errorf("under-cap source-mode Publish returned %v", err)
+	}
+}
+
+func TestPublish_MaxArtifactBytes_UnderCapPassesRenderedMode(t *testing.T) {
+	c := newPublisherClient(t)
+	p := newTestPublisher(t, c)
+	p.MaxArtifactBytes = 1000
+	snip := &jaasv1.JsonnetSnippet{
+		ObjectMeta: metav1.ObjectMeta{Name: "ok", Namespace: "n"},
+	}
+	if _, err := p.Publish(context.Background(), c, snip, "{ a: 1 }", nil, nil); err != nil {
+		t.Errorf("under-cap rendered-mode Publish returned %v", err)
 	}
 }
 

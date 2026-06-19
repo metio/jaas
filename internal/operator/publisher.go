@@ -62,10 +62,13 @@ type Publisher struct {
 	BaseURL string
 	Clock   func() time.Time
 
-	// MaxArtifactBytes caps the rendered tarball size in bytes. A
-	// snippet whose rendered output (a single member tarball) exceeds
-	// this fails with ErrArtifactTooLarge before any disk/S3 write, so
-	// one runaway snippet can't fill the storage volume. Zero disables.
+	// MaxArtifactBytes caps the published content size in bytes. The cap
+	// measures the sum of the tarball members' content — len(rendered) in
+	// Output=rendered mode, the whole sourceFiles tree in Output=source
+	// mode — so it bounds what actually lands on disk/S3 in either mode. A
+	// snippet over the cap fails with ErrArtifactTooLarge before any
+	// write, so one runaway snippet can't fill the storage volume. Zero
+	// disables.
 	MaxArtifactBytes int64
 
 	// GCGrace is the minimum time a revision evicted from the keep-set
@@ -77,10 +80,11 @@ type Publisher struct {
 	GCGrace time.Duration
 }
 
-// ErrArtifactTooLarge is returned from Publish when the rendered
-// content alone exceeds Publisher.MaxArtifactBytes. The reconciler
-// surfaces this as ReasonArtifactTooLarge on the Ready condition.
-var ErrArtifactTooLarge = errors.New("publisher: rendered artifact exceeds MaxArtifactBytes")
+// ErrArtifactTooLarge is returned from Publish when the published
+// content (summed across the tarball members) exceeds
+// Publisher.MaxArtifactBytes. The reconciler surfaces this as
+// ReasonArtifactTooLarge on the Ready condition.
+var ErrArtifactTooLarge = errors.New("publisher: artifact exceeds MaxArtifactBytes")
 
 // NewPublisher returns a Publisher whose Clock falls back to time.Now.
 func NewPublisher(store storage.Backend, baseURL string) *Publisher {
@@ -115,12 +119,23 @@ func (p *Publisher) Publish(ctx context.Context, c client.Client, snip *jaasv1.J
 	if p.Store == nil || c == nil {
 		return PublishResult{}, errors.New("publisher: store and client are required")
 	}
-	if p.MaxArtifactBytes > 0 && int64(len(rendered)) > p.MaxArtifactBytes {
-		return PublishResult{}, fmt.Errorf("%w: %d > %d", ErrArtifactTooLarge, len(rendered), p.MaxArtifactBytes)
-	}
 	entries, revision, err := p.buildEntries(snip, rendered, sourceFiles)
 	if err != nil {
 		return PublishResult{}, err
+	}
+	// Cap the actual published content for every Output mode. In rendered
+	// mode the single entry's content is len(rendered); in source mode it
+	// is the whole sourceFiles tree — len(rendered) would not measure that.
+	// Summing the built entries' bytes is the right measure because those
+	// are exactly the bytes Store.Put writes into the tarball.
+	if p.MaxArtifactBytes > 0 {
+		var total int64
+		for _, e := range entries {
+			total += int64(len(e.Content))
+		}
+		if total > p.MaxArtifactBytes {
+			return PublishResult{}, fmt.Errorf("%w: %d > %d", ErrArtifactTooLarge, total, p.MaxArtifactBytes)
+		}
 	}
 	shortRev := strings.TrimPrefix(revision, "sha256:")
 
