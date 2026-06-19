@@ -127,6 +127,23 @@ var ErrTarEntryTooLarge = errors.New("tar entry exceeded per-entry cap")
 // wraps the gzip reader to enforce this.
 var ErrDecompressedTooLarge = errors.New("decompressed gzip stream exceeded cap")
 
+// ErrGzipTrailingData reports that the gzip stream carried more than the
+// single member the tar archive consumed — a concatenated multi-member
+// gzip whose later members the tar reader never sees. archive/tar stops at
+// the first member's end-of-archive marker, so a truncated or multi-member
+// .tar.gz would otherwise yield a partial file map and a success return.
+// classifyFetchError routes this as non-transient: the upstream must
+// re-publish a single-member archive. A retry can't fix the encoding.
+var ErrGzipTrailingData = errors.New("gzip stream has trailing data after the tar archive")
+
+// ErrArtifactNotFound reports that the artifact URL returned a permanent
+// 4xx (other than 408 Request Timeout / 429 Too Many Requests). A 404 /
+// 403 on the artifact body won't heal by retry — the upstream must
+// re-publish or fix its serving — so classifyFetchError routes this as
+// non-transient. A bare "HTTP <code>" without this sentinel would fall
+// into the transient default and retry the permanent failure forever.
+var ErrArtifactNotFound = errors.New("artifact URL returned a permanent HTTP error")
+
 // Result is the materialized source content: a flat file path → content
 // map plus the revision string the apiserver reported on the source CR.
 type Result struct {
@@ -461,6 +478,13 @@ func (f *Fetcher) downloadToTemp(ctx context.Context, url string) (*os.File, str
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
+		// A permanent 4xx (other than 408/429, which signal "retry later")
+		// won't heal by retry — wrap it in ErrArtifactNotFound so the
+		// classifier treats it as steady-state. 5xx and the two retryable
+		// 4xx codes stay unwrapped and fall through to the transient default.
+		if isPermanentHTTPStatus(resp.StatusCode) {
+			return nil, "", fmt.Errorf("%w: HTTP %d", ErrArtifactNotFound, resp.StatusCode)
+		}
 		return nil, "", fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 
@@ -489,6 +513,18 @@ func (f *Fetcher) downloadToTemp(ctx context.Context, url string) (*os.File, str
 	}
 
 	return tmp, hex.EncodeToString(hasher.Sum(nil)), nil
+}
+
+// isPermanentHTTPStatus reports whether an artifact-fetch HTTP status is
+// a permanent client error that retry can't fix. Every 4xx qualifies
+// EXCEPT 408 (Request Timeout) and 429 (Too Many Requests), which both
+// invite a later retry. 5xx is treated as transient (server-side, may
+// recover) and handled by the caller's default branch.
+func isPermanentHTTPStatus(code int) bool {
+	if code == http.StatusRequestTimeout || code == http.StatusTooManyRequests {
+		return false
+	}
+	return code >= 400 && code < 500
 }
 
 // artifact holds the bits we care about from status.artifact.
@@ -781,6 +817,13 @@ func extractTarballWithLimits(r io.Reader, pathPrefix string, maxBytes, perEntry
 		return nil, fmt.Errorf("gzip: %w", err)
 	}
 	defer gz.Close()
+	// Disable transparent multistream so the gzip reader stops at the end
+	// of the first member rather than silently concatenating later ones.
+	// archive/tar stops at the first member's end-of-archive marker, so a
+	// concatenated multi-member .tar.gz would otherwise drop every byte past
+	// member one and still return success. With multistream off, the
+	// post-loop EOF check below catches the trailing members.
+	gz.Multistream(false)
 	capped := newCappedReader(gz, decompressedBytes, fmt.Errorf("%w: %d bytes", ErrDecompressedTooLarge, decompressedBytes))
 	tr := tar.NewReader(capped)
 
@@ -834,6 +877,24 @@ func extractTarballWithLimits(r io.Reader, pathPrefix string, maxBytes, perEntry
 			return nil, fmt.Errorf("%w: %d bytes (post-read)", ErrTarballTooLarge, maxBytes)
 		}
 		files[name] = string(body)
+	}
+	// The tar reader stops at the first member's end-of-archive marker, but
+	// the gzip member may carry padding bytes past that marker that tar
+	// never read. Drain the rest of the current (first) member through the
+	// capped reader so the gzip reader reaches this member's real boundary;
+	// the cap still guards against a bomb hiding in that tail.
+	if _, err := io.Copy(io.Discard, capped); err != nil {
+		return nil, fmt.Errorf("gzip drain: %w", err)
+	}
+	// With multistream disabled the gzip reader is now at the first member's
+	// EOF. gz.Reset advancing to a NEXT member (multi-member archive) means
+	// the upstream published a concatenated .tar.gz whose tail this extract
+	// silently dropped — reject it rather than return the partial map as
+	// success.
+	if err := gz.Reset(r); err == nil {
+		return nil, ErrGzipTrailingData
+	} else if !errors.Is(err, io.EOF) {
+		return nil, fmt.Errorf("gzip trailing check: %w", err)
 	}
 	return files, nil
 }
