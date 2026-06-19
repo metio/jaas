@@ -10,7 +10,7 @@ FROM docker.io/library/golang:1.26.4@sha256:87a41d2539e5671777734e91f467499ed5ea
 # toolchain than this base image without a Containerfile change.
 ENV GOTOOLCHAIN=auto
 
-RUN apt-get update && apt-get install -y git curl jq reuse yamllint
+RUN apt-get update && apt-get install -y git curl jq reuse yamllint shellcheck
 
 # markdownlint-cli2 mirrors the DavidAnson/markdownlint-cli2-action used in
 # verify.yml, so `markdownlint-cli2 '**/*.md'` reproduces the CI markdown gate

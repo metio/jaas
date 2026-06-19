@@ -22,16 +22,16 @@ jobs:
           fetch-depth: 0
       - id: last_release
         name: Fetch last release info
-        run: echo "tag=$(gh release view --json tagName --jq '.tagName')" >> $GITHUB_OUTPUT
+        run: echo "tag=$(gh release view --json tagName --jq '.tagName')" >> "$GITHUB_OUTPUT"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - id: commits
         name: Count Commits
-        run: echo "count=$(git rev-list --count ${{ steps.last_release.outputs.tag }}..HEAD -- go.mod main.go internal api config Dockerfile)" >> $GITHUB_OUTPUT
+        run: echo "count=$(git rev-list --count ${{ steps.last_release.outputs.tag }}..HEAD -- go.mod main.go internal api config Dockerfile)" >> "$GITHUB_OUTPUT"
       - id: release
         name: Create Release Version
         if: steps.commits.outputs.count > 0 || steps.last_release.outputs.tag == ''
-        run: echo "version=$(date +'%Y.%-m.%-d')" >> $GITHUB_OUTPUT
+        run: echo "version=$(date +'%Y.%-m.%-d')" >> "$GITHUB_OUTPUT"
   build:
     name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
     needs: prepare
@@ -159,7 +159,7 @@ jobs:
         run: |
           cd dist
           shopt -s nullglob
-          sha256sum *.tar.gz *.zip > ${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_SHA256SUMS
+          sha256sum ./*.tar.gz ./*.zip > "${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_SHA256SUMS"
       - id: sign_checksums
         name: Sign Checksums (cosign keyless)
         if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
@@ -266,7 +266,7 @@ jobs:
       - id: timestamp
         if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
         name: Create Timestamp
-        run: echo "date=$(date --rfc-3339=seconds)" >> $GITHUB_OUTPUT
+        run: echo "date=$(date --rfc-3339=seconds)" >> "$GITHUB_OUTPUT"
       - id: publish
         if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
         name: Publish Image
