@@ -340,6 +340,47 @@ func TestRenewer_Run_RenewalFailureDoesNotTerminateLoop(t *testing.T) {
 	}
 }
 
+// TestRenewer_Run_ShutdownDuringGuardDelayIsNotAFailure pins that a SIGTERM
+// (ctx cancel) landing during renewOnce's guard-delay makes renewOnce return
+// context.Canceled — a clean shutdown, not a rotation failure. The loop must
+// NOT fire OnFailure (which would inflate the renewal-failures counter) nor
+// log it as a failure; it just returns nil.
+func TestRenewer_Run_ShutdownDuringGuardDelayIsNotAFailure(t *testing.T) {
+	dir := t.TempDir()
+	fake := &fakeVWCClient{vwc: makeVWC("vjsonnet", 1, nil)}
+	var onFailureCalls int
+	r := &Renewer{
+		Input:     Input{Namespace: "jaas-system"},
+		CertDir:   dir,
+		VWCName:   "vjsonnet",
+		VWCClient: fake,
+		Interval:  10 * time.Millisecond,
+		// Long guard delay so the first tick is parked in the post-write
+		// sleep when ctx is cancelled, forcing renewOnce → context.Canceled.
+		GuardDelay: 2 * time.Second,
+		OnFailure:  func(error) { onFailureCalls++ },
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- r.Run(ctx) }()
+	// Let the first tick fire and enter the guard delay, then cancel.
+	time.Sleep(60 * time.Millisecond)
+	cancel()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Run returned %v, want nil on shutdown-during-guard", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run did not exit promptly after ctx cancel during guard delay")
+	}
+	if onFailureCalls != 0 {
+		t.Errorf("OnFailure fired %d times for a clean shutdown; context.Canceled must not count as a failure", onFailureCalls)
+	}
+}
+
 // flakyUpdateClient is the minimum VWCClient surface the renewer test
 // needs, with an Update that errors on the first call and succeeds on
 // every call after. Lets the renewer test prove its loop survives a

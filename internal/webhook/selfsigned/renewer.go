@@ -156,6 +156,15 @@ func (r *Renewer) Run(ctx context.Context) error {
 				return r.renewOnce(ctx)
 			}()
 			if err != nil {
+				// A SIGTERM during renewOnce's guard-delay cancels ctx and
+				// renewOnce returns context.Canceled — that's a clean
+				// shutdown, not a rotation failure. Skip the warn + OnFailure
+				// so it doesn't spuriously log "renewal failed" and inflate
+				// jaas_webhook_cert_renewal_failures_total; the next loop
+				// iteration sees ctx.Done() and returns nil.
+				if errors.Is(err, context.Canceled) {
+					continue
+				}
 				// Surface as a warning rather than failing the whole
 				// goroutine — the next tick gets another shot, and the
 				// existing cert is still valid until its expiry. Fire
