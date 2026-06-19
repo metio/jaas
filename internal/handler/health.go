@@ -47,7 +47,9 @@ func (s *HealthState) Ready() bool {
 func StartupHandler(state *HealthState) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
+			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusMethodNotAllowed)
+			_, _ = w.Write([]byte(`{"status":"method_not_allowed"}`))
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -64,7 +66,9 @@ func StartupHandler(state *HealthState) http.HandlerFunc {
 func ReadinessHandler(state *HealthState) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
+			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusMethodNotAllowed)
+			_, _ = w.Write([]byte(`{"status":"method_not_allowed"}`))
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -81,7 +85,9 @@ func ReadinessHandler(state *HealthState) http.HandlerFunc {
 func LivenessHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
+			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusMethodNotAllowed)
+			_, _ = w.Write([]byte(`{"status":"method_not_allowed"}`))
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
