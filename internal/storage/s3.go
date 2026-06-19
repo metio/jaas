@@ -500,8 +500,12 @@ func (b *S3Backend) HTTPHandler() http.Handler {
 			return
 		}
 		if _, err := io.Copy(w, obj); err != nil {
-			// Headers are already on the wire — we can't switch to
-			// 500. Truncated body is the only signal the client gets.
+			// Headers are already on the wire — we can't switch to 500, so
+			// the truncated body is the only signal the client gets. Log at
+			// Warn with the key so a recurring mid-stream failure (backend
+			// flapping, client disconnects) is diagnosable instead of silent.
+			slog.Default().Warn("storage/s3: error streaming artifact body",
+				slog.String("key", key), slog.Any("error", err))
 			return
 		}
 	})
