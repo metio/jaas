@@ -17,5 +17,8 @@ that any consumer can deploy — the two flagship pairings are
 📖 Documentation — installation, usage, API reference, tutorials, and
 contributing — lives at <https://jaas.projects.metio.wtf/>.
 
+📦 The Helm chart is published at `oci://ghcr.io/metio/helm-charts/jaas` and
+listed on [ArtifactHub](https://artifacthub.io/packages/helm/jaas/jaas).
+
 Licensed under [0BSD](LICENSE); the repository is [REUSE](https://reuse.software/)
 compliant.
