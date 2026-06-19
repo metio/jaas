@@ -5,9 +5,10 @@ tags: [installation, helm, kubernetes, operator]
 ---
 
 JaaS ships as a container image at `ghcr.io/metio/jaas:latest` and as a Helm
-chart at `oci://ghcr.io/metio/helm-charts/jaas`. Pre-built binaries for Linux,
-macOS, and Windows are attached to each GitHub release for operators who prefer
-to run the binary directly.
+chart at `oci://ghcr.io/metio/helm-charts/jaas`, also listed on
+[ArtifactHub](https://artifacthub.io/packages/helm/jaas/jaas). Pre-built
+binaries for Linux, macOS, and Windows are attached to each GitHub release for
+operators who prefer to run the binary directly.
 
 ## Prerequisites
 
