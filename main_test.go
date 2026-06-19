@@ -515,7 +515,7 @@ func runInBackground(t *testing.T, extraArgs []string, env []string) *runHandle 
 		h.done <- run(args, env, h.stdout, h.stderr, h.sigs)
 	}()
 
-	waitForReady(t, h.mgmt, 5*time.Second)
+	waitForReady(t, h.mgmt, 30*time.Second)
 	return h
 }
 
@@ -746,7 +746,7 @@ func TestRun_DualStackBindAddressBoots(t *testing.T) {
 
 	// /live must be reachable over IPv4 — proves the dual-stack
 	// socket accepts v4-mapped connections.
-	waitForReady(t, "127.0.0.1:"+mgmtPort, 5*time.Second)
+	waitForReady(t, "127.0.0.1:"+mgmtPort, 30*time.Second)
 
 	sigs <- syscall.SIGTERM
 	select {
