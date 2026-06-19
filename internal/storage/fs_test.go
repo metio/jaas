@@ -12,9 +12,12 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"testing/fstest"
+	"time"
 )
 
 // faultyFS is a fileSystem decorator over an in-memory backing store, with
@@ -34,6 +37,13 @@ type faultyFS struct {
 	statErr      error
 	readDirErr   error
 	closeErr     error
+
+	// seeded tree for exercising Sweep/Prune walks. When non-nil,
+	// Stat / ReadDirNames consult these instead of the default stubs.
+	// dirEntries maps a directory path to its child names; infos maps a
+	// path to the os.FileInfo Stat returns.
+	dirEntries map[string][]string
+	infos      map[string]os.FileInfo
 	// writer-side knobs surfaced by Create. Any new writer the test
 	// returns inherits these.
 	writeErr  error
@@ -95,19 +105,43 @@ func (f *faultyFS) RemoveAll(_ string) error {
 	return nil
 }
 
-func (f *faultyFS) Stat(_ string) (os.FileInfo, error) {
+func (f *faultyFS) Stat(name string) (os.FileInfo, error) {
 	if f.statErr != nil {
 		return nil, f.statErr
+	}
+	if f.infos != nil {
+		if fi, ok := f.infos[name]; ok {
+			return fi, nil
+		}
+		return nil, os.ErrNotExist
 	}
 	return nil, os.ErrNotExist
 }
 
-func (f *faultyFS) ReadDirNames(_ string) ([]string, error) {
+func (f *faultyFS) ReadDirNames(name string) ([]string, error) {
 	if f.readDirErr != nil {
 		return nil, f.readDirErr
 	}
+	if f.dirEntries != nil {
+		return f.dirEntries[name], nil
+	}
 	return nil, nil
 }
+
+// fakeFileInfo is a minimal os.FileInfo for seeding faultyFS's Sweep/Prune
+// walks — only IsDir and ModTime are consulted by those code paths.
+type fakeFileInfo struct {
+	name  string
+	dir   bool
+	mtime time.Time
+}
+
+func (fi fakeFileInfo) Name() string       { return fi.name }
+func (fi fakeFileInfo) Size() int64        { return 0 }
+func (fi fakeFileInfo) Mode() os.FileMode  { return 0 }
+func (fi fakeFileInfo) ModTime() time.Time { return fi.mtime }
+func (fi fakeFileInfo) IsDir() bool        { return fi.dir }
+func (fi fakeFileInfo) Sys() any           { return nil }
 
 func (f *faultyFS) Close() error { return f.closeErr }
 
@@ -297,6 +331,67 @@ func TestRealFS_ReadDirNames_ErrorOnMissingDir(t *testing.T) {
 	defer fs.Close()
 	if _, err := fs.ReadDirNames("does-not-exist"); err == nil {
 		t.Errorf("expected error from missing dir")
+	}
+}
+
+// TestSweep_RemoveFailureSurfaces pins that a stale .tmp file Sweep cannot
+// reclaim (disk full, permission denied, busy file) makes Sweep return a
+// non-nil error so the caller's jaas_storage_sweep_failures_total counter
+// fires — rather than the orphan silently accumulating.
+func TestSweep_RemoveFailureSurfaces(t *testing.T) {
+	s, fs := newFaultyStore(t)
+	old := strings.Repeat("a", 64)
+	tmpName := old + ".tar.gz.tmp"
+	tmpPath := "ns/snip/" + tmpName
+	past := time.Now().Add(-2 * time.Hour)
+	fs.dirEntries = map[string][]string{
+		".":       {"ns"},
+		"ns":      {"snip"},
+		"ns/snip": {tmpName},
+	}
+	fs.infos = map[string]os.FileInfo{
+		"ns":      fakeFileInfo{name: "ns", dir: true},
+		"ns/snip": fakeFileInfo{name: "snip", dir: true},
+		tmpPath:   fakeFileInfo{name: tmpName, mtime: past},
+	}
+	fs.removeErr = errors.New("disk full")
+
+	removed, err := s.Sweep(context.Background(), 1*time.Hour)
+	if err == nil {
+		t.Fatal("Sweep returned nil error despite an un-removable stale .tmp")
+	}
+	if !errors.Is(err, fs.removeErr) {
+		t.Errorf("Sweep error = %v, want it to wrap %v", err, fs.removeErr)
+	}
+	if removed != 0 {
+		t.Errorf("Sweep removed=%d, want 0 (the Remove failed)", removed)
+	}
+}
+
+// TestPrune_RemoveFailurePropagates pins that a victim revision Prune cannot
+// delete surfaces the first Remove error rather than being swallowed —
+// matching the S3 backend so a failing Prune is visible on both stores.
+func TestPrune_RemoveFailurePropagates(t *testing.T) {
+	s, fs := newFaultyStore(t)
+	keepRev := strings.Repeat("a", 64)
+	dropRev := strings.Repeat("b", 64)
+	dropName := dropRev + ".tar.gz"
+	dir := "ns/snip"
+	fs.dirEntries = map[string][]string{
+		dir: {keepRev + ".tar.gz", dropName},
+	}
+	fs.infos = map[string]os.FileInfo{
+		filepath.Join(dir, keepRev+".tar.gz"): fakeFileInfo{name: keepRev + ".tar.gz"},
+		filepath.Join(dir, dropName):          fakeFileInfo{name: dropName},
+	}
+	fs.removeErr = errors.New("permission denied")
+
+	err := s.Prune(context.Background(), "ns", "snip", []string{keepRev}, 0)
+	if err == nil {
+		t.Fatal("Prune returned nil despite an un-removable victim revision")
+	}
+	if !errors.Is(err, fs.removeErr) {
+		t.Errorf("Prune error = %v, want it to wrap %v", err, fs.removeErr)
 	}
 }
 

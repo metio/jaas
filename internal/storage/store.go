@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
@@ -305,7 +306,13 @@ func (s *Store) Prune(_ context.Context, namespace, name string, keepRevisions [
 	}
 
 	for _, key := range selectPruneVictims(cands, keepSet, s.clock(), grace) {
-		_ = s.fs.Remove(key)
+		if err := s.fs.Remove(key); err != nil {
+			// Propagate the first Remove failure rather than swallowing it,
+			// matching the S3 backend so a failing Prune surfaces on both
+			// stores. A leftover revision that can't be reclaimed means the
+			// keep-set isn't being honored — the caller should know.
+			return fmt.Errorf("storage: prune remove %q: %w", key, err)
+		}
 	}
 	return nil
 }
@@ -446,6 +453,7 @@ func (s *Store) Sweep(_ context.Context, maxTmpAge time.Duration) (int, error) {
 	// MaxArtifactBytes / disk throughput.
 	cutoff := s.clock().Add(-maxTmpAge)
 	removed := 0
+	var errs []error
 	namespaces, err := s.fs.ReadDirNames(".")
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -468,27 +476,39 @@ func (s *Store) Sweep(_ context.Context, maxTmpAge time.Duration) (int, error) {
 			if err != nil || !dirInfo.IsDir() {
 				continue
 			}
-			removed += s.sweepKey(ns, name, dir, cutoff)
+			n, err := s.sweepKey(ns, name, dir, cutoff)
+			removed += n
+			if err != nil {
+				errs = append(errs, err)
+			}
 		}
 	}
-	return removed, nil
+	// Aggregate per-key failures into the return so the caller's
+	// jaas_storage_sweep_failures_total counter fires on the realistic
+	// disk-full / permission-denied cases that strand .tmp residue. The
+	// removed count still reflects the files Sweep did reap.
+	return removed, errors.Join(errs...)
 }
 
 // sweepKey runs the per-(ns, name) sweep step under the per-key
 // lock. Splitting this from Sweep keeps the lock scope obvious — the
 // lock is acquired and released around the inner loop, not held
 // across the outer ReadDirNames walks. Returns the number of files
-// removed for this key.
-func (s *Store) sweepKey(ns, name, dir string, cutoff time.Time) int {
+// removed for this key plus an aggregate of any Remove failure — a
+// .tmp residue that can't be reclaimed (disk full, permission denied,
+// busy file) is surfaced so the caller's failure metric fires rather
+// than the orphan silently accumulating.
+func (s *Store) sweepKey(ns, name, dir string, cutoff time.Time) (int, error) {
 	lock := s.lockFor(ns, name)
 	lock.Lock()
 	defer lock.Unlock()
 
 	files, err := s.fs.ReadDirNames(dir)
 	if err != nil {
-		return 0
+		return 0, nil
 	}
 	removed := 0
+	var errs []error
 	for _, f := range files {
 		if !strings.HasSuffix(f, ".tar.gz.tmp") || !looksLikeOurArtifactFilename(f) {
 			continue
@@ -501,11 +521,15 @@ func (s *Store) sweepKey(ns, name, dir string, cutoff time.Time) int {
 		if info.ModTime().After(cutoff) {
 			continue
 		}
-		if err := s.fs.Remove(full); err == nil {
-			removed++
+		if err := s.fs.Remove(full); err != nil {
+			slog.Default().Warn("storage: sweep could not remove orphaned .tmp file",
+				slog.String("path", full), slog.Any("error", err))
+			errs = append(errs, fmt.Errorf("storage: sweep remove %q: %w", full, err))
+			continue
 		}
+		removed++
 	}
-	return removed
+	return removed, errors.Join(errs...)
 }
 
 // validNoTraversal rejects path components that contain '..' or '/' so a
