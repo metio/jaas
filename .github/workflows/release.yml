@@ -137,6 +137,12 @@ jobs:
         name: Install Cosign
         if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - id: cliff-install
+        name: Install git-cliff
+        if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
+        run: |
+          curl -fsSL https://github.com/orhun/git-cliff/releases/download/v2.10.1/git-cliff-2.10.1-x86_64-unknown-linux-gnu.tar.gz | tar -xz -C /tmp
+          sudo mv /tmp/git-cliff-2.10.1/git-cliff /usr/local/bin/git-cliff
       - id: download
         name: Download Artifacts
         if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
@@ -166,6 +172,72 @@ jobs:
           --yes
           --bundle dist/${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_SHA256SUMS.bundle
           dist/${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_SHA256SUMS
+      - id: release_notes
+        name: Generate Release Notes
+        if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
+        env:
+          # git-cliff reads GITHUB_TOKEN (not GH_TOKEN) for its remote API calls;
+          # without it the calls are unauthenticated (60/hr) and rate-limit out,
+          # so release notes render without their PR/contributor enrichment.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          version="${{ needs.prepare.outputs.release_version }}"
+          prev="${{ needs.prepare.outputs.previous_version }}"
+          # --tag labels the (still uncreated) release so the cliff.toml header
+          # renders this version; --tag-pattern scopes release boundaries to the
+          # bare calendar tags this repo uses. The config is fetched from the
+          # org-wide git-cliff-config repo, pinned to a commit SHA (Renovate bumps
+          # the digest via the custom manager in renovate.json).
+          cliff_args=(
+            --config-url "https://raw.githubusercontent.com/metio/git-cliff-config/6fcc0b65dde726f59c09066fae227cec236ffd76/cliff.toml"
+            --tag "$version"
+            --tag-pattern '^[0-9]+\.[0-9]+\.[0-9]+$'
+          )
+          # A bare "HEAD" positional is rejected as a range; for the first release
+          # omit the positional so git-cliff walks full history.
+          [ -n "$prev" ] && cliff_args+=("${prev}..HEAD")
+          git-cliff "${cliff_args[@]}" > notes.md
+
+          # Static footer: usage + cosign verification, appended after the
+          # generated changelog.
+          cat >> notes.md <<EOF
+
+          ## Usage
+
+          Pull the container from \`ghcr.io/metio/jaas:${version}\`.
+          Check the [migration guide](https://github.com/metio/jaas/blob/main/MIGRATIONS.md) for any required actions on your part.
+
+          Prebuilt binaries are attached below:
+
+          - \`linux\`: \`amd64\`, \`arm\` (v7), \`arm64\`, \`ppc64le\`, \`riscv64\`, \`s390x\`
+          - \`windows\`: \`amd64\`, \`arm64\` (\`.zip\`)
+          - \`darwin\` (macOS): \`amd64\`, \`arm64\`
+
+          ## Verify
+
+          Both the image and the release artifacts are signed with
+          [cosign](https://github.com/sigstore/cosign) keyless — there is no GPG key to
+          trust; identity is proven by the workflow's OIDC certificate.
+
+          Container image:
+
+          \`\`\`shell
+          cosign verify ghcr.io/metio/jaas:${version} \\
+            --certificate-identity-regexp '^https://github.com/metio/jaas/\\.github/workflows/release\\.yml@refs/' \\
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com
+          \`\`\`
+
+          Release artifacts (verify the signed checksum file, then check your download against it):
+
+          \`\`\`shell
+          cosign verify-blob jaas_${version}_SHA256SUMS \\
+            --bundle jaas_${version}_SHA256SUMS.bundle \\
+            --certificate-identity-regexp '^https://github.com/metio/jaas/\\.github/workflows/release\\.yml@refs/' \\
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com
+          sha256sum -c jaas_${version}_SHA256SUMS
+          \`\`\`
+          EOF
       - id: create_release
         name: Create Release
         if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
@@ -176,42 +248,7 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           draft: false
           prerelease: false
-          body: |
-            ## Usage
-
-            Pull the container from `ghcr.io/metio/jaas:${{ needs.prepare.outputs.release_version }}`.
-            Check the [migration guide](https://github.com/metio/jaas/blob/main/MIGRATIONS.md) for any required actions on your part.
-
-            Prebuilt binaries are attached below:
-
-            - `linux`: `amd64`, `arm` (v7), `arm64`, `ppc64le`, `riscv64`, `s390x`
-            - `windows`: `amd64`, `arm64` (`.zip`)
-            - `darwin` (macOS): `amd64`, `arm64`
-
-            ## Verify
-
-            Both the image and the release artifacts are signed with
-            [cosign](https://github.com/sigstore/cosign) keyless — there is no GPG key to
-            trust; identity is proven by the workflow's OIDC certificate.
-
-            Container image:
-
-            ```shell
-            cosign verify ghcr.io/metio/jaas:${{ needs.prepare.outputs.release_version }} \
-              --certificate-identity-regexp '^https://github.com/metio/jaas/\.github/workflows/release\.yml@refs/' \
-              --certificate-oidc-issuer https://token.actions.githubusercontent.com
-            ```
-
-            Release artifacts (verify the signed checksum file, then check your download against it):
-
-            ```shell
-            cosign verify-blob jaas_${{ needs.prepare.outputs.release_version }}_SHA256SUMS \
-              --bundle jaas_${{ needs.prepare.outputs.release_version }}_SHA256SUMS.bundle \
-              --certificate-identity-regexp '^https://github.com/metio/jaas/\.github/workflows/release\.yml@refs/' \
-              --certificate-oidc-issuer https://token.actions.githubusercontent.com
-            sha256sum -c jaas_${{ needs.prepare.outputs.release_version }}_SHA256SUMS
-            ```
-          generate_release_notes: true
+          body_path: notes.md
           files: |
             dist/*.tar.gz
             dist/*.zip
