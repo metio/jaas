@@ -190,7 +190,7 @@ jobs:
           # org-wide git-cliff-config repo, pinned to a commit SHA (Renovate bumps
           # the digest via the custom manager in renovate.json).
           cliff_args=(
-            --config-url "https://raw.githubusercontent.com/metio/git-cliff-config/6fcc0b65dde726f59c09066fae227cec236ffd76/cliff.toml"
+            --config-url "https://raw.githubusercontent.com/metio/git-cliff-config/3dc6a68c93387761e404ac28dbeb60b3d80883f6/cliff.toml"
             --tag "$version"
             --tag-pattern '^[0-9]+\.[0-9]+\.[0-9]+$'
           )
