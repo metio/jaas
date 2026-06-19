@@ -97,6 +97,11 @@ ignoreFiles = ['README\.md$']
     name = "Verifying releases"
     url = "/installation/verifying-releases/"
     weight = 8
+  [[menu.main]]
+    parent = "installation"
+    name = "Upgrading"
+    url = "/installation/upgrading/"
+    weight = 9
 
   [[menu.main]]
     identifier = "tutorials"

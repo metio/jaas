@@ -134,7 +134,7 @@ applies schema changes like any other resource, governed by `crds.create`
 `helm uninstall` leaves them — and your existing resources — in place; remove them
 by hand only if you really mean to.
 
-Check [MIGRATIONS.md](https://github.com/metio/jaas/blob/main/MIGRATIONS.md)
+Check [Upgrading](/installation/upgrading/)
 before upgrading across a release that changes an immutable field such as a
 Deployment's `spec.selector.matchLabels` — those require a manual
 `kubectl --namespace jaas-system delete deploy jaas` first.

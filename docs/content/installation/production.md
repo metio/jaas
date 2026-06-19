@@ -178,7 +178,7 @@ NetworkPolicy notes for `spec.sourceRef` fetches are in
 Calendar-based releases run every Monday. Chart upgrades are `helm upgrade
 --install`; the chart ships CRDs under `templates/` so schema changes apply
 automatically. Read
-[MIGRATIONS.md](https://github.com/metio/jaas/blob/main/MIGRATIONS.md) before
+[Upgrading](/installation/upgrading/) before
 each upgrade — releases that change immutable `spec.selector.matchLabels` fields
 require a manual `kubectl delete deploy/jaas` first.
 
