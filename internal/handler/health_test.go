@@ -287,6 +287,14 @@ func TestProbeHandlers_RejectNonGETMethods(t *testing.T) {
 				if rr.Code != http.StatusMethodNotAllowed {
 					t.Errorf("status = %d, want %d", rr.Code, http.StatusMethodNotAllowed)
 				}
+				// The 405 carries a JSON content-type and body, consistent
+				// with the Jsonnet handler — not a bare status line.
+				if ct := rr.Header().Get("Content-Type"); ct != "application/json" {
+					t.Errorf("Content-Type = %q, want application/json", ct)
+				}
+				if !json.Valid(rr.Body.Bytes()) {
+					t.Errorf("405 body is not valid JSON: %q", rr.Body.String())
+				}
 			})
 		}
 	}
