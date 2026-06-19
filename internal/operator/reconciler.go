@@ -76,6 +76,18 @@ const EntryFileName = "main.jsonnet"
 // queue against a still-full cap.
 const evalUnavailableRequeueAfter = 1 * time.Second
 
+// permanentRetryInterval bounds how soon a snippet sitting on a terminal
+// Ready=False reason re-enters the workqueue. Terminal failures (RBAC
+// denied, missing CRD, invalid spec) don't engage controller-runtime's
+// error backoff — failReady returns no error so the queue doesn't spin.
+// But several of them heal out-of-band without producing a watch event the
+// snippet sees: granting the tenant SA an RBAC verb, installing a missing
+// CRD, or fixing a referenced library in another namespace. A bounded
+// RequeueAfter gives those a self-healing re-check roughly once a minute
+// without hot-looping — the gap between "operator grants RBAC" and "snippet
+// recovers" stays at worst this interval.
+const permanentRetryInterval = 1 * time.Minute
+
 // defaultIntervalJitterFraction is the +/- fraction of an interval-based
 // RequeueAfter that the jitter package spreads the wakeup across. 0.05 is the
 // Flux default (5%): enough to break up a same-interval thundering herd
@@ -1426,7 +1438,15 @@ func (r *SnippetReconciler) failReady(ctx context.Context, snip *jaasv1.JsonnetS
 	}
 	r.emitConditionEvent(snip, prev, metav1.ConditionFalse, reason, message)
 	recordReconcileOutcome(snip.Namespace, snip.Name, string(metav1.ConditionFalse), reason)
-	return ctrl.Result{}, nil
+	// Terminal failures don't engage controller-runtime's error backoff
+	// (we return nil error so the queue doesn't spin). Several of them —
+	// RBAC denied, missing CRD, a library fixed in another namespace —
+	// heal out-of-band without producing a watch event this snippet sees,
+	// so a bounded RequeueAfter re-checks roughly once a minute. The caller
+	// that returns failReady's result on the transient-error path still
+	// returns the error itself for backoff; that path is unaffected because
+	// it discards this Result.
+	return ctrl.Result{RequeueAfter: permanentRetryInterval}, nil
 }
 
 // happyReasonsNoRunbook names Ready Reason values that describe a

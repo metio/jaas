@@ -37,11 +37,22 @@ type builder func(restCfg *rest.Config, opts ctrl.Options, cfg Config) (runner, 
 // runner is the subset of manager.Manager that Run depends on.
 type runner interface {
 	Start(ctx context.Context) error
-	// Elected returns a channel that is closed when this manager is
-	// the elected leader OR when leader election is disabled. Used by
-	// the OnReady wiring to gate the pod's readiness probe on "manager
-	// has reached steady state".
-	Elected() <-chan struct{}
+}
+
+// readinessSignal flips the pod's readiness probe once the manager's cache has
+// synced. It is NOT a leader-election runnable, so controller-runtime starts it
+// on every replica after cache sync — leader or not — which keeps standby
+// replicas Ready: they serve the HTTP renderer + storage and stay warm for
+// failover. Gating readiness on leadership instead leaves every non-leader
+// replica permanently NotReady.
+type readinessSignal struct{ onReady func() }
+
+func (*readinessSignal) NeedLeaderElection() bool { return false }
+
+func (r *readinessSignal) Start(ctx context.Context) error {
+	r.onReady()
+	<-ctx.Done()
+	return nil
 }
 
 var defaultBuilder builder = func(restCfg *rest.Config, opts ctrl.Options, cfg Config) (runner, error) {
@@ -88,6 +99,16 @@ var defaultBuilder builder = func(restCfg *rest.Config, opts ctrl.Options, cfg C
 		}
 		if err := validator.SetupWithManager(mgr); err != nil {
 			return nil, fmt.Errorf("setup SnippetValidator: %w", err)
+		}
+	}
+	if cfg.OnReady != nil {
+		// Flip the readiness probe once the cache has synced, on every
+		// replica. readinessSignal is non-leader-election, so it starts
+		// after cache sync regardless of who holds the lease — standby
+		// replicas must be Ready (they serve HTTP + storage and stay warm
+		// for failover), which leader-gated readiness would prevent.
+		if err := mgr.Add(&readinessSignal{onReady: cfg.OnReady}); err != nil {
+			return nil, fmt.Errorf("register readiness signal: %w", err)
 		}
 	}
 	return mgr, nil
@@ -229,20 +250,8 @@ func runWithBuilder(ctx context.Context, cfg Config, restCfg *rest.Config, build
 		slog.Int("rerenderBurst", cfg.RerenderBurst),
 		slog.Int("extVarCount", len(cfg.ExtVars)))
 
-	if cfg.OnReady != nil {
-		// Don't flip the pod's Ready probe until the manager has been
-		// elected (or LE is off — Elected closes immediately).
-		// mgr.Start sets up the cache and waits for sync before closing
-		// Elected, so a single read here covers both milestones.
-		go func() {
-			select {
-			case <-mgr.Elected():
-				cfg.OnReady()
-			case <-ctx.Done():
-				// Shutdown beat us to it; the probe stays not-ready.
-			}
-		}()
-	}
-
+	// OnReady (the pod's readiness flip) is wired by the builder as a
+	// non-leader-election runnable, so it fires after cache sync on every
+	// replica — leader or not. See readinessSignal.
 	return mgr.Start(ctx)
 }

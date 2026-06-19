@@ -29,26 +29,12 @@ type fakeRunner struct {
 	startCalled bool
 	startErr    error
 	startCtx    context.Context
-	elected     chan struct{}
 }
 
 func (f *fakeRunner) Start(ctx context.Context) error {
 	f.startCalled = true
 	f.startCtx = ctx
 	return f.startErr
-}
-
-func (f *fakeRunner) Elected() <-chan struct{} {
-	if f.elected == nil {
-		// Default: closed channel, mirrors controller-runtime's
-		// behavior when leader election is disabled. Tests that want
-		// to drive the OnReady-gated path explicitly initialize the
-		// field and close it themselves.
-		c := make(chan struct{})
-		close(c)
-		f.elected = c
-	}
-	return f.elected
 }
 
 func TestRun_NilRestConfigReturnsError(t *testing.T) {
@@ -84,50 +70,47 @@ func TestRunWithBuilder_StartErrorPropagates(t *testing.T) {
 	}
 }
 
-// TestRunWithBuilder_OnReadyFiresOnceManagerElected pins that the
-// OnReady callback (used by main.go to flip the pod's readiness probe
-// in operator mode) must NOT fire on the goroutine that calls
-// runWithBuilder — it must wait for the manager's Elected channel to
-// close. A fast manager that returns from Start before Elected closes
-// would race the readiness flip ahead of the actual reconcile-ready
-// milestone; that's exactly the regression this guards against.
-func TestRunWithBuilder_OnReadyFiresOnceManagerElected(t *testing.T) {
-	elected := make(chan struct{})
-	fake := &fakeRunner{elected: elected}
-	build := func(_ *rest.Config, _ ctrl.Options, _ Config) (runner, error) {
-		return fake, nil
+// TestReadinessSignal_FiresForEveryReplicaNotJustLeader pins the HA contract:
+// the readiness flip (main.go's HealthState.SetReady, threaded through
+// Config.OnReady) is a NON-leader-election runnable, so controller-runtime
+// starts it on every replica once the cache has synced — leader or not. Gating
+// it on leadership instead (e.g. mgr.Elected(), which only closes for the
+// elected leader) leaves every standby replica permanently NotReady, so
+// `helm --wait` for a multi-replica install never completes.
+func TestReadinessSignal_FiresForEveryReplicaNotJustLeader(t *testing.T) {
+	if (&readinessSignal{}).NeedLeaderElection() {
+		t.Fatal("readinessSignal must NOT require leader election, or standby replicas never go Ready")
 	}
+
+	fired := make(chan struct{}, 1)
+	r := &readinessSignal{onReady: func() { fired <- struct{}{} }}
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
-	readyFired := make(chan struct{}, 1)
-	cfg := Config{
-		Logger:  slog.New(slog.NewTextHandler(io.Discard, nil)),
-		OnReady: func() { readyFired <- struct{}{} },
-	}
-	done := make(chan struct{})
-	go func() {
-		_ = runWithBuilder(ctx, cfg, &rest.Config{}, build)
-		close(done)
-	}()
+	done := make(chan error, 1)
+	go func() { done <- r.Start(ctx) }()
 
-	// Before Elected closes, OnReady must NOT have fired.
 	select {
-	case <-readyFired:
-		t.Fatal("OnReady fired before mgr.Elected() closed")
+	case <-fired:
+	case <-time.After(2 * time.Second):
+		t.Fatal("readinessSignal.Start did not invoke onReady")
+	}
+
+	// Start must keep running (long-lived runnable) until the context is
+	// cancelled, then return nil.
+	select {
+	case <-done:
+		t.Fatal("Start returned before context cancellation")
 	case <-time.After(50 * time.Millisecond):
 	}
-
-	// Close Elected; OnReady must fire shortly after.
-	close(elected)
-	select {
-	case <-readyFired:
-	case <-time.After(2 * time.Second):
-		t.Fatal("OnReady did not fire within 2s of Elected closing")
-	}
-
 	cancel()
-	<-done
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Start returned %v, want nil", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Start did not return after context cancellation")
+	}
 }
 
 func TestRunWithBuilder_PassesSchemeAndContext(t *testing.T) {
