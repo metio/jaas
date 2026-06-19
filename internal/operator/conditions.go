@@ -5,6 +5,8 @@
 
 package operator
 
+import fluxmeta "github.com/fluxcd/pkg/apis/meta"
+
 // Wire-stable Reason strings on the Ready status condition. Programmatic
 // callers and runbooks key off these values; renaming them is a breaking
 // change.
@@ -132,3 +134,13 @@ var AllReasons = []string{
 // removes the object. The string is part of the on-disk contract: changing
 // it orphans finalizers on existing snippets and blocks their deletion.
 const FinalizerName = "jaas.metio.wtf/finalizer"
+
+// ReconcileRequestAnnotation is the Flux-convention annotation key that
+// `flux reconcile` (and a manual `kubectl annotate <cr>
+// reconcile.fluxcd.io/requestedAt=<token> --overwrite`) stamps to force
+// an out-of-band reconcile. The watch installs predicates.ReconcileRequestedPredicate
+// so a change to this annotation enqueues the snippet; on a successful
+// reconcile its value is copied to status.lastHandledReconcileAt so tooling
+// can confirm the request was handled. Aliased to the canonical Flux
+// constant so the reconciler reads the same key the predicate matches on.
+const ReconcileRequestAnnotation = fluxmeta.ReconcileRequestAnnotation

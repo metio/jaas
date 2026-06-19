@@ -8,8 +8,10 @@ Render the same Jsonnet for many clusters or tenants without writing a snippet b
 hand for each one: let a [Flux Operator](https://fluxoperator.dev/) `ResourceSet`
 template a `JsonnetSnippet` per input, and JaaS renders each instance into its own
 `ExternalArtifact`. The `ResourceSet` supplies the per-instance values through Go
-template substitution; JaaS does the evaluation. This needs the Flux Operator
-installed alongside JaaS in the operator mode described under
+template substitution; JaaS does the evaluation. There is no `ResourceSet` field
+in the JaaS API — you use the two together: the `ResourceSet` templates ordinary
+`JsonnetSnippet` CRs, which JaaS reconciles like any other. This needs the Flux
+Operator installed alongside JaaS in the operator mode described under
 [operator mode](/usage/operator-mode/).
 
 The worked example below fans the maintained operator dashboard (see

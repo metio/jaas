@@ -79,14 +79,24 @@ ignoreFiles = ['README\.md$']
     weight = 4
   [[menu.main]]
     parent = "installation"
+    name = "Scale and capacity"
+    url = "/installation/scale-and-capacity/"
+    weight = 5
+  [[menu.main]]
+    parent = "installation"
     name = "Configuration reference"
     url = "/installation/configuration/"
-    weight = 5
+    weight = 6
   [[menu.main]]
     parent = "installation"
     name = "Helm chart values"
     url = "/installation/helm-values/"
-    weight = 6
+    weight = 7
+  [[menu.main]]
+    parent = "installation"
+    name = "Verifying releases"
+    url = "/installation/verifying-releases/"
+    weight = 8
 
   [[menu.main]]
     identifier = "tutorials"

@@ -44,7 +44,7 @@ by `JsonnetSnippetSpec`).
 | `sourceRef.apiVersion` | string | `source.toolkit.fluxcd.io/v1` | APIVersion of the referenced Flux source CR. |
 | `sourceRef.kind` | string | — | Kind of the referenced source. One of: `GitRepository`, `OCIRepository`, `Bucket`, `ExternalArtifact`. Required when `sourceRef` is set. |
 | `sourceRef.name` | string | — | Name of the referenced source CR. Required when `sourceRef` is set. Minimum length 1. |
-| `sourceRef.namespace` | string | library's namespace | Namespace of the referenced source CR. Cross-namespace references are rejected when the operator is started with `--no-cross-namespace-refs`. |
+| `sourceRef.namespace` | string | library's namespace | Namespace of the referenced source CR. Cross-namespace references are rejected by default; they are allowed only when the operator runs with `--no-cross-namespace-refs=false`. |
 | `sourceRef.path` | string | — (artifact root) | Subdirectory within the fetched tarball to treat as the library root. Empty means the archive root — required for jb-vendored trees (e.g. a `sourceRef` pointing at a Flux `OCIRepository` for a JOI image) where the library aliases resolve against the full vendor tree. |
 
 ## Status

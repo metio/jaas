@@ -54,20 +54,27 @@ CRs that set neither or both.
 | `sourceRef.apiVersion` | string | `source.toolkit.fluxcd.io/v1` | APIVersion of the referenced Flux source CR. |
 | `sourceRef.kind` | string | — | Kind of the referenced source. One of: `GitRepository`, `OCIRepository`, `Bucket`, `ExternalArtifact`. Required when `sourceRef` is set. |
 | `sourceRef.name` | string | — | Name of the referenced source CR. Required when `sourceRef` is set. Minimum length 1. |
-| `sourceRef.namespace` | string | snippet's namespace | Namespace of the referenced source CR. Cross-namespace references are rejected when the operator is started with `--no-cross-namespace-refs`. |
+| `sourceRef.namespace` | string | snippet's namespace | Namespace of the referenced source CR. Cross-namespace references are rejected by default; they are allowed only when the operator runs with `--no-cross-namespace-refs=false`. |
 | `sourceRef.path` | string | — (artifact root) | Subdirectory within the fetched tarball to treat as the source root. Empty means the archive root. |
 | `libraries` | []LibraryRef | — | `JsonnetLibrary` CRs importable from this snippet. Libraries not listed here are invisible to the snippet even when present in the cluster. See [Jsonnet libraries](/usage/jsonnet-libraries/). |
 | `libraries[*].apiVersion` | string | `jaas.metio.wtf/v1` | APIVersion of the library CR. |
 | `libraries[*].kind` | string | — | Kind of the library CR. Currently only `JsonnetLibrary` is accepted. Required. |
 | `libraries[*].name` | string | — | Name of the referenced `JsonnetLibrary` CR. Required. Minimum length 1. |
-| `libraries[*].namespace` | string | snippet's namespace | Namespace of the referenced library CR. Cross-namespace references are rejected when `--no-cross-namespace-refs` is set. |
-| `libraries[*].importPath` | string | library's `metadata.name` | Alias used in `import` statements inside the snippet's Jsonnet source. Collisions with OCI-mounted shared library aliases are rejected at admission. |
+| `libraries[*].namespace` | string | snippet's namespace | Namespace of the referenced library CR. Cross-namespace references are rejected by default; they are allowed only when the operator runs with `--no-cross-namespace-refs=false`. |
+| `libraries[*].importPath` | string | library's `metadata.name` | Alias used in `import` statements inside the snippet's Jsonnet source. Must be unique across `spec.libraries` — two entries that resolve to the same import path are rejected (at admission, and at reconcile if admission is bypassed). Collisions with OCI-mounted shared library aliases are likewise rejected. |
 | `tlas` | `map[string][]string` | — | Top-level arguments passed to the snippet's outermost function. A single-element value becomes a string TLA; multiple values are passed as a JSON-encoded array, matching the HTTP query-parameter convention. |
 | `externalVariables` | map[string]string | — | Seeds `std.extVar` lookups for this snippet's evaluation. Keys that conflict with the operator's `--ext-var` set are rejected at admission; if admission is bypassed, the reconciler refuses the conflicting key with `ReasonExternalVariableConflict`. |
 | `output` | string | `rendered` | What bytes the published ExternalArtifact carries. `rendered`: the evaluated JSON (a single `rendered.json` in the tarball). `source`: the raw `.jsonnet`/`.libsonnet` files, for downstream consumers that re-evaluate themselves. |
 | `suspend` | bool | `false` | When `true`, the operator skips the evaluation pipeline, leaves the existing ExternalArtifact in place, and reports `Ready=False` with reason `Suspended`. Setting back to `false` resumes reconciliation. Mirrors Flux's `spec.suspend` convention. |
 | `history` | int32 | `1` | Number of past revisions retained in storage. Minimum 1, maximum 50. Setting to N > 1 lets downstream consumers pin to an older revision via its sha256 for rollback or blue-green flows. The keep-set is tracked in `status.history`. |
 | `interval` | Duration | — (watch-only) | Period between successful reconciles regardless of watch events. Picks up state outside the watched graph (environment drift, OCI library refreshes, etc.). Bounded at admission to between `30s` and `24h`. Failed reconciles use controller-runtime's exponential backoff; `interval` governs only the steady-state cadence. |
+
+`sourceRef.kind` is deliberately restricted to the enum of real Flux source
+kinds (`GitRepository`, `OCIRepository`, `Bucket`, `ExternalArtifact`). JaaS
+*consumes* an artifact published by a source, so the kind must name a CR that
+actually exposes a `status.artifact`. This is intentionally narrower than
+stageset-controller's open producer-kind reference, which points at whatever a
+producer chooses to emit.
 
 ## Status
 
@@ -80,6 +87,7 @@ CRs that set neither or both.
 | `revision` | string | `sha256:<hex>` content hash of the last successfully reconciled source. Empty until the first successful reconcile. |
 | `artifactURL` | string | HTTP URL of the last successfully published artifact tarball. Preserved across subsequent failures so the last-known-good URL stays observable. Empty until the first successful publish. |
 | `lastSyncTime` | Time | Timestamp of the most recent successful reconcile. |
+| `lastHandledReconcileAt` | string | Value of the `reconcile.fluxcd.io/requestedAt` annotation the controller most recently acted on. After a manual re-trigger (see [Triggering a reconcile](#triggering-a-reconcile)) completes, the controller copies the requested token here, so tooling can poll status to confirm the request was handled. |
 | `history` | []RevisionEntry | Most-recent N revisions retained in storage (`N` = `spec.history`). Index 0 is the most recent (matches `revision`). Each entry carries `revision` (sha256:hex) and `time` (publish time). |
 
 ### Ready condition reasons
@@ -88,7 +96,7 @@ Every reason string is wire-stable — runbooks key off these values.
 
 | Reason | Status | Description |
 |---|---|---|
-| `Synced` | True | Most recent reconcile completed end-to-end and produced a publishable artifact. |
+| `Synced` | True | Most recent reconcile completed end-to-end and produced a publishable artifact. This is the source-controller-style success reason — JaaS produces an artifact — distinct from the `Succeeded` reason that apply-style controllers report. |
 | `Pending` | False | Snippet observed but not yet reconciled (transient). |
 | `Suspended` | False | `spec.suspend` is `true`; evaluation is paused. |
 | `InvalidSpec` | False | Spec-level validation failure (missing `main.jsonnet`, invalid source combination, etc.). |
@@ -106,3 +114,20 @@ Every reason string is wire-stable — runbooks key off these values.
 | `RBACDenied` | False | An apiserver call failed with Forbidden, or the source CR's kind is not registered. Non-transient — backoff is disabled. The message names the verb and resource the cluster operator must grant. |
 
 Each reason has a remediation page at `/runbooks/<reason-lowercased>/`. See [Operator mode](/usage/operator-mode/) for lifecycle details and [ExternalArtifact output contract](/api/externalartifact/) for the artifact contract.
+
+## Triggering a reconcile
+
+The controller re-renders a snippet on every watch event and, when `spec.interval` is set, on that cadence. To force an immediate out-of-band reconcile — for example after changing an operator-level external variable that lives outside the watched graph — stamp the Flux-convention `reconcile.fluxcd.io/requestedAt` annotation with a fresh token:
+
+```shell
+flux reconcile source chart jsonnetsnippet/my-snippet --namespace team-a
+```
+
+or, without the Flux CLI:
+
+```shell
+kubectl annotate jsonnetsnippet/my-snippet --namespace team-a \
+  reconcile.fluxcd.io/requestedAt="$(date +%s)" --overwrite
+```
+
+Changing the annotation is itself a watch event, so the reconcile starts immediately — `spec.generation` does not need to change. Once the reconcile completes, the controller copies the token into `status.lastHandledReconcileAt`; poll that field to confirm the request was handled.

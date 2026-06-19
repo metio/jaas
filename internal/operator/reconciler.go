@@ -24,9 +24,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/rest"
-	"k8s.io/client-go/util/retry"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -36,19 +34,25 @@ import (
 	"k8s.io/client-go/tools/events"
 
 	ctrl "sigs.k8s.io/controller-runtime"
+	crbuilder "sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
+
+	fluxconditions "github.com/fluxcd/pkg/runtime/conditions"
+	"github.com/fluxcd/pkg/runtime/jitter"
+	fluxpatch "github.com/fluxcd/pkg/runtime/patch"
+	fluxpredicates "github.com/fluxcd/pkg/runtime/predicates"
 
 	jaasv1 "github.com/metio/jaas/api/v1"
 	"github.com/metio/jaas/internal/eval"
 	"github.com/metio/jaas/internal/observability"
 	"github.com/metio/jaas/internal/sources"
-	"github.com/metio/jaas/internal/statusretry"
 	"github.com/metio/jaas/internal/urlguard"
 )
 
@@ -71,6 +75,12 @@ const EntryFileName = "main.jsonnet"
 // so a 1s requeue keeps backpressure responsive without spinning the
 // queue against a still-full cap.
 const evalUnavailableRequeueAfter = 1 * time.Second
+
+// defaultIntervalJitterFraction is the +/- fraction of an interval-based
+// RequeueAfter that the jitter package spreads the wakeup across. 0.05 is the
+// Flux default (5%): enough to break up a same-interval thundering herd
+// without meaningfully shifting any single snippet's re-render cadence.
+const defaultIntervalJitterFraction = 0.05
 
 // maxCycleVerdictRetries caps cycleVerdict's walk-Store retry loop when a
 // concurrent watch-driven Forget keeps invalidating the in-flight verdict.
@@ -266,10 +276,12 @@ func (r *SnippetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		if err := r.Client.Update(ctx, &snip); err != nil {
 			return ctrl.Result{}, err
 		}
-		// The Update above triggers a watch event that drives the next
-		// reconcile, so no explicit requeue is needed.
-		logger.DebugContext(ctx, "Finalizer added; awaiting watch event")
-		return ctrl.Result{}, nil
+		// Adding a finalizer doesn't change metadata.generation, so the
+		// resulting Update event is dropped by the GenerationChangedPredicate
+		// on the For() watch — the next reconcile has to be requested
+		// explicitly rather than relying on that event.
+		logger.DebugContext(ctx, "Finalizer added; requeuing to render")
+		return ctrl.Result{Requeue: true}, nil
 	}
 
 	return r.reconcileSpec(ctx, logger, &snip)
@@ -503,6 +515,10 @@ func (r *SnippetReconciler) reconcileSpec(ctx context.Context, logger *slog.Logg
 	}
 
 	if reason, msg := r.checkLibraryAliasCollisions(snip); reason != "" {
+		return r.failReady(ctx, snip, reason, msg)
+	}
+
+	if reason, msg := checkDuplicateLibraryImports(snip); reason != "" {
 		return r.failReady(ctx, snip, reason, msg)
 	}
 
@@ -939,6 +955,24 @@ func (r *SnippetReconciler) checkLibraryAliasCollisions(snip *jaasv1.JsonnetSnip
 	return "", ""
 }
 
+// checkDuplicateLibraryImports rejects snippets whose spec.libraries
+// entries collide on their effective import path (ImportPath, or Name
+// when empty). The import-alias namespace can hold only one library per
+// path, so a collision would silently drop one library — the admission
+// webhook denies it, and this is the reconciler fallback for a bypassed
+// or disabled webhook. Mirrors checkLibraryAliasCollisions for OCI
+// aliases.
+//
+// Returns ("", "") when fewer than two entries are present or every
+// entry resolves to a distinct path.
+func checkDuplicateLibraryImports(snip *jaasv1.JsonnetSnippet) (string, string) {
+	if dup := duplicateLibraryImportPath(snip); dup != "" {
+		return ReasonInvalidSpec,
+			fmt.Sprintf("spec.libraries import path %q is used by more than one entry; each library must resolve to a distinct import path", dup)
+	}
+	return "", ""
+}
+
 // resolveLibraries fetches every CR named in spec.libraries and returns them
 // keyed by the import path the snippet's source uses. Library Gets run
 // through the supplied (impersonated) client so a tenant SA without
@@ -1001,6 +1035,15 @@ func (r *SnippetReconciler) resolveLibraries(ctx context.Context, tenant client.
 					return nil, "", "", fmt.Errorf("JsonnetLibrary %q in %q: %w", ref.Name, ns, transientErr)
 				}
 				return nil, reason, fmt.Sprintf("JsonnetLibrary %q in %q: %s", ref.Name, ns, msg), nil
+			}
+			// Reject rather than overwrite on an import-path collision.
+			// checkDuplicateLibraryImports (and admission) already gate
+			// this, so reaching here means a bypassed webhook AND the
+			// pre-check skipped — keep the invariant local so the map
+			// can never silently drop a library.
+			if _, dup := out[importPath]; dup {
+				return nil, ReasonInvalidSpec,
+					fmt.Sprintf("spec.libraries import path %q is used by more than one entry; each library must resolve to a distinct import path", importPath), nil
 			}
 			out[importPath] = eval.Library{Files: files}
 		default:
@@ -1330,27 +1373,29 @@ func mergeExtVars(opLevel, snipLevel map[string]string) map[string]string {
 // failReady writes Ready=False with the given reason+message and returns
 // without requeuing — the next watch event drives the next reconcile.
 //
-// The status write goes through statusretry.UpdateWithRetry, which
-// re-Gets the snippet inside the retry loop and re-applies the status
-// changes against the latest object. A Conflict (sibling controller or
-// a manual kubectl edit bumping resourceVersion) retries locally
-// instead of bubbling up and forcing controller-runtime to redo the
-// whole reconcile.
+// The status write goes through the Flux patch.Helper: the Ready condition
+// is patched via the helper's internal re-Get + optimistic-lock backoff loop,
+// so a Conflict (a sibling controller or a manual kubectl edit bumping
+// resourceVersion) is resolved by re-applying the condition diff to the
+// latest object rather than bubbling up and forcing controller-runtime to
+// redo the whole reconcile. The non-condition status fields
+// (ObservedGeneration) merge-patch without a resourceVersion precondition,
+// so they can't conflict.
 func (r *SnippetReconciler) failReady(ctx context.Context, snip *jaasv1.JsonnetSnippet, reason, message string) (ctrl.Result, error) {
 	prev := apimeta.FindStatusCondition(snip.Status.Conditions, jaasv1.ConditionReady)
 	decorated := r.decorateMessage(reason, message)
-	key := types.NamespacedName{Name: snip.Name, Namespace: snip.Namespace}
-	err := statusretry.UpdateWithRetry[jaasv1.JsonnetSnippet](ctx, r.Client, wait.Backoff{}, key,
-		func(latest *jaasv1.JsonnetSnippet) {
-			latest.Status.ObservedGeneration = latest.Generation
-			apimeta.SetStatusCondition(&latest.Status.Conditions, metav1.Condition{
-				Type:    jaasv1.ConditionReady,
-				Status:  metav1.ConditionFalse,
-				Reason:  reason,
-				Message: decorated,
-			})
-		})
+	helper, err := fluxpatch.NewHelper(snip, r.Client)
 	if err != nil {
+		return ctrl.Result{}, err
+	}
+	snip.Status.ObservedGeneration = snip.Generation
+	fluxconditions.Set(snip, &metav1.Condition{
+		Type:    jaasv1.ConditionReady,
+		Status:  metav1.ConditionFalse,
+		Reason:  reason,
+		Message: decorated,
+	})
+	if err := helper.Patch(ctx, snip, fluxpatch.WithOwnedConditions{Conditions: []string{jaasv1.ConditionReady}}); err != nil {
 		return ctrl.Result{}, err
 	}
 	r.emitConditionEvent(snip, prev, metav1.ConditionFalse, reason, message)
@@ -1415,54 +1460,55 @@ func (r *SnippetReconciler) markSynced(ctx context.Context, snip *jaasv1.Jsonnet
 	now := r.now()
 	syncTime := metav1.NewTime(now)
 	key := types.NamespacedName{Name: snip.Name, Namespace: snip.Namespace}
-	// Inline retry-on-Conflict (the statusretry helper's mutate fn has
-	// no way to signal "skip the Update", and we MUST skip it on
-	// staleGen — Generation is monotonic, so re-running mutate after a
-	// Conflict still observes staleGen, the no-op Update fires again,
-	// the sibling-controller resourceVersion bump triggers another
-	// Conflict, and we loop until backoff.Steps exhaust against a
-	// publish that's already been superseded by a spec edit). The
-	// spec-edit watch event has already enqueued the next reconcile
-	// against the fresh spec, so an early return here is correct.
-	var staleGen bool
-	err := retry.OnError(retry.DefaultBackoff, apierrors.IsConflict, func() error {
-		var latest jaasv1.JsonnetSnippet
-		if err := r.Client.Get(ctx, key, &latest); err != nil {
-			return err
-		}
-		if latest.Generation != judgedGen {
-			staleGen = true
-			return nil
-		}
-		staleGen = false
-		latest.Status.Revision = revision
-		// artifactURL is empty when the publisher is unwired
-		// (eval-only mode, tests). Only overwrite the status
-		// field when we have a real URL — preserves the
-		// last-known-good URL across eval-only reconciles.
-		if artifactURL != "" {
-			latest.Status.ArtifactURL = artifactURL
-		}
-		latest.Status.ObservedGeneration = latest.Generation
-		latest.Status.LastSyncTime = &syncTime
-		latest.Status.History = updateRevisionHistory(latest.Status.History, revision, history, now)
-		apimeta.SetStatusCondition(&latest.Status.Conditions, metav1.Condition{
-			Type:    jaasv1.ConditionReady,
-			Status:  metav1.ConditionTrue,
-			Reason:  ReasonSynced,
-			Message: msg,
-		})
-		return r.Client.Status().Update(ctx, &latest)
-	})
+
+	// Staleness gate: a re-read confirms the spec we rendered is still
+	// current before stamping its revision. Generation is monotonic, so
+	// a moved generation means a spec edit landed during the publish window;
+	// stamping this render's revision against the edited generation would mark
+	// a stale render as up-to-date. The spec-edit watch event has already
+	// enqueued the next reconcile against the fresh spec, so skipping the
+	// write here (and the event / metric / requeue below) is correct — the
+	// stale reconcile leaves no trail.
+	var latest jaasv1.JsonnetSnippet
+	if err := r.Client.Get(ctx, key, &latest); err != nil {
+		return ctrl.Result{}, err
+	}
+	if latest.Generation != judgedGen {
+		return ctrl.Result{}, nil
+	}
+
+	// Patch the status onto the freshly-read object via the Flux patch.Helper.
+	// The Ready condition is patched through the helper's internal re-Get +
+	// optimistic-lock retry loop (conflict-safe against sibling controllers);
+	// the plain status fields merge-patch without a resourceVersion
+	// precondition, so they can't conflict.
+	helper, err := fluxpatch.NewHelper(&latest, r.Client)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	if staleGen {
-		// Spec moved during publish; the spec-edit watch event has
-		// enqueued the next reconcile, which will work against the
-		// fresh spec. Skip event / metric / requeue so the stale
-		// reconcile leaves no trail.
-		return ctrl.Result{}, nil
+	latest.Status.Revision = revision
+	// artifactURL is empty when the publisher is unwired (eval-only mode,
+	// tests). Only overwrite the status field when we have a real URL —
+	// preserves the last-known-good URL across eval-only reconciles.
+	if artifactURL != "" {
+		latest.Status.ArtifactURL = artifactURL
+	}
+	latest.Status.ObservedGeneration = latest.Generation
+	latest.Status.LastSyncTime = &syncTime
+	// Record that this reconcile handled the current
+	// reconcile.fluxcd.io/requestedAt token so `flux reconcile` can detect
+	// completion. The ReconcileRequestedPredicate fired on this token, so the
+	// freshly-read object carries it.
+	latest.Status.LastHandledReconcileAt = latest.Annotations[ReconcileRequestAnnotation]
+	latest.Status.History = updateRevisionHistory(latest.Status.History, revision, history, now)
+	fluxconditions.Set(&latest, &metav1.Condition{
+		Type:    jaasv1.ConditionReady,
+		Status:  metav1.ConditionTrue,
+		Reason:  ReasonSynced,
+		Message: msg,
+	})
+	if err := helper.Patch(ctx, &latest, fluxpatch.WithOwnedConditions{Conditions: []string{jaasv1.ConditionReady}}); err != nil {
+		return ctrl.Result{}, err
 	}
 	r.emitConditionEvent(snip, prev, metav1.ConditionTrue, ReasonSynced, msg)
 	recordReconcileOutcome(snip.Namespace, snip.Name, string(metav1.ConditionTrue), ReasonSynced)
@@ -1472,7 +1518,13 @@ func (r *SnippetReconciler) markSynced(ctx context.Context, snip *jaasv1.Jsonnet
 	// also wake the snippet up — interval is the floor, not the
 	// ceiling.
 	if snip.Spec.Interval != nil && snip.Spec.Interval.Duration > 0 {
-		return ctrl.Result{RequeueAfter: snip.Spec.Interval.Duration}, nil
+		// Jitter the steady-state requeue so a fleet of snippets configured
+		// with the same interval doesn't thunder-herd the reconciler (and the
+		// upstream sources) on a shared deadline. The configured interval is
+		// the floor/centre; jitter only spreads the wakeups around it. With
+		// jitter uninitialised (percentage 0) JitteredRequeueInterval is the
+		// identity, so the interval semantics are unchanged.
+		return jitter.JitteredRequeueInterval(ctrl.Result{RequeueAfter: snip.Spec.Interval.Duration}), nil
 	}
 	return ctrl.Result{}, nil
 }
@@ -1583,12 +1635,30 @@ func (r *SnippetReconciler) MissingFluxSourceKinds() []schema.GroupVersionKind {
 //     installed; missing kinds are accumulated on the reconciler so a
 //     crdPoller can pick them up.
 func (r *SnippetReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	// Seed the process-global interval jitter so steady-state requeues
+	// (markSynced's spec.interval RequeueAfter) get spread around their
+	// configured deadline. SetGlobalIntervalJitter is sync.Once-guarded, so
+	// repeated SetupWithManager calls (multiple test cases in one binary) are
+	// safe and only the first takes effect. nil rand picks a time-seeded one.
+	jitter.SetGlobalIntervalJitter(defaultIntervalJitterFraction, nil)
 	if err := registerWatchIndexes(context.Background(), mgr.GetFieldIndexer()); err != nil {
 		return fmt.Errorf("register watch indexes: %w", err)
 	}
 	b := ctrl.NewControllerManagedBy(mgr).
 		Named("jsonnetsnippet").
-		For(&jaasv1.JsonnetSnippet{}).
+		For(&jaasv1.JsonnetSnippet{}, crbuilder.WithPredicates(
+			// Wake on a spec change (generation bump) OR a fresh
+			// reconcile.fluxcd.io/requestedAt token. Filtering out the
+			// status-only updates the reconciler writes itself keeps the
+			// workqueue from churning on its own condition/observedGeneration
+			// stamps; spec.interval (jittered RequeueAfter) drives the
+			// steady-state re-render, and library / Flux-source watches drive
+			// dependency-triggered re-renders.
+			predicate.Or(
+				predicate.GenerationChangedPredicate{},
+				fluxpredicates.ReconcileRequestedPredicate{},
+			),
+		)).
 		Watches(&jaasv1.JsonnetLibrary{}, handler.EnqueueRequestsFromMapFunc(r.mapJsonnetLibrary))
 
 	mapper := mgr.GetRESTMapper()

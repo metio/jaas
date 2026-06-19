@@ -88,7 +88,8 @@ spec:
                     description: |-
                       Namespace of the referenced source. Optional for namespaced owners
                       (defaults to the owner's namespace). Cross-namespace references are
-                      rejected when the operator is started with --no-cross-namespace-refs.
+                      rejected by default; they are allowed only when the operator runs with
+                      --no-cross-namespace-refs=false.
                     type: string
                   path:
                     description: |-
@@ -213,6 +214,19 @@ spec:
                   - time
                   type: object
                 type: array
+              lastHandledReconcileAt:
+                description: |-
+                  LastHandledReconcileAt is the value of the
+                  reconcile.fluxcd.io/requestedAt annotation the controller most
+                  recently acted on. `flux reconcile` (and `kubectl annotate
+                  <cr> reconcile.fluxcd.io/requestedAt=<token> --overwrite`) stamps
+                  a fresh token to force an out-of-band reconcile; once the
+                  controller completes a reconcile it copies that token here, so
+                  tooling can poll status to learn the manual trigger was handled.
+                  Plain string rather than the Flux meta.ReconcileRequestStatus
+                  type so api/ takes no dependency on fluxcd/controller-runtime
+                  packages.
+                type: string
               lastSyncTime:
                 description: LastSyncTime stamps the most recent successful reconcile.
                 format: date-time

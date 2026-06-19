@@ -19,13 +19,12 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/wait"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
+	fluxpatch "github.com/fluxcd/pkg/runtime/patch"
+
 	jaasv1 "github.com/metio/jaas/api/v1"
-	"github.com/metio/jaas/internal/statusretry"
 	"github.com/metio/jaas/internal/storage"
 )
 
@@ -303,20 +302,23 @@ func (p *Publisher) writeStatus(ctx context.Context, c client.Client, ea *unstru
 		"size":           res.SizeBytes,
 		"lastUpdateTime": now,
 	}
-	key := types.NamespacedName{Name: ea.GetName(), Namespace: ea.GetNamespace()}
-	// Status writes go through statusretry: source-controller and
-	// other downstream observers commonly bump resourceVersion as they
-	// observe the new artifact, and a Conflict at this Status().Update
-	// would otherwise propagate out of the reconcile and force the
-	// whole render+upload cycle to re-run. The unstructured variant
-	// preserves whatever spec we set in the CreateOrUpdate phase
-	// because mutate only touches status.artifact and status.conditions.
-	err := statusretry.UpdateUnstructuredStatusWithRetry(ctx, c, wait.Backoff{}, externalArtifactGVK, key,
-		func(latest *unstructured.Unstructured) {
-			_ = unstructured.SetNestedMap(latest.Object, artifact, "status", "artifact")
-			setReadyCondition(latest, now)
-		})
+	// The status write goes through the Flux patch.Helper. ea carries the
+	// server-latest state from the preceding CreateOrUpdate, which the helper
+	// snapshots as its "before"; the status fields we set below land via a
+	// status merge-patch with no resourceVersion precondition. Source-controller
+	// and other downstream observers commonly bump resourceVersion as they
+	// observe the new artifact, and a precondition-free merge patch can't
+	// conflict on that — the write no longer propagates a Conflict out of the
+	// reconcile and forces the whole render+upload cycle to re-run. The merge
+	// patch touches only status.artifact and status.conditions, so the spec we
+	// set in the CreateOrUpdate phase is preserved.
+	helper, err := fluxpatch.NewHelper(ea, c)
 	if err != nil {
+		return fmt.Errorf("publisher: status patch helper: %w", err)
+	}
+	_ = unstructured.SetNestedMap(ea.Object, artifact, "status", "artifact")
+	setReadyCondition(ea, now)
+	if err := helper.Patch(ctx, ea); err != nil {
 		return fmt.Errorf("publisher: status update: %w", err)
 	}
 	return nil

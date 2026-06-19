@@ -513,7 +513,7 @@ func TestPublish_StatusUpdateErrorPropagates(t *testing.T) {
 			}(),
 		).
 		WithInterceptorFuncs(interceptor.Funcs{
-			SubResourceUpdate: func(_ context.Context, _ client.Client, _ string, _ client.Object, _ ...client.SubResourceUpdateOption) error {
+			SubResourcePatch: func(_ context.Context, _ client.Client, _ string, _ client.Object, _ client.Patch, _ ...client.SubResourcePatchOption) error {
 				return want
 			},
 		}).Build()

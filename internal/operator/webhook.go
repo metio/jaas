@@ -67,6 +67,9 @@ func (v *SnippetValidator) validate(ctx context.Context, snip *jaasv1.JsonnetSni
 	if alias := v.libraryAliasCollision(snip); alias != "" {
 		return nil, fmt.Errorf("spec.libraries import alias %q shadows OCI-mounted library; rename or drop the LibraryRef", alias)
 	}
+	if dup := duplicateLibraryImportPath(snip); dup != "" {
+		return nil, fmt.Errorf("spec.libraries import path %q is used by more than one entry; each library must resolve to a distinct import path", dup)
+	}
 	if v.Client != nil {
 		cycle, path, err := detectSourceRefCycle(ctx, v.Client, snip)
 		if err != nil {
@@ -90,9 +93,6 @@ func (v *SnippetValidator) validate(ctx context.Context, snip *jaasv1.JsonnetSni
 func softWarnings(snip *jaasv1.JsonnetSnippet) admission.Warnings {
 	var w admission.Warnings
 	if msg := warnEntryFileMissing(snip); msg != "" {
-		w = append(w, msg)
-	}
-	if msg := warnDuplicateLibraryImports(snip); msg != "" {
 		w = append(w, msg)
 	}
 	if msg := warnLikelySelfReference(snip); msg != "" {
@@ -125,25 +125,29 @@ func warnEntryFileMissing(snip *jaasv1.JsonnetSnippet) string {
 	return ""
 }
 
-// warnDuplicateLibraryImports catches spec.libraries entries whose
-// effective import path collides. The reconciler's resolveLibraries
-// builds a map keyed by importPath; on collision the last entry
-// silently wins. Warning at admission tells the user up front.
-func warnDuplicateLibraryImports(snip *jaasv1.JsonnetSnippet) string {
+// duplicateLibraryImportPath returns the first effective import path
+// (ImportPath, or Name when ImportPath is empty) shared by two or more
+// spec.libraries entries — empty when every entry resolves to a distinct
+// path. A collision is unrepresentable in the import-alias namespace: the
+// reconciler's resolveLibraries keys its map by import path, so two
+// entries on one path would mean one silently overwriting the other. Both
+// admission and the reconciler reject it outright, mirroring the
+// OCI-alias collision (libraryAliasCollision), so there is never an
+// ambiguous "which library did this alias resolve to" at eval time.
+func duplicateLibraryImportPath(snip *jaasv1.JsonnetSnippet) string {
 	if len(snip.Spec.Libraries) < 2 {
 		return ""
 	}
-	seen := make(map[string]int, len(snip.Spec.Libraries))
-	for i, ref := range snip.Spec.Libraries {
+	seen := make(map[string]struct{}, len(snip.Spec.Libraries))
+	for _, ref := range snip.Spec.Libraries {
 		key := ref.ImportPath
 		if key == "" {
 			key = ref.Name
 		}
-		if prev, ok := seen[key]; ok {
-			return fmt.Sprintf("spec.libraries[%d] and spec.libraries[%d] share effective importPath %q; later entry silently wins at reconcile time",
-				prev, i, key)
+		if _, ok := seen[key]; ok {
+			return key
 		}
-		seen[key] = i
+		seen[key] = struct{}{}
 	}
 	return ""
 }

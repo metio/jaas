@@ -232,6 +232,57 @@ func TestReconcile_HappyPath_SetsReadyTrueAndRevision(t *testing.T) {
 	}
 }
 
+// TestReconcile_ReadyCondition_CarriesObservedGeneration pins that the Ready
+// condition itself (not just status.observedGeneration) records the generation
+// the reconcile acted on. kstatus and other condition-aware tooling read
+// condition.observedGeneration to tell a stale condition apart from a current
+// one; apimeta.SetStatusCondition does not fill it, so the reconciler must.
+func TestReconcile_ReadyCondition_CarriesObservedGeneration(t *testing.T) {
+	t.Run("synced path", func(t *testing.T) {
+		snip := sampleSnippet()
+		snip.Generation = 7
+		snip.Finalizers = []string{FinalizerName}
+		c := clientWithStatus(t, snip)
+		r := newReconciler(t, c)
+		runReconcile(t, r, types.NamespacedName{Name: snip.Name, Namespace: snip.Namespace})
+
+		got := refetch(t, c, types.NamespacedName{Name: snip.Name, Namespace: snip.Namespace})
+		assertReady(t, got, metav1.ConditionTrue, ReasonSynced)
+		cond := apimeta.FindStatusCondition(got.Status.Conditions, jaasv1.ConditionReady)
+		if cond.ObservedGeneration == 0 {
+			t.Fatal("Ready.ObservedGeneration is zero, want non-zero")
+		}
+		if cond.ObservedGeneration != got.Generation {
+			t.Errorf("Ready.ObservedGeneration = %d, want %d", cond.ObservedGeneration, got.Generation)
+		}
+	})
+
+	t.Run("failure path", func(t *testing.T) {
+		snip := sampleSnippet()
+		snip.Generation = 3
+		snip.Spec.Files = map[string]string{"main.jsonnet": "{ broken"}
+		snip.Finalizers = []string{FinalizerName}
+		c := clientWithStatus(t, snip)
+		r := newReconciler(t, c)
+		runReconcile(t, r, types.NamespacedName{Name: snip.Name, Namespace: snip.Namespace})
+
+		got := refetch(t, c, types.NamespacedName{Name: snip.Name, Namespace: snip.Namespace})
+		cond := apimeta.FindStatusCondition(got.Status.Conditions, jaasv1.ConditionReady)
+		if cond == nil {
+			t.Fatal("Ready condition not written")
+		}
+		if cond.Status != metav1.ConditionFalse {
+			t.Fatalf("Ready.Status = %v, want False", cond.Status)
+		}
+		if cond.ObservedGeneration == 0 {
+			t.Fatal("Ready.ObservedGeneration is zero, want non-zero")
+		}
+		if cond.ObservedGeneration != got.Generation {
+			t.Errorf("Ready.ObservedGeneration = %d, want %d", cond.ObservedGeneration, got.Generation)
+		}
+	})
+}
+
 func TestReconcile_SourceRefNotYetSupported(t *testing.T) {
 	snip := sampleSnippet()
 	snip.Finalizers = []string{FinalizerName}
@@ -357,6 +408,76 @@ func TestReconcile_TLAsArePassedToEval(t *testing.T) {
 	runReconcile(t, r, types.NamespacedName{Name: snip.Name, Namespace: snip.Namespace})
 	assertReady(t, refetch(t, c, types.NamespacedName{Name: snip.Name, Namespace: snip.Namespace}),
 		metav1.ConditionTrue, ReasonSynced)
+}
+
+// --- Reconcile-request handling (flux reconcile) ----------------------------
+
+func TestReconcile_StampsLastHandledReconcileAt(t *testing.T) {
+	snip := sampleSnippet()
+	snip.Finalizers = []string{FinalizerName}
+	snip.Annotations = map[string]string{ReconcileRequestAnnotation: "token-1"}
+	c := clientWithStatus(t, snip)
+	r := newReconciler(t, c)
+	key := types.NamespacedName{Name: snip.Name, Namespace: snip.Namespace}
+	runReconcile(t, r, key)
+
+	got := refetch(t, c, key)
+	assertReady(t, got, metav1.ConditionTrue, ReasonSynced)
+	if got.Status.LastHandledReconcileAt != "token-1" {
+		t.Errorf("LastHandledReconcileAt = %q, want %q", got.Status.LastHandledReconcileAt, "token-1")
+	}
+}
+
+func TestReconcile_AnnotationOnlyUpdateReconcilesAndStampsNewToken(t *testing.T) {
+	// First reconcile handles token-1; an annotation-only change to token-2
+	// (Generation unchanged, since annotations don't bump it) must still be
+	// picked up and recorded. This is the `flux reconcile` re-trigger path.
+	snip := sampleSnippet()
+	snip.Finalizers = []string{FinalizerName}
+	snip.Annotations = map[string]string{ReconcileRequestAnnotation: "token-1"}
+	c := clientWithStatus(t, snip)
+	r := newReconciler(t, c)
+	key := types.NamespacedName{Name: snip.Name, Namespace: snip.Namespace}
+
+	runReconcile(t, r, key)
+	first := refetch(t, c, key)
+	if first.Status.LastHandledReconcileAt != "token-1" {
+		t.Fatalf("first reconcile LastHandledReconcileAt = %q, want token-1", first.Status.LastHandledReconcileAt)
+	}
+	genAfterFirst := first.Generation
+
+	// Stamp a fresh token without touching the spec.
+	first.Annotations[ReconcileRequestAnnotation] = "token-2"
+	if err := c.Update(context.Background(), first); err != nil {
+		t.Fatalf("annotate update: %v", err)
+	}
+	bumped := refetch(t, c, key)
+	if bumped.Generation != genAfterFirst {
+		t.Fatalf("Generation moved on annotation-only update (%d -> %d); test premise broken",
+			genAfterFirst, bumped.Generation)
+	}
+
+	runReconcile(t, r, key)
+	second := refetch(t, c, key)
+	if second.Status.LastHandledReconcileAt != "token-2" {
+		t.Errorf("LastHandledReconcileAt = %q after re-trigger, want token-2", second.Status.LastHandledReconcileAt)
+	}
+}
+
+func TestReconcile_UnchangedTokenIsIdempotent(t *testing.T) {
+	snip := sampleSnippet()
+	snip.Finalizers = []string{FinalizerName}
+	snip.Annotations = map[string]string{ReconcileRequestAnnotation: "token-1"}
+	c := clientWithStatus(t, snip)
+	r := newReconciler(t, c)
+	key := types.NamespacedName{Name: snip.Name, Namespace: snip.Namespace}
+
+	runReconcile(t, r, key)
+	runReconcile(t, r, key)
+	got := refetch(t, c, key)
+	if got.Status.LastHandledReconcileAt != "token-1" {
+		t.Errorf("LastHandledReconcileAt = %q after repeated reconcile, want token-1", got.Status.LastHandledReconcileAt)
+	}
 }
 
 // --- Library resolution -----------------------------------------------------
@@ -621,7 +742,7 @@ func TestReconcile_StatusUpdateErrorPropagates(t *testing.T) {
 		WithObjects(snip).
 		WithStatusSubresource(&jaasv1.JsonnetSnippet{}).
 		WithInterceptorFuncs(interceptor.Funcs{
-			SubResourceUpdate: func(_ context.Context, _ client.Client, _ string, _ client.Object, _ ...client.SubResourceUpdateOption) error {
+			SubResourcePatch: func(_ context.Context, _ client.Client, _ string, _ client.Object, _ client.Patch, _ ...client.SubResourcePatchOption) error {
 				return want
 			},
 		}).Build()
@@ -718,7 +839,7 @@ func TestReconcile_FailReady_StatusUpdateErrorPropagates(t *testing.T) {
 		WithObjects(snip).
 		WithStatusSubresource(&jaasv1.JsonnetSnippet{}).
 		WithInterceptorFuncs(interceptor.Funcs{
-			SubResourceUpdate: func(_ context.Context, _ client.Client, _ string, _ client.Object, _ ...client.SubResourceUpdateOption) error {
+			SubResourcePatch: func(_ context.Context, _ client.Client, _ string, _ client.Object, _ client.Patch, _ ...client.SubResourcePatchOption) error {
 				return want
 			},
 		}).Build()
@@ -1883,15 +2004,13 @@ func TestSnippetReconciler_LoggerNilFallsBackToDefault(t *testing.T) {
 
 // --- OCI library merge into resolveLibraries -------------------------------
 
-// TestMarkSynced_StaleGenerationDoesNotWriteStatus pins that when
-// the statusretry's re-Get sees a snippet generation different from
-// the one this reconcile evaluated against (judgedGen), the mutate
-// fn must skip every Status mutation. The publish has already
-// landed, but stamping this reconcile's revision against the
-// fresh-spec generation would mislabel a stale render as the
-// up-to-date state. The next reconcile (already enqueued by the
-// spec-edit watch event) writes the correct (Revision, Generation)
-// pair.
+// TestMarkSynced_StaleGenerationDoesNotWriteStatus pins that when the
+// staleness gate's re-Get sees a snippet generation different from the one
+// this reconcile evaluated against (judgedGen), markSynced skips every Status
+// mutation. The publish has already landed, but stamping this reconcile's
+// revision against the fresh-spec generation would mislabel a stale render as
+// the up-to-date state. The next reconcile (already enqueued by the spec-edit
+// watch event) writes the correct (Revision, Generation) pair.
 func TestMarkSynced_StaleGenerationDoesNotWriteStatus(t *testing.T) {
 	snip := sampleSnippet()
 	snip.Finalizers = []string{FinalizerName}
@@ -1923,14 +2042,13 @@ func TestMarkSynced_StaleGenerationDoesNotWriteStatus(t *testing.T) {
 	}
 }
 
-// TestMarkSynced_StaleGenerationAbortsRetryLoop pins that when the
-// inner closure observes staleGen, it must NOT call Status().Update
-// and the retry loop must exit on the first iteration. Pre-fix the
-// loop ran the no-op mutate then fired Update against the unmodified
-// object; under sibling-controller Conflict pressure the helper would
-// loop until backoff.Steps exhaust against a publish that was already
-// superseded by a spec edit.
-func TestMarkSynced_StaleGenerationAbortsRetryLoop(t *testing.T) {
+// TestMarkSynced_StaleGenerationAbortsBeforeWrite pins that when the
+// staleness gate's re-read sees a moved generation, markSynced does exactly
+// one Get and writes no status — no Status().Update and no status patch. A
+// write here would stamp this reconcile's revision against a spec that has
+// already moved on; the spec-edit watch event has enqueued the next reconcile
+// to write the correct (Revision, Generation) pair.
+func TestMarkSynced_StaleGenerationAbortsBeforeWrite(t *testing.T) {
 	snip := sampleSnippet()
 	snip.Finalizers = []string{FinalizerName}
 	snip.Generation = 5
@@ -1948,16 +2066,16 @@ func TestMarkSynced_StaleGenerationAbortsRetryLoop(t *testing.T) {
 	}
 
 	if statusUpdates != 0 {
-		t.Errorf("Status().Update fired %d times on the stale-gen path; want 0 (retry loop must abort before Update)", statusUpdates)
+		t.Errorf("Status().Update fired %d times on the stale-gen path; want 0 (must abort before any write)", statusUpdates)
 	}
 	if gets != 1 {
-		t.Errorf("Get fired %d times; want 1 (no retry loop on stale-gen)", gets)
+		t.Errorf("Get fired %d times; want 1 (single staleness re-read, then abort)", gets)
 	}
 }
 
 // countingStatusClient counts Get and Status().Update calls without
-// changing their semantics. Lets a test prove the retry loop entered
-// exactly once and short-circuited before firing the Update.
+// changing their semantics. Lets a test prove the staleness gate did a
+// single Get and short-circuited before any status write.
 type countingStatusClient struct {
 	client.Client
 	statusUpdates *int
@@ -2586,8 +2704,16 @@ func TestReconcile_IntervalSetSchedulesRequeueAfter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("spec: %v", err)
 	}
-	if res.RequeueAfter != 15*time.Minute {
-		t.Errorf("RequeueAfter = %v, want 15m (from spec.interval)", res.RequeueAfter)
+	// markSynced jitters the interval-based requeue by up to
+	// defaultIntervalJitterFraction so a same-interval fleet doesn't
+	// thunder-herd. The global jitter is process-wide and seeded by the first
+	// SetupWithManager in the test binary, so whether it's active here depends
+	// on test ordering — assert the configured interval is the centre and the
+	// result stays inside the jitter band either way.
+	const interval = 15 * time.Minute
+	band := time.Duration(float64(interval) * defaultIntervalJitterFraction)
+	if res.RequeueAfter < interval-band || res.RequeueAfter > interval+band {
+		t.Errorf("RequeueAfter = %v, want within %v of 15m (spec.interval, jittered)", res.RequeueAfter, band)
 	}
 }
 
@@ -2787,5 +2913,45 @@ func TestCheckLibraryAliasCollisions_FirstHitReported(t *testing.T) {
 	}
 	if strings.Contains(msg, `"b"`) {
 		t.Errorf("msg %q surfaces 'b' too — should report only the first", msg)
+	}
+}
+
+func TestCheckDuplicateLibraryImports_RejectsCollision(t *testing.T) {
+	snip := &jaasv1.JsonnetSnippet{Spec: jaasv1.JsonnetSnippetSpec{
+		Libraries: []jaasv1.LibraryRef{
+			{Kind: "JsonnetLibrary", Name: "utils", ImportPath: "shared"},
+			{Kind: "JsonnetLibrary", Name: "other", ImportPath: "shared"},
+		},
+	}}
+	reason, msg := checkDuplicateLibraryImports(snip)
+	if reason != ReasonInvalidSpec {
+		t.Errorf("reason = %q, want %q", reason, ReasonInvalidSpec)
+	}
+	if !strings.Contains(msg, "shared") {
+		t.Errorf("msg %q does not name the colliding import path", msg)
+	}
+}
+
+func TestCheckDuplicateLibraryImports_CollidesOnNameFallback(t *testing.T) {
+	snip := &jaasv1.JsonnetSnippet{Spec: jaasv1.JsonnetSnippetSpec{
+		Libraries: []jaasv1.LibraryRef{
+			{Kind: "JsonnetLibrary", Name: "duplicated"},
+			{Kind: "JsonnetLibrary", Name: "duplicated"},
+		},
+	}}
+	if reason, _ := checkDuplicateLibraryImports(snip); reason != ReasonInvalidSpec {
+		t.Errorf("reason = %q, want %q (bare Name should be checked)", reason, ReasonInvalidSpec)
+	}
+}
+
+func TestCheckDuplicateLibraryImports_DistinctPathsPass(t *testing.T) {
+	snip := &jaasv1.JsonnetSnippet{Spec: jaasv1.JsonnetSnippetSpec{
+		Libraries: []jaasv1.LibraryRef{
+			{Kind: "JsonnetLibrary", Name: "utils", ImportPath: "shared"},
+			{Kind: "JsonnetLibrary", Name: "other", ImportPath: "extra"},
+		},
+	}}
+	if reason, _ := checkDuplicateLibraryImports(snip); reason != "" {
+		t.Errorf("got reason %q on distinct import paths, want \"\"", reason)
 	}
 }

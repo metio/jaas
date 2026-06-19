@@ -60,8 +60,9 @@ CPU and memory limits must accommodate the worst-case concurrent eval load.
 Set `--max-artifact-bytes` to cap the rendered output size per snippet so a
 runaway template can't allocate unbounded memory before the timeout fires.
 
-See [Evaluation and security](/usage/evaluation-and-security/) for the
-concurrent-eval cap, timeout defaults, and how to tune them.
+See [Scale and capacity](/installation/scale-and-capacity/) for the resident-memory
+reasoning behind a request/limit, and [Evaluation and security](/usage/evaluation-and-security/)
+for the concurrent-eval cap, timeout defaults, and how to tune them.
 
 ```yaml
 resources:
@@ -269,5 +270,7 @@ helm upgrade --install jaas oci://ghcr.io/metio/helm-charts/jaas \
 
 - [Operations](/installation/operations/) — day-two tasks: rolling restarts,
   storage sweeping, finalizer teardown.
+- [Scale and capacity](/installation/scale-and-capacity/) — replica sizing, the
+  HA model, throughput knobs, and the saturation signals to watch.
 - [Configuration reference](/installation/configuration/) — every flag and default.
 - [Runbooks](/runbooks/) — incident response.

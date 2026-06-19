@@ -29,8 +29,9 @@ import (
 //   - go-jsonnet eval of a single-line body
 //   - pre-publish staleness gate (APIReader.Get on the snippet)
 //   - storage Put (tarball, atomic rename) + ExternalArtifact CreateOrUpdate
-//   - status subresource write via statusretry (re-Get + Update on both
-//     the snippet and the ExternalArtifact)
+//   - status subresource write via the Flux patch.Helper on both the snippet
+//     and the ExternalArtifact (the Ready condition rides a re-Get +
+//     optimistic-lock retry loop; the plain status fields merge-patch)
 //
 // Run:
 //
@@ -40,24 +41,23 @@ import (
 // apiserver+etcd startup cost and the host's IO speed, so absolute values
 // won't generalize across machines. Watch the trend, not the magnitude.
 //
-// Reference baseline (AMD Ryzen 7 5700U, dev container, post-statusretry +
-// post-publishConsistencyGate + post-CreateOrUpdate, on 2026-06-10):
+// Reference baseline (AMD Ryzen 7 5700U, dev container, on 2026-06-10):
 //   - BenchmarkReconcile_HappyPath:    ~18.9 ms/op,  ~60 KiB/op, ~680 allocs/op
 //   - BenchmarkReconcile_Concurrent:   ~ 2.9 ms/op,  ~62 KiB/op, ~685 allocs/op
 //
-// The pre-statusretry numbers were ~3.4× lower (~5.6 ms / ~828 µs). The
-// added cost is ~4 extra apiserver round-trips per reconcile:
+// The conflict-safe status writes cost a handful of extra apiserver
+// round-trips per reconcile:
 //
-//   - statusretry's re-Get on the snippet's Status().Update
-//   - statusretry's re-Get on the ExternalArtifact's Status().Update
+//   - the snippet status patch's re-Get inside the condition backoff loop
+//   - the ExternalArtifact status patch's re-Get
 //   - publishConsistencyGate's APIReader.Get pre-publish
 //   - CreateOrUpdate's internal Get when the EA already exists
 //
-// The trade-off is correctness vs. throughput. Each Conflict-loss-and-redo
-// previously cost a FULL reconcile (re-fetch source, re-eval, re-upload)
-// — far more than the marginal Gets statusretry now does up front. Net
-// throughput under apiserver contention is HIGHER; net throughput on the
-// unloaded happy path is lower. For jaas's expected workload (~33
+// The trade-off is correctness vs. throughput. A Conflict-loss-and-redo at
+// the reconcile level costs a FULL reconcile (re-fetch source, re-eval,
+// re-upload) — far more than the marginal Gets the patch helper does up
+// front. Net throughput under apiserver contention is HIGHER; net throughput
+// on the unloaded happy path is lower. For jaas's expected workload (~33
 // reconciles/sec across 10k snippets at 5-min intervals), the concurrent
 // throughput of ~345 reconciles/sec leaves an order-of-magnitude headroom.
 func BenchmarkReconcile_HappyPath(b *testing.B) {

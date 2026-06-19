@@ -57,7 +57,8 @@ type SourceRef struct {
 
 	// Namespace of the referenced source. Optional for namespaced owners
 	// (defaults to the owner's namespace). Cross-namespace references are
-	// rejected when the operator is started with --no-cross-namespace-refs.
+	// rejected by default; they are allowed only when the operator runs with
+	// --no-cross-namespace-refs=false.
 	// +optional
 	Namespace string `json:"namespace,omitempty"`
 
@@ -86,7 +87,8 @@ type LibraryRef struct {
 	Name string `json:"name"`
 
 	// Namespace of the referenced library CR. Cross-namespace references
-	// are rejected when the operator is started with --no-cross-namespace-refs.
+	// are rejected by default; they are allowed only when the operator runs
+	// with --no-cross-namespace-refs=false.
 	// +optional
 	Namespace string `json:"namespace,omitempty"`
 
@@ -136,6 +138,19 @@ type SyncStatus struct {
 	// +optional
 	LastSyncTime *metav1.Time `json:"lastSyncTime,omitempty"`
 
+	// LastHandledReconcileAt is the value of the
+	// reconcile.fluxcd.io/requestedAt annotation the controller most
+	// recently acted on. `flux reconcile` (and `kubectl annotate
+	// <cr> reconcile.fluxcd.io/requestedAt=<token> --overwrite`) stamps
+	// a fresh token to force an out-of-band reconcile; once the
+	// controller completes a reconcile it copies that token here, so
+	// tooling can poll status to learn the manual trigger was handled.
+	// Plain string rather than the Flux meta.ReconcileRequestStatus
+	// type so api/ takes no dependency on fluxcd/controller-runtime
+	// packages.
+	// +optional
+	LastHandledReconcileAt string `json:"lastHandledReconcileAt,omitempty"`
+
 	// History records the most-recent N revisions that the operator
 	// has retained in storage (the chronological keep-set). N comes
 	// from JsonnetSnippetSpec.History (default 1, max 50). Index 0 is
@@ -147,6 +162,32 @@ type SyncStatus struct {
 	// uniformly.
 	// +optional
 	History []RevisionEntry `json:"history,omitempty"`
+}
+
+// GetConditions returns the status conditions of the JsonnetSnippet.
+//
+// This and SetConditions satisfy the conditions-accessor contract that
+// generic condition-manipulation helpers expect. The methods deal only in
+// apimachinery's metav1.Condition, so the API package takes no dependency
+// on the controller-runtime or Flux condition packages — the helpers live
+// in the operator package and assert the interface there.
+func (in *JsonnetSnippet) GetConditions() []metav1.Condition {
+	return in.Status.Conditions
+}
+
+// SetConditions replaces the status conditions of the JsonnetSnippet.
+func (in *JsonnetSnippet) SetConditions(conditions []metav1.Condition) {
+	in.Status.Conditions = conditions
+}
+
+// GetConditions returns the status conditions of the JsonnetLibrary.
+func (in *JsonnetLibrary) GetConditions() []metav1.Condition {
+	return in.Status.Conditions
+}
+
+// SetConditions replaces the status conditions of the JsonnetLibrary.
+func (in *JsonnetLibrary) SetConditions(conditions []metav1.Condition) {
+	in.Status.Conditions = conditions
 }
 
 // RevisionEntry is one row in SyncStatus.History — the revision string

@@ -309,7 +309,7 @@ func TestSnippetValidator_NoEntryFileWarningForSourceRef(t *testing.T) {
 	}
 }
 
-func TestSnippetValidator_WarnsOnDuplicateLibraryImports(t *testing.T) {
+func TestSnippetValidator_RejectsDuplicateLibraryImports(t *testing.T) {
 	v := &SnippetValidator{}
 	snip := &jaasv1.JsonnetSnippet{
 		ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: "team-a"},
@@ -323,20 +323,16 @@ func TestSnippetValidator_WarnsOnDuplicateLibraryImports(t *testing.T) {
 			},
 		},
 	}
-	warnings, _ := v.ValidateCreate(context.Background(), snip)
-	found := false
-	for _, w := range warnings {
-		if strings.Contains(w, "shared") && strings.Contains(w, "share effective importPath") {
-			found = true
-			break
-		}
+	_, err := v.ValidateCreate(context.Background(), snip)
+	if err == nil {
+		t.Fatal("expected duplicate-importPath rejection, got nil error")
 	}
-	if !found {
-		t.Errorf("expected duplicate-importPath warning, got %v", warnings)
+	if !strings.Contains(err.Error(), "shared") || !strings.Contains(err.Error(), "import path") {
+		t.Errorf("error should name the colliding import path, got %q", err)
 	}
 }
 
-func TestSnippetValidator_WarnsOnImportPathFallingBackToName(t *testing.T) {
+func TestSnippetValidator_RejectsDuplicateImportPathFallingBackToName(t *testing.T) {
 	v := &SnippetValidator{}
 	snip := &jaasv1.JsonnetSnippet{
 		ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: "team-a"},
@@ -352,15 +348,31 @@ func TestSnippetValidator_WarnsOnImportPathFallingBackToName(t *testing.T) {
 			},
 		},
 	}
-	warnings, _ := v.ValidateCreate(context.Background(), snip)
-	found := false
-	for _, w := range warnings {
-		if strings.Contains(w, "duplicated") {
-			found = true
-		}
+	_, err := v.ValidateCreate(context.Background(), snip)
+	if err == nil {
+		t.Fatal("expected duplicate-importPath rejection when ImportPath is empty, got nil error")
 	}
-	if !found {
-		t.Errorf("expected duplicate-importPath warning when ImportPath is empty, got %v", warnings)
+	if !strings.Contains(err.Error(), "duplicated") {
+		t.Errorf("error should name the colliding import path, got %q", err)
+	}
+}
+
+func TestSnippetValidator_DistinctImportPathsPass(t *testing.T) {
+	v := &SnippetValidator{}
+	snip := &jaasv1.JsonnetSnippet{
+		ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: "team-a"},
+		Spec: jaasv1.JsonnetSnippetSpec{
+			SnippetSource: jaasv1.SnippetSource{
+				Files: map[string]string{"main.jsonnet": "{}"},
+			},
+			Libraries: []jaasv1.LibraryRef{
+				{Kind: "JsonnetLibrary", Name: "utils", ImportPath: "shared"},
+				{Kind: "JsonnetLibrary", Name: "other", ImportPath: "extra"},
+			},
+		},
+	}
+	if _, err := v.ValidateCreate(context.Background(), snip); err != nil {
+		t.Errorf("distinct import paths must pass admission, got %q", err)
 	}
 }
 

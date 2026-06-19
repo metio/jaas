@@ -7,16 +7,20 @@ threshold:
   compliance: 100
   coverage: 0
 dependenciesRules:
-  # API types stay free of controller internals AND of controller-runtime
-  # (scheme registration uses apimachinery's runtime.NewSchemeBuilder), so
-  # external consumers can import the CRD types without dragging the
-  # manager in.
+  # API types stay free of controller internals, of controller-runtime
+  # (scheme registration uses apimachinery's runtime.NewSchemeBuilder), AND
+  # of the Flux runtime packages — the operator adopts those, but the CRD
+  # types deal only in apimachinery so external consumers can import them
+  # without dragging the manager or the Flux toolkit in. The GetConditions /
+  # SetConditions accessors satisfy the Flux conditions contract structurally,
+  # using only metav1.Condition, so no Flux import is needed here.
   - package: "**.api.**"
     shouldNotDependsOn:
       internal:
         - "**.internal.**"
       external:
         - "sigs.k8s.io.controller-runtime.**"
+        - "github.com.fluxcd.**"
   # The SSRF-defence layer is pure logic: no internal and no external
   # imports — standard library only — so its IP/URL validation can be
   # reasoned about and fuzzed in isolation.

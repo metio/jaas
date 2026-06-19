@@ -160,6 +160,8 @@ alerts link to [Runbooks](/runbooks/).
 
 ## Next steps
 
+- [Scale and capacity](/installation/scale-and-capacity/) — replica sizing,
+  the leader-election HA model, and the throughput knobs.
 - [Configuration reference](/installation/configuration/) — the full flag
   list with defaults and chart value equivalents.
 - [Runbooks](/runbooks/) — incident response procedures keyed to each

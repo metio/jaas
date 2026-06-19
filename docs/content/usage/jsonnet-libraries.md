@@ -57,6 +57,13 @@ entry is a `LibraryRef`:
 A library not listed in `spec.libraries` is invisible to the snippet even when it
 exists in the same namespace — the enumeration is the allowlist.
 
+Each entry must resolve to a distinct import path: an import path holds exactly
+one library. Two `spec.libraries` entries that share an effective import path
+(the same `importPath`, or the same `name` when `importPath` is omitted) are
+rejected at admission, and the reconciler rejects them too if admission is
+bypassed — the colliding snippet reports `Ready=False` with reason `InvalidSpec`
+naming the import path. Give each library its own `importPath`.
+
 ```yaml
 apiVersion: jaas.metio.wtf/v1
 kind: JsonnetSnippet
