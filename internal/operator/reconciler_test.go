@@ -2343,6 +2343,56 @@ func TestReconcile_Events_EmitNormalOnSynced(t *testing.T) {
 	}
 }
 
+// TestReconcile_Events_EmitWarningOnSyncedToSuspendedTransition reproduces the
+// smoke sequence (scenario-fields.sh): a snippet renders to Synced, then
+// spec.suspend flips true. The Synced->Suspended transition must emit a
+// Warning/Suspended event — emitConditionEvent's dedup only suppresses a repeat
+// of the SAME status+reason, and Synced/True differs from Suspended/False.
+func TestReconcile_Events_EmitWarningOnSyncedToSuspendedTransition(t *testing.T) {
+	snip := sampleSnippet()
+	c := newPublisherClientWithSnippet(t, snip)
+	r := &SnippetReconciler{
+		Client: c, Scheme: publisherScheme(t),
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+	r.Publisher = newTestPublisher(t, c)
+	rec := events.NewFakeRecorder(16)
+	r.EventRecorder = rec
+
+	key := types.NamespacedName{Name: snip.Name, Namespace: snip.Namespace}
+	if _, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: key}); err != nil {
+		t.Fatalf("finalizer: %v", err)
+	}
+	if _, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: key}); err != nil {
+		t.Fatalf("spec: %v", err)
+	}
+	_ = drainEvents(rec) // discard the Synced event
+
+	var got jaasv1.JsonnetSnippet
+	if err := c.Get(context.Background(), key, &got); err != nil {
+		t.Fatal(err)
+	}
+	got.Spec.Suspend = true
+	if err := c.Update(context.Background(), &got); err != nil {
+		t.Fatalf("suspend update: %v", err)
+	}
+	if _, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: key}); err != nil {
+		t.Fatalf("suspend reconcile: %v", err)
+	}
+
+	evs := drainEvents(rec)
+	var found bool
+	for _, ev := range evs {
+		if strings.HasPrefix(ev, "Warning "+ReasonSuspended+" ") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("no Warning/Suspended event on Synced->Suspended transition; got %v", evs)
+	}
+}
+
 // TestReconcile_MarkSynced_PopulatesLastSyncTimeAndFileCount pins the
 // UX-honesty contract on the Synced status: kubectl describe must
 // surface (a) a non-zero file count derived from the resolved source
