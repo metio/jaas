@@ -13,6 +13,8 @@ import (
 	apiextv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/rest"
+	toolscache "k8s.io/client-go/tools/cache"
 )
 
 func TestCRDWatchBackoff_DoublesPerAttempt(t *testing.T) {
@@ -185,6 +187,31 @@ func TestCRDWatcher_RejectsNilEngager(t *testing.T) {
 	err := w.Start(context.Background())
 	if err == nil {
 		t.Fatal("expected error for nil engager")
+	}
+}
+
+// TestCRDWatcher_CacheSyncFailureDegradesNotFatal pins that a cache-sync
+// failure does NOT propagate out of Start as a fatal error — that would take
+// down the whole manager (including the working snippet/library reconcilers),
+// contradicting the watcher's "boot cleanly without Flux CRDs" purpose. Start
+// must log a warning and return nil; dynamic engagement is disabled until the
+// process restarts.
+func TestCRDWatcher_CacheSyncFailureDegradesNotFatal(t *testing.T) {
+	orig := waitForCacheSync
+	t.Cleanup(func() { waitForCacheSync = orig })
+	waitForCacheSync = func(_ <-chan struct{}, _ ...toolscache.InformerSynced) bool {
+		return false // simulate a never-syncing informer
+	}
+
+	w := &crdWatcher{
+		restCfg: &rest.Config{Host: "http://127.0.0.1:1"},
+		kinds:   []schema.GroupVersionKind{fluxSourceGVK("GitRepository")},
+		engager: &recordingEngager{},
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := w.Start(ctx); err != nil {
+		t.Fatalf("Start returned %v on cache-sync failure, want nil (degrade, not crash)", err)
 	}
 }
 

@@ -1970,6 +1970,94 @@ func TestReconcile_TenantClientPermanentErrorFailsReady(t *testing.T) {
 	assertReady(t, got, metav1.ConditionFalse, ReasonRBACDenied)
 }
 
+// TestReconcile_CycleDetectionPermanentErrorFailsReady pins that a permanent
+// apiserver error during the dependency-cycle BFS — the concrete case is a
+// snippet referencing kind: ExternalArtifact in a cluster without
+// source-controller's CRD, yielding a NoMatchError — surfaces as a terminal
+// Ready=False/RBACDenied rather than bubbling up raw and stranding the snippet
+// in infinite backoff with an empty Ready status.
+func TestReconcile_CycleDetectionPermanentErrorFailsReady(t *testing.T) {
+	snip := sampleSnippet()
+	snip.Finalizers = []string{FinalizerName}
+	// An ExternalArtifact sourceRef makes hasCycleSourceEdge true so the BFS
+	// actually walks; the dependency Get is what we fault.
+	snip.Spec.Files = nil
+	snip.Spec.SourceRef = &jaasv1.SourceRef{Kind: "ExternalArtifact", Name: "upstream"}
+
+	noMatch := &apimeta.NoKindMatchError{
+		GroupKind:        schema.GroupKind{Group: "source.toolkit.fluxcd.io", Kind: "ExternalArtifact"},
+		SearchedVersions: []string{"v1"},
+	}
+	c := fake.NewClientBuilder().
+		WithScheme(testScheme(t)).
+		WithObjects(snip).
+		WithStatusSubresource(&jaasv1.JsonnetSnippet{}).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: func(ctx context.Context, cl client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+				// Fault only the BFS's dependency Get (the "upstream"
+				// snippet), leaving the reconcile's own snippet Get intact.
+				if key.Name == "upstream" {
+					return noMatch
+				}
+				return cl.Get(ctx, key, obj, opts...)
+			},
+		}).Build()
+	r := newReconciler(t, c)
+
+	_, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: snip.Name, Namespace: snip.Namespace},
+	})
+	if err != nil {
+		t.Fatalf("got %v, want nil — permanent cycle-walk error must route to failReady, not bubble", err)
+	}
+	got := refetch(t, c, types.NamespacedName{Name: snip.Name, Namespace: snip.Namespace})
+	assertReady(t, got, metav1.ConditionFalse, ReasonRBACDenied)
+}
+
+// TestReconcile_CycleDetectionTransientErrorWritesStatusAndRequeues pins that
+// a transient apiserver error during the cycle BFS still writes an actionable
+// Ready=False (so kubectl describe shows something, not empty status) AND
+// returns the error so controller-runtime engages backoff.
+func TestReconcile_CycleDetectionTransientErrorWritesStatusAndRequeues(t *testing.T) {
+	snip := sampleSnippet()
+	snip.Finalizers = []string{FinalizerName}
+	snip.Spec.Files = nil
+	snip.Spec.SourceRef = &jaasv1.SourceRef{Kind: "ExternalArtifact", Name: "upstream"}
+
+	flaky := errors.New("etcd leader election in progress")
+	c := fake.NewClientBuilder().
+		WithScheme(testScheme(t)).
+		WithObjects(snip).
+		WithStatusSubresource(&jaasv1.JsonnetSnippet{}).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: func(ctx context.Context, cl client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+				if key.Name == "upstream" {
+					return flaky
+				}
+				return cl.Get(ctx, key, obj, opts...)
+			},
+		}).Build()
+	r := newReconciler(t, c)
+
+	_, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: snip.Name, Namespace: snip.Namespace},
+	})
+	if !errors.Is(err, flaky) {
+		t.Fatalf("got %v, want the transient error to propagate for backoff", err)
+	}
+	got := refetch(t, c, types.NamespacedName{Name: snip.Name, Namespace: snip.Namespace})
+	cond := apimeta.FindStatusCondition(got.Status.Conditions, jaasv1.ConditionReady)
+	if cond == nil {
+		t.Fatal("Ready condition not written; transient cycle error left empty status")
+	}
+	if cond.Status != metav1.ConditionFalse {
+		t.Errorf("Ready.Status = %v, want False", cond.Status)
+	}
+	if !strings.Contains(cond.Message, "cycle") {
+		t.Errorf("Ready.Message = %q, want it to mention the cycle-detection failure", cond.Message)
+	}
+}
+
 func TestReconcile_TenantClientErrorOnDeletePropagates(t *testing.T) {
 	snip := sampleSnippet()
 	now := metav1.NewTime(time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC))

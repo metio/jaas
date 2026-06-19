@@ -530,7 +530,28 @@ func (r *SnippetReconciler) reconcileSpec(ctx context.Context, logger *slog.Logg
 	// handlers Forget the entry on library / upstream-source events.
 	cycle, path, err := r.cycleVerdict(ctx, snip)
 	if err != nil {
+		// The BFS walks ExternalArtifact / JsonnetLibrary references via the
+		// operator client. A permanent apiserver error in that walk — most
+		// concretely a snippet referencing kind: ExternalArtifact in a
+		// cluster without source-controller's CRD, which yields a
+		// NoMatchError — won't heal by retry. Without classification it
+		// bubbles up raw, stranding the snippet in infinite backoff with an
+		// empty Ready status (this is the one reconcile path that otherwise
+		// escapes failReady). Surface it as a terminal Ready=False so
+		// kubectl describe shows an actionable message.
+		if isPermanentAPIError(err) {
+			logger.ErrorContext(ctx, "Permanent error during cycle detection", slog.Any("error", err))
+			return r.failReady(ctx, snip, ReasonRBACDenied,
+				rbacDenialMessage("walking the dependency graph for cycle detection", err))
+		}
+		// Transient: still write Ready=False with the error so describe
+		// surfaces something actionable, then return the error to engage
+		// controller-runtime's backoff.
 		logger.ErrorContext(ctx, "Cycle detection errored", slog.Any("error", err))
+		if _, ferr := r.failReady(ctx, snip, ReasonSourceFetchFailed,
+			"dependency-cycle detection could not complete: "+err.Error()); ferr != nil {
+			return ctrl.Result{}, ferr
+		}
 		return ctrl.Result{}, err
 	}
 	if cycle {
@@ -1292,6 +1313,10 @@ func classifyFetchError(err error) (reason, msg string, transient bool) {
 		return ReasonRBACDenied, rbacDenialMessage("reading the source CR", err), false
 	case errors.Is(err, sources.ErrDigestMismatch), errors.Is(err, sources.ErrDigestInvalid):
 		return ReasonSourceFetchFailed, err.Error(), false
+	case errors.Is(err, sources.ErrArtifactNotFound):
+		// Permanent 4xx on the artifact body (404/403/...). The upstream
+		// must re-publish or fix serving; retry can't help.
+		return ReasonSourceFetchFailed, err.Error(), false
 	case errors.Is(err, urlguard.ErrForbiddenHost),
 		errors.Is(err, urlguard.ErrInvalidScheme),
 		errors.Is(err, urlguard.ErrParseFailed),
@@ -1300,7 +1325,8 @@ func classifyFetchError(err error) (reason, msg string, transient bool) {
 	case errors.Is(err, sources.ErrArtifactBodyTooLarge),
 		errors.Is(err, sources.ErrTarballTooLarge),
 		errors.Is(err, sources.ErrTarEntryTooLarge),
-		errors.Is(err, sources.ErrDecompressedTooLarge):
+		errors.Is(err, sources.ErrDecompressedTooLarge),
+		errors.Is(err, sources.ErrGzipTrailingData):
 		// Tarball-shape errors are non-transient — the upstream
 		// must shrink / sanitize / re-publish. Without these arms the
 		// errors fell through to the default transient branch and

@@ -211,13 +211,33 @@ func (w *crdWatcher) Start(ctx context.Context) error {
 		close(stopCh)
 	}()
 	factory.Start(stopCh)
-	if !toolscache.WaitForCacheSync(stopCh, informer.HasSynced) {
-		return fmt.Errorf("crd watcher: informer never synced")
+	if !waitForCacheSync(stopCh, informer.HasSynced) {
+		return w.degradeOnSyncFailure(ctx, logger)
 	}
 
 	// Block until ctx is canceled. The informer's event handlers drive
 	// engagement; nothing in Start needs to react beyond shutdown.
 	<-ctx.Done()
+	return nil
+}
+
+// waitForCacheSync is the cache-sync wait, behind a package var so a unit
+// test can drive the failure branch without standing up a never-syncing
+// informer. Production points at client-go's WaitForCacheSync.
+var waitForCacheSync = func(stopCh <-chan struct{}, hasSynced ...toolscache.InformerSynced) bool {
+	return toolscache.WaitForCacheSync(stopCh, hasSynced...)
+}
+
+// degradeOnSyncFailure handles a cache-sync failure by logging a warning and
+// returning nil. The watcher's whole purpose is to let the operator boot
+// cleanly in clusters without the Flux source CRDs and engage their watches
+// later. Returning an error here would propagate out of Start and take down
+// the entire manager — including the snippet/library reconcilers that are
+// working fine — defeating that purpose. Degrading keeps everything else
+// running; dynamic Flux-source engagement is disabled until the process
+// restarts.
+func (w *crdWatcher) degradeOnSyncFailure(ctx context.Context, logger *slog.Logger) error {
+	logger.WarnContext(ctx, "CRD watcher could not start; dynamic Flux-source engagement disabled, restart to retry")
 	return nil
 }
 
