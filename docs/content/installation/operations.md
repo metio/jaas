@@ -130,7 +130,7 @@ The chart ships CRDs under `templates/` so `helm upgrade --install` applies sche
 changes automatically.
 
 **Before each upgrade**, read
-[MIGRATIONS.md](https://github.com/metio/jaas/blob/main/MIGRATIONS.md):
+[Upgrading](/installation/upgrading/):
 
 - Releases that change `spec.selector.matchLabels` on the Deployment require a
   manual `kubectl delete deployment/jaas` first — that field is immutable and

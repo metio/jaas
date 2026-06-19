@@ -3,5 +3,16 @@
   "extends": ["github>metio/renovate-config"],
   "git-submodules": {
     "enabled": true
-  }
+  },
+  "customManagers": [
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^\\.github/workflows/release\\.yml$/"],
+      "matchStrings": ["git-cliff-config/(?<currentDigest>[0-9a-f]{40})/"],
+      "currentValueTemplate": "main",
+      "depNameTemplate": "metio/git-cliff-config",
+      "packageNameTemplate": "https://github.com/metio/git-cliff-config",
+      "datasourceTemplate": "git-refs"
+    }
+  ]
 }
