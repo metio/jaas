@@ -1287,15 +1287,15 @@ func TestRun_JsonnetServerDoesNotExposeProbes(t *testing.T) {
 
 // ---- JSON error bodies on non-2xx, observed over the wire -----------------
 
-// decodeErrorBody reads & decodes a handler.ErrorResponse from an HTTP response.
-func decodeErrorBody(t *testing.T, resp *http.Response) handler.ErrorResponse {
+// decodeErrorBody reads & decodes a handler.ProblemDetails from an HTTP response.
+func decodeErrorBody(t *testing.T, resp *http.Response) handler.ProblemDetails {
 	t.Helper()
 	defer resp.Body.Close()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		t.Fatalf("read body: %v", err)
 	}
-	var got handler.ErrorResponse
+	var got handler.ProblemDetails
 	if err := json.Unmarshal(body, &got); err != nil {
 		t.Fatalf("decode body %q: %v", body, err)
 	}
@@ -1313,12 +1313,12 @@ func TestRun_ErrorBody_SnippetNotFound_OverTCP(t *testing.T) {
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404", resp.StatusCode)
 	}
-	if got := resp.Header.Get("Content-Type"); got != "application/json" {
-		t.Errorf("Content-Type = %q, want application/json", got)
+	if got := resp.Header.Get("Content-Type"); got != "application/problem+json" {
+		t.Errorf("Content-Type = %q, want application/problem+json", got)
 	}
 	body := decodeErrorBody(t, resp)
-	if body.Error != handler.ErrCodeSnippetNotFound {
-		t.Errorf("error = %q, want %q", body.Error, handler.ErrCodeSnippetNotFound)
+	if body.Code != handler.ErrCodeSnippetNotFound {
+		t.Errorf("code = %q, want %q", body.Code, handler.ErrCodeSnippetNotFound)
 	}
 	if body.Snippet != "no-such-snippet" {
 		t.Errorf("snippet = %q, want %q", body.Snippet, "no-such-snippet")
@@ -1340,12 +1340,12 @@ func TestRun_ErrorBody_MethodNotAllowed_OverTCP(t *testing.T) {
 	if resp.StatusCode != http.StatusMethodNotAllowed {
 		t.Fatalf("status = %d, want 405", resp.StatusCode)
 	}
-	if got := resp.Header.Get("Content-Type"); got != "application/json" {
-		t.Errorf("Content-Type = %q, want application/json", got)
+	if got := resp.Header.Get("Content-Type"); got != "application/problem+json" {
+		t.Errorf("Content-Type = %q, want application/problem+json", got)
 	}
 	body := decodeErrorBody(t, resp)
-	if body.Error != handler.ErrCodeMethodNotAllowed {
-		t.Errorf("error = %q, want %q", body.Error, handler.ErrCodeMethodNotAllowed)
+	if body.Code != handler.ErrCodeMethodNotAllowed {
+		t.Errorf("code = %q, want %q", body.Code, handler.ErrCodeMethodNotAllowed)
 	}
 }
 
@@ -1367,18 +1367,20 @@ func TestRun_ErrorBody_EvaluationFailed_OverTCP(t *testing.T) {
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", resp.StatusCode)
 	}
-	if got := resp.Header.Get("Content-Type"); got != "application/json" {
-		t.Errorf("Content-Type = %q, want application/json", got)
+	if got := resp.Header.Get("Content-Type"); got != "application/problem+json" {
+		t.Errorf("Content-Type = %q, want application/problem+json", got)
 	}
 	body := decodeErrorBody(t, resp)
-	if body.Error != handler.ErrCodeEvaluationFailed {
-		t.Errorf("error = %q, want %q", body.Error, handler.ErrCodeEvaluationFailed)
+	if body.Code != handler.ErrCodeEvaluationFailed {
+		t.Errorf("code = %q, want %q", body.Code, handler.ErrCodeEvaluationFailed)
 	}
 	if body.Snippet != "broken" {
 		t.Errorf("snippet = %q, want %q", body.Snippet, "broken")
 	}
-	if body.Message == "" {
-		t.Error("message must surface the go-jsonnet error text")
+	// The detail is the scrubbed constant — the go-jsonnet diagnostic stays in
+	// the server logs, never the body — but it must still be non-empty.
+	if body.Detail == "" {
+		t.Error("detail must not be empty")
 	}
 }
 
@@ -1404,12 +1406,12 @@ func TestRun_ErrorBody_EvaluationTimeout_OverTCP(t *testing.T) {
 	if resp.StatusCode != http.StatusGatewayTimeout {
 		t.Fatalf("status = %d, want 504", resp.StatusCode)
 	}
-	if got := resp.Header.Get("Content-Type"); got != "application/json" {
-		t.Errorf("Content-Type = %q, want application/json", got)
+	if got := resp.Header.Get("Content-Type"); got != "application/problem+json" {
+		t.Errorf("Content-Type = %q, want application/problem+json", got)
 	}
 	body := decodeErrorBody(t, resp)
-	if body.Error != handler.ErrCodeEvaluationTimeout {
-		t.Errorf("error = %q, want %q", body.Error, handler.ErrCodeEvaluationTimeout)
+	if body.Code != handler.ErrCodeEvaluationTimeout {
+		t.Errorf("code = %q, want %q", body.Code, handler.ErrCodeEvaluationTimeout)
 	}
 	if body.Snippet != "slow" {
 		t.Errorf("snippet = %q, want %q", body.Snippet, "slow")

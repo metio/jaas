@@ -1,0 +1,11 @@
+# SPDX-FileCopyrightText: The jaas Authors
+# SPDX-License-Identifier: 0BSD
+
+# Single-layer OCI image carrying the JaaS Grafana dashboard(s) as Jsonnet source.
+# grafonnet is deliberately NOT bundled — it is supplied at render time as a
+# JsonnetLibrary (e.g. the JOI grafonnet image), the same way any snippet's
+# libraries are. The lone COPY is the only layer, so the image works as both a
+# Flux OCIRepository source and an image-volume mount — the same contract the JOI
+# library images satisfy.
+FROM scratch
+COPY *.jsonnet /

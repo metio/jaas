@@ -76,8 +76,10 @@ library you exposed with `--library-path`:
 curl http://127.0.0.1:8080/jsonnet/library-precedence
 ```
 
-A snippet name that resolves to no file returns a `404` with a JSON error body;
-a Jsonnet error returns a `400` carrying the go-jsonnet diagnostic.
+A snippet name that resolves to no file returns a `404` with a JSON error body; a
+Jsonnet error returns a `400` whose body is a generic `evaluation_failed`. The full
+go-jsonnet diagnostic (with file and line) is written to the terminal where jaas
+runs, so locally you see it right next to the request.
 
 ## Step 4 — Pass a top-level argument
 

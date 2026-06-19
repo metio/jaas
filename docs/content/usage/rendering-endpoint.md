@@ -66,33 +66,48 @@ curl -i http://127.0.0.1:8081/ready
 
 ## Error contract
 
-Every non-2xx response carries a JSON body with `Content-Type: application/json`
-so programmatic callers can pick the failure apart:
+Every non-2xx response is an [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457)
+problem document with `Content-Type: application/problem+json` so programmatic
+callers can pick the failure apart:
 
 ```json
 {
-  "error":   "snippet_not_found",
-  "message": "snippet \"missing\" not found",
+  "type":    "https://jaas.projects.metio.wtf/errors/snippet_not_found",
+  "title":   "Snippet not found",
+  "status":  404,
+  "detail":  "snippet \"missing\" not found",
+  "code":    "snippet_not_found",
   "snippet": "missing"
 }
 ```
 
-The `error` field is a stable identifier — callers match on it, and these
-strings do not change. The `message` field carries human-readable detail. The
-`snippet` field echoes the requested name when one was parsed, and is omitted
-otherwise.
+- `type` — the RFC 9457 problem-type URI, formed as
+  `https://jaas.projects.metio.wtf/errors/` + the `code`.
+- `title` — a short, human-readable summary of the problem.
+- `status` — the HTTP status, mirrored into the body.
+- `detail` — human-readable specifics for this occurrence.
+- `code` — the stable short identifier. Callers match on this; these strings do
+  not change. It is the matcher that pairs with the `type` URI.
+- `snippet` — echoes the requested name when one was parsed, and is omitted
+  otherwise.
 
-| `error`                  | HTTP status | When                                                          |
-|--------------------------|------------:|---------------------------------------------------------------|
-| `method_not_allowed`     | `405`       | Anything other than `GET` on the endpoint.                    |
-| `snippet_not_found`      | `404`       | The requested snippet name resolves to no file.              |
-| `evaluation_timeout`     | `504`       | Evaluation exceeded `--evaluation-timeout`.                    |
-| `evaluation_unavailable` | `503`       | The concurrent-eval cap (`--max-concurrent-evals`) is full.   |
-| `evaluation_failed`      | `400`       | go-jsonnet returned an error (syntax, missing import, stack-limit exceeded). |
+Error bodies use `application/problem+json`; a successful `200` response stays
+`application/json` and carries the rendered document.
 
-For `evaluation_failed`, `message` is the raw go-jsonnet diagnostic, including
-the file and line numbers from the snippet on disk. That diagnostic can name
-on-disk paths, so treat it as cluster-internal detail.
+| `code`                   | `status` | When                                                          |
+|--------------------------|---------:|---------------------------------------------------------------|
+| `method_not_allowed`     | `405`    | Anything other than `GET` on the endpoint.                    |
+| `snippet_not_found`      | `404`    | The requested snippet name resolves to no file.              |
+| `evaluation_timeout`     | `504`    | Evaluation exceeded `--evaluation-timeout`.                    |
+| `evaluation_unavailable` | `503`    | The concurrent-eval cap (`--max-concurrent-evals`) is full.   |
+| `evaluation_failed`      | `400`    | go-jsonnet returned an error (syntax, missing import, stack-limit exceeded). |
+
+For `evaluation_failed`, `detail` is the constant `"evaluation failed"`. The full
+go-jsonnet diagnostic — syntax error, missing import, stack-limit, with file and
+line numbers — is written to the server logs instead of the response body, since
+it names on-disk snippet paths. Read the controller logs to debug a failing
+snippet; in operator mode the snippet's failure also surfaces on its
+`JsonnetSnippet` status condition.
 
 A client that closes the connection mid-evaluation receives no body and no
 status line — the handler detects the cancellation and returns without writing

@@ -251,6 +251,96 @@ through a `GrafanaDashboard` CR that references the artifact. That configuration
 Follow that example for the Grafana side; it picks up exactly where this
 tutorial leaves off — at the published `ExternalArtifact`.
 
+## Consume the published JaaS operator dashboard
+
+You don't have to author a dashboard to get one. JaaS publishes a maintained
+Grafana dashboard for its own operator — reconciles, evaluation throughput and
+backpressure, rendered output size, storage sweeps, and the controller-runtime
+workqueue and reconcile latency — as a single-layer OCI image at
+`ghcr.io/metio/jaas-dashboard`. Render it through JaaS the same way you'd render
+your own snippet, parameterised with the datasource it should query.
+
+**1. Point a Flux source at the image.** It's an OCI artifact, so use an
+`OCIRepository`. The dashboard imports grafonnet, so also install the grafonnet
+`JsonnetLibrary` (the [`joi` chart](https://github.com/metio/helm-charts/tree/main/charts/joi),
+`--set libraries.grafonnet.enabled=true`, as above).
+
+```yaml
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: jaas-dashboard
+  namespace: monitoring
+spec:
+  interval: 1h
+  url: oci://ghcr.io/metio/jaas-dashboard
+  ref:
+    tag: latest        # or a dated tag like 2026.6.22 to pin
+```
+
+The dashboard source also lives in the JaaS repository under `dashboards/`; if you
+mirror it into Git, a `GitRepository` pointing there works identically.
+
+**2. Render it with a `JsonnetSnippet`, passing the dashboard's TLAs.** The
+dashboard is a function of two top-level arguments — `datasource` (the Prometheus
+datasource UID, default `prometheus`) and `title` (default `JaaS operator`) —
+supplied through `spec.tlas`:
+
+```yaml
+apiVersion: jaas.metio.wtf/v1
+kind: JsonnetSnippet
+metadata:
+  name: jaas-operator-dashboard
+  namespace: monitoring
+spec:
+  serviceAccountName: dashboards-tenant
+  # The dashboard source: the OCI image's only file is main.jsonnet, which is
+  # spec.entryFile's default, so no entryFile is needed.
+  sourceRef:
+    kind: OCIRepository
+    name: jaas-dashboard
+  # grafonnet, which the dashboard imports by its full jb-vendor path, is served
+  # by the JOI library installed above.
+  libraries:
+    - kind: JsonnetLibrary
+      name: grafonnet
+  # The dashboard's top-level arguments. Each value is a list; a single element
+  # becomes a string TLA.
+  tlas:
+    datasource: ["prometheus"]      # your Prometheus datasource UID
+    title: ["JaaS operator — prod"]
+  interval: 10m
+  output: rendered
+```
+
+JaaS renders the dashboard JSON and publishes it as an `ExternalArtifact` named
+after the snippet — `jaas-operator-dashboard`.
+
+**3. Hand the artifact to the grafana-operator.** A `GrafanaDashboard` that
+references the published `ExternalArtifact` reconciles it into Grafana:
+
+```yaml
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDashboard
+metadata:
+  name: jaas-operator
+  namespace: monitoring
+spec:
+  instanceSelector:
+    matchLabels:
+      dashboards: "grafana"
+  resyncPeriod: 30s
+  sourceRef:
+    apiVersion: source.toolkit.fluxcd.io/v1
+    kind: ExternalArtifact
+    name: jaas-operator-dashboard
+    namespace: monitoring
+```
+
+When the published image updates (or you change the TLAs), JaaS re-renders, the
+`ExternalArtifact` digest changes, and the grafana-operator pushes the new JSON to
+Grafana — no manual export step.
+
 ## Where to go next
 
 - [Jsonnet libraries](/usage/jsonnet-libraries/) — serve the full grafonnet
