@@ -6,16 +6,19 @@
 # The sourceRef path is a genuinely different reconciler code path from inline
 # spec.files — it walks status.artifact, downloads the tarball, untars under the
 # tenant SA's RBAC, and detects upstream republishes via the Bucket watch.
-# Requires setup-s3mock.sh to have run first (bucket `dashboards` populated).
+# Requires setup-seaweedfs.sh to have run first (bucket `dashboards` seeded with
+# main.jsonnet). SeaweedFS validates real SigV4 — Adobe S3Mock is incompatible
+# with the current minio-go (its PutObject + Flux's BucketExists fail NoSuchKey).
 # Env: NS, NAME. Assumes jaas + Flux source-controller are present.
 set -euo pipefail
 DIR="$(cd "$(dirname "$0")" && pwd)"; . "$DIR/lib.sh"
 NS="${NS:-default}"; NAME="${NAME:-chain-demo}"
 
 log "create the Bucket secret (Flux requires it in the Bucket's namespace)"
-# S3Mock ignores credentials (it validates no signature), but Flux's generic
-# provider still expects a secretRef, so any value works.
-kubectl -n "$NS" create secret generic s3mock-bucket-creds \
+# SeaweedFS validates SigV4 against the static identity setup-seaweedfs.sh
+# configures, so these credentials must match that identity exactly — a wrong
+# key fails signing.
+kubectl -n "$NS" create secret generic seaweedfs-bucket-creds \
   --from-literal=accesskey=jaas-smoke \
   --from-literal=secretkey=jaas-smoke-secret \
   --dry-run=client -o yaml | kubectl apply -f -
@@ -55,10 +58,11 @@ spec:
   interval: 30s
   provider: generic
   bucketName: dashboards
-  endpoint: s3mock.s3mock.svc:9090
+  endpoint: seaweedfs.seaweedfs.svc:8333
+  region: us-east-1
   insecure: true
   secretRef:
-    name: s3mock-bucket-creds
+    name: seaweedfs-bucket-creds
 ---
 apiVersion: jaas.metio.wtf/v1
 kind: JsonnetSnippet

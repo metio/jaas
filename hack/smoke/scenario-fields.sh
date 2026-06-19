@@ -36,16 +36,14 @@ log "history entries: $ENTRIES"
 [ "$ENTRIES" -ge 1 ] || die "status.history is empty"
 
 log "verify a Normal/Synced event was emitted"
-for i in $(seq 1 30); do
-  has_event "$NAME" "$NS" Normal Synced && { log "Normal/Synced event seen after $i polls"; break; }
-  sleep 1
-done
-has_event "$NAME" "$NS" Normal Synced || { kubectl -n "$NS" get events --field-selector "involvedObject.name=$NAME"; die "no Normal/Synced event"; }
+wait_event "$NAME" "$NS" Normal Synced
 
 log "suspend the snippet"
 kubectl -n "$NS" patch jsonnetsnippet "$NAME" --type=merge -p '{"spec":{"suspend":true}}'
 wait_reason jsonnetsnippet "$NAME" "$NS" Suspended
-has_event "$NAME" "$NS" Warning Suspended || { kubectl -n "$NS" get events --field-selector "involvedObject.name=$NAME"; die "no Warning/Suspended event"; }
+# The events.v1 recorder flushes asynchronously, so the Warning/Suspended event
+# can lag the Suspended status by a few seconds — poll rather than check once.
+wait_event "$NAME" "$NS" Warning Suspended
 
 log "resume the snippet — reconcile must re-run"
 kubectl -n "$NS" patch jsonnetsnippet "$NAME" --type=merge -p '{"spec":{"suspend":false}}'

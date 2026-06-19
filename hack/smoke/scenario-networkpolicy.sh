@@ -60,7 +60,12 @@ log "the published artifact must still be reachable on the policy-admitted stora
 URL="$(ea_url "$NAME" "$NS")"
 [ -n "$URL" ] || die "snippet $NAME published no ExternalArtifact URL"
 log "ExternalArtifact URL: $URL"
-fetch_artifact "$URL" '"networkPolicy": "applied"'
+# Fetch from flux-system: the chart's NetworkPolicy admits the storage port
+# (8082) only from that namespace (the Flux consumers source-controller /
+# kustomize-controller / helm-controller live there). Fetching from the
+# snippet's own namespace would exercise an ingress source the policy doesn't
+# admit, so reachability must be checked from an admitted namespace.
+fetch_artifact "$URL" '"networkPolicy": "applied"' flux-system
 
 kubectl -n "$NS" delete jsonnetsnippet "$NAME" --timeout=120s || true
 log "scenario-networkpolicy PASSED"

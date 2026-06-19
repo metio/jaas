@@ -8,10 +8,10 @@
 # fetch of the ExternalArtifact URL proves the tarball round-tripped through the
 # bucket (the storage server proxies the object out of S3, it does not serve a
 # local file). This scenario is deliberately backend-agnostic: the workflow
-# installs jaas pointed at either Adobe S3Mock (anonymous, in-memory) or
-# SeaweedFS (real SigV4 + multipart + SSE), and this same script asserts the
-# round-trip either way. Env: NS, NAME. Assumes jaas is deployed with
-# storage.backend=s3 and Flux source-controller is present.
+# installs jaas pointed at any S3-compatible server (the smoke uses SeaweedFS —
+# real SigV4 + multipart + SSE) and this same script asserts the round-trip.
+# Env: NS, NAME. Assumes jaas is deployed with storage.backend=s3 and Flux
+# source-controller is present.
 set -euo pipefail
 DIR="$(cd "$(dirname "$0")" && pwd)"; . "$DIR/lib.sh"
 NS="${NS:-default}"; NAME="${NAME:-s3-demo}"
