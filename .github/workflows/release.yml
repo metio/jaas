@@ -206,7 +206,7 @@ jobs:
           ## Usage
 
           Pull the container from \`ghcr.io/metio/jaas:${version}\`.
-          Check the [migration guide](https://github.com/metio/jaas/blob/main/MIGRATIONS.md) for any required actions on your part.
+          See **Upgrading** — https://jaas.projects.metio.wtf/installation/upgrading/ — for any required actions on your part.
 
           Prebuilt binaries are attached below:
 
@@ -216,27 +216,7 @@ jobs:
 
           ## Verify
 
-          Both the image and the release artifacts are signed with
-          [cosign](https://github.com/sigstore/cosign) keyless — there is no GPG key to
-          trust; identity is proven by the workflow's OIDC certificate.
-
-          Container image:
-
-          \`\`\`shell
-          cosign verify ghcr.io/metio/jaas:${version} \\
-            --certificate-identity-regexp '^https://github.com/metio/jaas/\\.github/workflows/release\\.yml@refs/' \\
-            --certificate-oidc-issuer https://token.actions.githubusercontent.com
-          \`\`\`
-
-          Release artifacts (verify the signed checksum file, then check your download against it):
-
-          \`\`\`shell
-          cosign verify-blob jaas_${version}_SHA256SUMS \\
-            --bundle jaas_${version}_SHA256SUMS.bundle \\
-            --certificate-identity-regexp '^https://github.com/metio/jaas/\\.github/workflows/release\\.yml@refs/' \\
-            --certificate-oidc-issuer https://token.actions.githubusercontent.com
-          sha256sum -c jaas_${version}_SHA256SUMS
-          \`\`\`
+          All release artifacts are signed with cosign keyless. See **Verifying releases** — https://jaas.projects.metio.wtf/installation/verifying-releases/ — for the verification commands.
           EOF
       - id: create_release
         name: Create Release

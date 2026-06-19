@@ -279,7 +279,7 @@ func (p *Publisher) upsertExternalArtifact(ctx context.Context, c client.Client,
 // published `ExternalArtifact`; other consumers may do the same.
 // Renaming a field, splitting the apiVersion into group/version,
 // changing the kind string, or shifting these out of `spec.sourceRef`
-// is a breaking change that requires a `MIGRATIONS.md` entry.
+// is a breaking change that requires an upgrade-notes entry.
 //
 // The back-pointer deliberately omits `namespace`: every
 // ExternalArtifact JaaS publishes lives in the snippet's own namespace

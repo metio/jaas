@@ -7,6 +7,5 @@ http/
 LICENSES/
 go.sum.license
 LICENSE
-MIGRATIONS.md
 README.md
 REUSE.toml
