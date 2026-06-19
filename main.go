@@ -390,13 +390,13 @@ func run(args, env []string, stdout, stderr io.Writer, sigs <-chan os.Signal) in
 
 	state.MarkStarted()
 	// In HTTP-only mode the pod is ready as soon as the listeners
-	// are bound. In operator mode the readiness probe must stay 503
-	// until the manager has been elected (or LE is off — Elected closes
-	// immediately) and its cache has synced; otherwise traffic flows to
-	// a pod whose operator goroutine may have already failed startup,
-	// and no reconciles are happening. opCfg.OnReady (wired below
-	// when --enable-flux-integration is set) flips the probe once
-	// mgr.Elected() closes.
+	// are bound. In operator mode the readiness probe stays 503 until the
+	// manager's cache has synced — on every replica, leader or not — so a
+	// pod whose operator goroutine failed to boot never reports Ready, while
+	// standby (non-leader) replicas still go Ready and serve HTTP + storage.
+	// opCfg.OnReady (wired above when --enable-flux-integration is set) flips
+	// the probe; the operator manager fires it from a non-leader-election
+	// runnable after cache sync.
 	if !*f.EnableFluxIntegration {
 		state.SetReady(true)
 	}

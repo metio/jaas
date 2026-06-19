@@ -2936,6 +2936,62 @@ func TestReconcile_SuspendThenResumeLeavesSuspendedReason(t *testing.T) {
 	}
 }
 
+// --- Terminal-failure auto-retry --------------------------------------------
+
+func TestReconcile_FailReady_ReturnsBoundedRequeueAfter(t *testing.T) {
+	// A snippet with no ServiceAccount and no operator default fails on a
+	// terminal reason (ServiceAccountMissing). failReady returns no error
+	// — controller-runtime's backoff doesn't engage — so a bounded
+	// RequeueAfter is the only thing that re-checks the snippet after an
+	// out-of-band fix (here: the operator grants a default SA / the spec
+	// gets one). Without it, an RBAC grant would never trigger recovery.
+	snip := sampleSnippet()
+	snip.Spec.ServiceAccountName = "" // triggers ReasonServiceAccountMissing
+	snip.Finalizers = []string{FinalizerName}
+	c := clientWithStatus(t, snip)
+	r := newReconciler(t, c)
+
+	key := types.NamespacedName{Name: snip.Name, Namespace: snip.Namespace}
+	res, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: key})
+	if err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+	if res.RequeueAfter != permanentRetryInterval {
+		t.Errorf("RequeueAfter = %v, want %v (terminal failure must self-retry)", res.RequeueAfter, permanentRetryInterval)
+	}
+	assertReady(t, refetch(t, c, key), metav1.ConditionFalse, ReasonServiceAccountMissing)
+}
+
+func TestReconcile_FailReady_RecoversOnNextReconcileAfterFix(t *testing.T) {
+	// The recovery half of the auto-retry contract: once the terminal
+	// cause is fixed out-of-band (here the snippet gains a ServiceAccount,
+	// mirroring an RBAC grant in the smoke), the requeued reconcile must
+	// reach Ready=True rather than stay pinned on the failure reason.
+	snip := sampleSnippet()
+	snip.Spec.ServiceAccountName = ""
+	snip.Finalizers = []string{FinalizerName}
+	c := clientWithStatus(t, snip)
+	r := newReconciler(t, c)
+
+	key := types.NamespacedName{Name: snip.Name, Namespace: snip.Namespace}
+	if _, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: key}); err != nil {
+		t.Fatalf("first reconcile: %v", err)
+	}
+	assertReady(t, refetch(t, c, key), metav1.ConditionFalse, ReasonServiceAccountMissing)
+
+	// Fix the cause out-of-band, as the smoke does by granting RBAC.
+	fixed := refetch(t, c, key)
+	fixed.Spec.ServiceAccountName = "tenant"
+	if err := c.Update(context.Background(), fixed); err != nil {
+		t.Fatalf("apply fix: %v", err)
+	}
+
+	if _, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: key}); err != nil {
+		t.Fatalf("recovery reconcile: %v", err)
+	}
+	assertReady(t, refetch(t, c, key), metav1.ConditionTrue, ReasonSynced)
+}
+
 // --- OCI library alias shadowing --------------------------------------------
 
 func TestCheckLibraryAliasCollisions_EmptyKnownDisables(t *testing.T) {

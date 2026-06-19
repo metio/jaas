@@ -202,12 +202,13 @@ type Config struct {
 	// Logger receives operator-level events. nil falls back to slog.Default.
 	Logger *slog.Logger
 
-	// OnReady, when non-nil, is invoked exactly once after the manager
-	// has won leader election (or LE is disabled — `mgr.Elected()`
-	// closes immediately in that case). main.go threads `HealthState.SetReady`
-	// here so the pod's readiness probe stays 503 until reconciles can
-	// actually fire — without this, the pod reports Ready=true while the
-	// operator is still booting.
+	// OnReady, when non-nil, is invoked exactly once after the manager's
+	// cache has synced — on every replica, leader or not (it is wired as a
+	// non-leader-election runnable). main.go threads `HealthState.SetReady`
+	// here so the pod's readiness probe stays 503 until the operator has
+	// booted and its cache is warm. Gating on leader election instead would
+	// leave standby replicas permanently NotReady even though they serve the
+	// HTTP renderer + storage and are ready to take over reconciliation.
 	OnReady func()
 }
 
