@@ -8,95 +8,13 @@ on:
 permissions:
   contents: read
 jobs:
-  discover-envtest:
-    name: Discover the newest envtest-supported Kubernetes versions
-    runs-on: ubuntu-latest
-    outputs:
-      versions: ${{ steps.versions.outputs.k8s }}
-    steps:
-      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
-        with:
-          go-version: stable
-      - id: versions
-        # Newest 4 Kubernetes minors (latest patch each) that envtest publishes
-        # apiserver+etcd binaries for. Mirrors the kind-smoke discover step but is
-        # sourced from `setup-envtest list` — envtest ships its own version set
-        # (a superset of kindest/node's), and `setup-envtest use` needs a version
-        # it actually has binaries for. Discovered at runtime so a new release is
-        # tested automatically; if envtest can't run a brand-new minor, that
-        # surfaces as a failure — the signal, not silent staleness.
-        run: |
-          set -uo pipefail
-          k8s=$(go run sigs.k8s.io/controller-runtime/tools/setup-envtest@latest list 2>/dev/null \
-            | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' \
-            | awk -F. '{print $1"."$2" "$0}' | sort -k1,1V -k2,2V \
-            | awk '{l[$1]=$2} END{for(m in l)print l[m]}' | sort -V | tail -4 \
-            | jq -R . | jq -cs . 2>/dev/null || echo '[]')
-          [ "$(jq 'length' <<<"$k8s" 2>/dev/null || echo 0)" -gt 0 ] || k8s='["1.33.0"]'
-          echo "k8s=$k8s" >> "$GITHUB_OUTPUT"
-          echo "k8s=$k8s"
-
-  test:
-    needs: discover-envtest
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        k8s: ${{ fromJson(needs.discover-envtest.outputs.versions) }}
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
-        with:
-          go-version-file: go.mod
-          cache: true
-      - run: go build ./...
-      - name: Set up envtest assets (Kubernetes ${{ matrix.k8s }})
-        # Installs the kube-apiserver + etcd bundle so the envtest-backed suite
-        # runs in CI; without KUBEBUILDER_ASSETS those tests skip.
-        run: |
-          assets=$(go run sigs.k8s.io/controller-runtime/tools/setup-envtest@latest use ${{ matrix.k8s }} -p path)
-          echo "KUBEBUILDER_ASSETS=$assets" >> "$GITHUB_ENV"
-      - run: go test -v -race -shuffle=on -coverprofile=cover.out ./...
-  lint-go:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
-        with:
-          go-version-file: go.mod
-          cache: true
-      - run: go vet ./...
-      - run: go run honnef.co/go/tools/cmd/staticcheck@latest ./...
-      - run: go run github.com/securego/gosec/v2/cmd/gosec@latest ./...
-      - name: gofumpt formatting
-        run: |
-          unformatted="$(go run mvdan.cc/gofumpt@latest -l .)"
-          if [ -n "$unformatted" ]; then
-            echo "::error::These files are not gofumpt-formatted:"
-            echo "$unformatted"
-            exit 1
-          fi
-  vulnerabilities:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
-        with:
-          go-version-file: go.mod
-          cache: true
-      # Hard gate: a reachable-from-code advisory blocks merge. Resolution is
-      # usually a bump of the `toolchain` directive in go.mod (stdlib advisories)
-      # or `go get -u` (deps).
-      - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
-  architecture:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
-        with:
-          go-version-file: go.mod
-          cache: true
-      - run: go run github.com/arch-go/arch-go@latest
+  go:
+    # Reusable Go pipeline (build, race tests + envtest matrix, vet, staticcheck,
+    # gosec, gofumpt, govulncheck, arch-go) shared across the metio Go repos. The
+    # detect job auto-enables envtest and arch-go from this repo's files. Named
+    # "Golang" so its checks read "Golang / test", "Golang / lint", …
+    name: Golang
+    uses: metio/ci/.github/workflows/golang.yml@2026.6.20225709
   reuse:
     runs-on: ubuntu-latest
     steps:
@@ -243,11 +161,11 @@ jobs:
             fi
           done
           exit $status
-  all-green:
+  verify:
     # Single required check covering every job above: mark only this one
     # required in branch protection and new jobs are covered automatically.
-    name: Verify — all checks passed
-    needs: [discover-envtest, test, lint-go, vulnerabilities, architecture, reuse, yaml, github-actions, markdown, typos, prose, docs-lint, container-image, dco]
+    name: Verify
+    needs: [go, reuse, yaml, github-actions, markdown, typos, prose, docs-lint, container-image, dco]
     if: always()
     runs-on: ubuntu-latest
     steps:
