@@ -545,14 +545,23 @@ jobs:
           wait: 180s
       - name: Load image into kind
         run: kind load docker-image jaas:smoke --name jaas-ha
-      - name: Cluster prereqs (Flux)
-        run: hack/smoke/setup-flux.sh ${{ needs.discover.outputs.flux_latest }}
-      - name: Install released chart (2 replicas) with the dev image
+      - name: Cluster prereqs (Flux + SeaweedFS)
+        run: |
+          hack/smoke/setup-flux.sh ${{ needs.discover.outputs.flux_latest }}
+          hack/smoke/setup-seaweedfs.sh
+      - name: Install released chart (2 replicas, SeaweedFS backend) with the dev image
         run: |
           kubectl create namespace jaas-system
-          # replicas.min=2 runs two operator pods; leader election gates which one
-          # reconciles. The chart's JOI image-volumes need the ImageVolume feature
-          # gate kind lacks, so disable them.
+          # Two operator pods (replicas.min=2); leader election gates which one
+          # reconciles. Multi-replica HA needs shared storage: only the leader
+          # writes tarballs while the storage Service reads from every replica, so
+          # a local backend 404s from non-leaders and the chart's mode guard
+          # rejects it. SeaweedFS gives every replica the same bucket.
+          kubectl -n jaas-system create secret generic jaas-s3-creds \
+            --from-literal=AWS_ACCESS_KEY_ID=jaas-smoke \
+            --from-literal=AWS_SECRET_ACCESS_KEY=jaas-smoke-secret
+          # The chart's JOI image-volumes need the ImageVolume feature gate kind
+          # lacks, so disable them.
           helm upgrade --install jaas oci://ghcr.io/metio/helm-charts/jaas \
             --version "${{ needs.discover.outputs.chart_version }}" \
             --namespace jaas-system \
@@ -564,6 +573,12 @@ jobs:
             --set libraries.grafonnet.enabled=false \
             --set libraries.docsonnet.enabled=false \
             --set libraries.xtd.enabled=false \
+            --set operator.storage.backend=s3 \
+            --set operator.storage.s3.endpoint=seaweedfs.seaweedfs.svc:8333 \
+            --set operator.storage.s3.bucket=jaas-artifacts \
+            --set operator.storage.s3.useSSL=false \
+            --set operator.storage.s3.anonymous=false \
+            --set operator.storage.s3.credentialsSecret.name=jaas-s3-creds \
             --set replicas.min=2 \
             --set replicas.max=2 \
             --wait --timeout 5m
