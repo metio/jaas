@@ -47,7 +47,7 @@ jobs:
       kind_latest: ${{ steps.versions.outputs.kind_latest }}
       relevant: ${{ steps.scope.outputs.relevant }}
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           fetch-depth: 0
       - id: scope
@@ -143,7 +143,7 @@ jobs:
         flux_version: ${{ fromJSON(needs.discover.outputs.flux_versions) }}
     steps:
       - name: Clone Git Repository
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
       - name: Set up Go
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
@@ -218,7 +218,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Clone Git Repository
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
       - name: Set up Go
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
@@ -277,7 +277,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Clone Git Repository
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
       - name: Set up Go
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
@@ -333,7 +333,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Clone Git Repository
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
       - name: Set up Go
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
@@ -393,7 +393,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Clone Git Repository
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
       - name: Set up Go
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
@@ -457,7 +457,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Clone Git Repository
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
       - name: Set up Go
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
@@ -528,7 +528,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Clone Git Repository
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
       - name: Set up Go
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
@@ -600,7 +600,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Clone Git Repository
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
       - id: gate
         name: Gate on k8s >= 1.33 (ImageVolume beta-on + containerd 2.x)
         run: |
@@ -673,7 +673,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Clone Git Repository
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
       - name: Set up Go
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
@@ -729,7 +729,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Clone Git Repository
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
       - name: Set up Go
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
