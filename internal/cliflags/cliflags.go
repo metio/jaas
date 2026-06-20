@@ -116,8 +116,9 @@ type Flags struct {
 
 	MetricsBindAddress *string
 
-	EnableMCP      *bool
-	MCPBindAddress *string
+	EnableMCP         *bool
+	MCPBindAddress    *string
+	MCPAllowMutations *bool
 
 	TracingEndpoint    *string
 	TracingInsecure    *bool
@@ -255,6 +256,7 @@ func Register(fs *pflag.FlagSet, maxConcurrentEvalsDefault DefaultFunc) *Flags {
 	f.MetricsBindAddress = fs.String("metrics-bind-address", ":8083", "Bind address for the controller-runtime Prometheus metrics endpoint. Use \"0\" to disable. The default avoids the conflict between controller-runtime's built-in :8080 and the jsonnet HTTP server.")
 	f.EnableMCP = fs.Bool("enable-mcp", false, "Serve the operator's read tools over the Model Context Protocol (streamable HTTP). Requires --enable-flux-integration.")
 	f.MCPBindAddress = fs.String("mcp-bind-address", ":8084", "Bind address for the MCP streamable-HTTP server. Only used when --enable-mcp is set; chosen to avoid the jsonnet (:8080), management (:8081), storage (:8082), and metrics (:8083) ports.")
+	f.MCPAllowMutations = fs.Bool("mcp-allow-mutations", false, "Expose the gated MCP write tools (reconcile/suspend/resume) in addition to the read tools. Off by default — the MCP server is read-only unless this is set. Requires --enable-mcp.")
 	f.StorageBackend = fs.String("storage-backend", "local", "Artifact backend the operator publishes ExternalArtifact tarballs through. local (default; emptyDir/PVC) or s3 (any S3-compatible object store; pairs with leader election for HA across replicas).")
 	f.S3Endpoint = fs.String("s3-endpoint", "", "S3 service host:port (e.g. s3.amazonaws.com or minio.minio.svc:9000). Required when --storage-backend=s3.")
 	f.S3Bucket = fs.String("s3-bucket", "", "S3 bucket the artifacts live in. Must already exist. Required when --storage-backend=s3.")
@@ -305,7 +307,7 @@ func Register(fs *pflag.FlagSet, maxConcurrentEvalsDefault DefaultFunc) *Flags {
 		},
 		"Leader election":       {"leader-election", "leader-election-id", "leader-election-namespace"},
 		"Metrics":               {"metrics-bind-address"},
-		"MCP":                   {"enable-mcp", "mcp-bind-address"},
+		"MCP":                   {"enable-mcp", "mcp-bind-address", "mcp-allow-mutations"},
 		"Tracing":               {"tracing-endpoint", "tracing-insecure", "tracing-sample-ratio"},
 		"Logging and lifecycle": {"log-level", "log-format", "version"},
 	}

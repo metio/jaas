@@ -148,6 +148,13 @@ func run(args, env []string, stdout, stderr io.Writer, sigs <-chan os.Signal) in
 		return 2
 	}
 
+	// Exposing the MCP write tools without the MCP server is a no-op; reject it
+	// so the intent (enable MCP, with mutations) is unambiguous.
+	if *f.MCPAllowMutations && !*f.EnableMCP {
+		fmt.Fprintln(stderr, "jaas: --mcp-allow-mutations requires --enable-mcp")
+		return 2
+	}
+
 	if err := f.Validate(); err != nil {
 		fmt.Fprintln(stderr, "jaas:", err)
 		return 2
@@ -443,6 +450,7 @@ func run(args, env []string, stdout, stderr io.Writer, sigs <-chan os.Signal) in
 					EvaluationTimeout: *f.EvaluationTimeout,
 					KubeClient:        mcpKubeClient,
 					RunbookBaseURL:    operator.RunbookBaseURL,
+					AllowMutations:    *f.MCPAllowMutations,
 				}),
 			}
 			mcpListener, err = net.Listen("tcp", mcpServer.Addr)
