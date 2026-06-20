@@ -24,14 +24,18 @@ import (
 	"time"
 
 	"github.com/spf13/pflag"
+	apiruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	jaasv1 "github.com/metio/jaas/api/v1"
 	"github.com/metio/jaas/internal/cliflags"
 	"github.com/metio/jaas/internal/eval"
 	"github.com/metio/jaas/internal/handler"
+	"github.com/metio/jaas/internal/mcp"
 	"github.com/metio/jaas/internal/observability"
 	"github.com/metio/jaas/internal/operator"
 	"github.com/metio/jaas/internal/storage"
@@ -97,6 +101,13 @@ func main() {
 // Return value follows the Unix convention: 0 success, 1 runtime failure
 // (bind / shutdown error surfaced before normal exit), 2 flag parse error.
 func run(args, env []string, stdout, stderr io.Writer, sigs <-chan os.Signal) int {
+	// The `mcp` subcommand serves the cluster-free Jsonnet renderer over the
+	// Model Context Protocol on stdio. It owns a focused flag subset, so it is
+	// dispatched before the main flag set parses.
+	if len(args) > 0 && args[0] == "mcp" {
+		return runMCP(args[1:], env, stdout, stderr, sigs)
+	}
+
 	fs := pflag.NewFlagSet("jaas", pflag.ContinueOnError)
 	fs.SetOutput(stderr)
 
@@ -126,6 +137,14 @@ func run(args, env []string, stdout, stderr io.Writer, sigs <-chan os.Signal) in
 	// ignore it.
 	if *f.EnableWebhook && !*f.EnableFluxIntegration {
 		fmt.Fprintln(stderr, "jaas: --enable-webhook requires --enable-flux-integration")
+		return 2
+	}
+
+	// The MCP server's read tools introspect operator resources, so it only
+	// makes sense alongside the operator. Reject the combination explicitly
+	// rather than booting an MCP endpoint with nothing to read.
+	if *f.EnableMCP && !*f.EnableFluxIntegration {
+		fmt.Fprintln(stderr, "jaas: --enable-mcp requires --enable-flux-integration")
 		return 2
 	}
 
@@ -371,6 +390,8 @@ func run(args, env []string, stdout, stderr io.Writer, sigs <-chan os.Signal) in
 	var (
 		storageServer   *http.Server
 		storageListener net.Listener
+		mcpServer       *http.Server
+		mcpListener     net.Listener
 	)
 	if *f.EnableFluxIntegration {
 		storageServer = &http.Server{
@@ -385,6 +406,53 @@ func run(args, env []string, stdout, stderr io.Writer, sigs <-chan os.Signal) in
 			_ = jsonnetListener.Close()
 			slog.ErrorContext(ctx, "Cannot bind storage listener", slog.String("addr", storageServer.Addr), slog.Any("error", err))
 			return 1
+		}
+
+		if *f.EnableMCP {
+			// The MCP read tools introspect operator resources. A direct
+			// (uncached) client reading as the operator SA is the right fit:
+			// reads are on-demand and low-QPS, and the operator's RBAC already
+			// covers get/list of JsonnetSnippets. RunbookBaseURL lets
+			// get_snippet surface the same per-reason remediation link the
+			// reconciler stamps on status.
+			mcpScheme := apiruntime.NewScheme()
+			if err := jaasv1.AddToScheme(mcpScheme); err != nil {
+				_ = managementListener.Close()
+				_ = jsonnetListener.Close()
+				_ = storageListener.Close()
+				slog.ErrorContext(ctx, "Cannot build MCP scheme", slog.Any("error", err))
+				return 1
+			}
+			mcpKubeClient, err := client.New(opRestCfg, client.Options{Scheme: mcpScheme})
+			if err != nil {
+				_ = managementListener.Close()
+				_ = jsonnetListener.Close()
+				_ = storageListener.Close()
+				slog.ErrorContext(ctx, "Cannot build MCP Kubernetes client", slog.Any("error", err))
+				return 1
+			}
+			mcpServer = &http.Server{
+				Addr:        *f.MCPBindAddress,
+				ReadTimeout: *f.ReadTimeout,
+				Handler: mcp.NewHTTPHandler(mcp.Config{
+					Version:           version,
+					Logger:            slog.Default(),
+					LibraryPaths:      *f.LibraryPaths,
+					ExtVars:           extVars,
+					MaxStack:          *f.MaxStack,
+					EvaluationTimeout: *f.EvaluationTimeout,
+					KubeClient:        mcpKubeClient,
+					RunbookBaseURL:    operator.RunbookBaseURL,
+				}),
+			}
+			mcpListener, err = net.Listen("tcp", mcpServer.Addr)
+			if err != nil {
+				_ = managementListener.Close()
+				_ = jsonnetListener.Close()
+				_ = storageListener.Close()
+				slog.ErrorContext(ctx, "Cannot bind MCP listener", slog.String("addr", mcpServer.Addr), slog.Any("error", err))
+				return 1
+			}
 		}
 	}
 
@@ -424,6 +492,15 @@ func run(args, env []string, stdout, stderr io.Writer, sigs <-chan os.Signal) in
 			}
 		}()
 		slog.DebugContext(ctx, "Storage server started", slog.String("addr", storageServer.Addr))
+	}
+
+	if mcpServer != nil {
+		go func() {
+			if err := mcpServer.Serve(mcpListener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				serverErrs <- fmt.Errorf("mcp server: %w", err)
+			}
+		}()
+		slog.InfoContext(ctx, "MCP server started", slog.String("addr", mcpServer.Addr))
 	}
 
 	operatorDone := make(chan struct{})
@@ -486,6 +563,12 @@ func run(args, env []string, stdout, stderr io.Writer, sigs <-chan os.Signal) in
 	if storageServer != nil {
 		if err := storageServer.Shutdown(shutdownCtx); err != nil {
 			slog.ErrorContext(ctx, "Cannot shut down storage server", slog.Any("error", err))
+			exitCode = 1
+		}
+	}
+	if mcpServer != nil {
+		if err := mcpServer.Shutdown(shutdownCtx); err != nil {
+			slog.ErrorContext(ctx, "Cannot shut down MCP server", slog.Any("error", err))
 			exitCode = 1
 		}
 	}
