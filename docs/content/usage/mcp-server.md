@@ -99,5 +99,21 @@ The in-cluster server adds two read tools:
 | `list_snippets` | List `JsonnetSnippet` resources with their Ready status, reason, suspend state, revision, and artifact URL. Omit the namespace to list across every namespace the operator can read. |
 | `get_snippet` | One snippet's full status: the Ready condition (status, reason, message), the per-reason [runbook](../../runbooks/) URL, suspend state, revision, artifact URL, and the retained revision history. |
 
-These tools are read-only. They report status and surface the runbook for a
-failing reason; they do not change cluster state.
+## Gated mutations
+
+The server is read-only by default. Add `--mcp-allow-mutations` (which requires
+`--enable-mcp`) to also expose write tools:
+
+```shell
+jaas --enable-flux-integration --enable-mcp --mcp-allow-mutations
+```
+
+| Tool | Effect |
+|---|---|
+| `reconcile_snippet` | Stamp the `reconcile.fluxcd.io/requestedAt` annotation to request an immediate reconcile — the same trigger as `flux reconcile`. |
+| `suspend_snippet` | Set `spec.suspend=true` so the operator stops re-rendering the snippet. |
+| `resume_snippet` | Clear `spec.suspend` to resume reconciliation. |
+
+These act on the `JsonnetSnippet` resource as the operator's ServiceAccount, so
+they can never exceed the operator's own RBAC. Keep them off unless you intend
+the agent to drive reconciliation, and have your MCP client confirm each call.
