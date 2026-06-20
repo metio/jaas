@@ -122,4 +122,6 @@ rendering: `render_jsonnet` (snippet + `tlas`/`extVars` → JSON) and
 adds read-only `list_snippets` / `get_snippet` tools (Ready status, reason,
 runbook URL, revision, artifact URL, history) over streamable HTTP on
 `--mcp-bind-address` (default `:8084`), reading as the operator's ServiceAccount.
+`--mcp-allow-mutations` additionally exposes gated `reconcile_snippet` /
+`suspend_snippet` / `resume_snippet` write tools.
 Full reference: `https://jaas.projects.metio.wtf/usage/mcp-server/`.
