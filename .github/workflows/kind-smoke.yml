@@ -784,8 +784,8 @@ jobs:
   # Single stably-named aggregate — the only check to mark "required". It always
   # runs (if: always()) so it reports on every PR, including ones where the kind
   # jobs skip (not operator-relevant, or no released chart yet) — those pass.
-  all-green:
-    name: Kind smoke — all checks passed
+  system-tests:
+    name: System Tests
     needs:
       - discover
       - smoke
