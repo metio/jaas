@@ -3,7 +3,9 @@
 
 jb-test
 .bash_history
-jaas
+# The compiled binary at the repo root. Anchored with a leading slash so it
+# matches only ./jaas — a bare `jaas` also masks the `skills/jaas/` directory.
+/jaas
 .cache
 .config
 
