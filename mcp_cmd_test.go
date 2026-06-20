@@ -58,3 +58,14 @@ func TestRun_EnableMCPWithoutFluxIntegrationFailsWithExit2(t *testing.T) {
 		t.Errorf("exit code = %d, want 2 for --enable-mcp without --enable-flux-integration; stderr=%q", code, stderr.String())
 	}
 }
+
+// --mcp-allow-mutations is meaningless without --enable-mcp, so it is a
+// flag-usage error (exit 2).
+func TestRun_MCPAllowMutationsWithoutEnableMCPFailsWithExit2(t *testing.T) {
+	withRestoredSlogDefault(t)
+	var stdout, stderr bytes.Buffer
+	sigs := make(chan os.Signal, 1)
+	if code := run([]string{"--enable-flux-integration", "--mcp-allow-mutations"}, nil, &stdout, &stderr, sigs); code != 2 {
+		t.Errorf("exit code = %d, want 2 for --mcp-allow-mutations without --enable-mcp; stderr=%q", code, stderr.String())
+	}
+}

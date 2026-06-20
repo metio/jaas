@@ -61,6 +61,12 @@ type Config struct {
 	// RunbookBaseURL is the docs-site prefix for per-reason remediation pages,
 	// used to build the runbook link in get_snippet. Empty omits the link.
 	RunbookBaseURL string
+
+	// AllowMutations registers the gated write tools (reconcile/suspend/resume)
+	// in addition to the read tools. Off by default: the server is read-only
+	// unless the operator opts in (--mcp-allow-mutations). Has no effect without
+	// a KubeClient.
+	AllowMutations bool
 }
 
 // NewServer builds the MCP server with the jaas tool catalog registered. It
@@ -76,6 +82,10 @@ func NewServer(cfg Config) *mcpsdk.Server {
 	// local stdio renderer) only the eval tools are served.
 	if cfg.KubeClient != nil {
 		registerOperatorTools(server, cfg)
+		// Write tools are a further opt-in on top of having a client.
+		if cfg.AllowMutations {
+			registerMutationTools(server, cfg)
+		}
 	}
 	return server
 }
