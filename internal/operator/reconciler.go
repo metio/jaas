@@ -1472,8 +1472,13 @@ var happyReasonsNoRunbook = map[string]bool{
 	ReasonPending:   true,
 }
 
-// runbookBaseURL is the fixed location of the per-reason remediation pages on the JaaS docs site. Pages live at <base><reason-lowercased>/.
-const runbookBaseURL = "https://jaas.projects.metio.wtf/runbooks/"
+// RunbookBaseURL is the fixed location of the per-reason remediation pages on the JaaS docs site. Pages live at <base><reason-lowercased>/.
+const RunbookBaseURL = "https://jaas.projects.metio.wtf/runbooks/"
+
+// runbookBaseURL is the unexported alias used internally; RunbookBaseURL is
+// exported so other surfaces (the MCP server) can build the same links without
+// importing the operator package's heavier internals.
+const runbookBaseURL = RunbookBaseURL
 
 // decorateMessage appends a "(runbook: <url>)" suffix so kubectl describe
 // surfaces a direct link to the per-reason remediation page. The reason is
