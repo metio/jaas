@@ -45,8 +45,9 @@ RUN go install github.com/arch-go/arch-go@latest
 RUN go install github.com/rhysd/actionlint/cmd/actionlint@latest
 RUN go install golang.org/x/vuln/cmd/govulncheck@latest
 
-# Code generation + envtest assets for the controller tests.
-RUN go install sigs.k8s.io/controller-tools/cmd/controller-gen@latest
+# envtest assets for the controller tests. controller-gen is NOT installed here:
+# it's a go.mod `tool` directive, run via `go tool controller-gen` (one pinned
+# version in go.mod, bumped by Renovate's gomod manager).
 RUN go install sigs.k8s.io/controller-runtime/tools/setup-envtest@latest
 
 # Pre-stage an envtest asset bundle (kube-apiserver + etcd) so envtest-based
