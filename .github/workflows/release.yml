@@ -3,38 +3,35 @@
 
 name: Automated Release
 on:
-  schedule:
-    - cron: 47 7 * * MON
+  push:
+    branches: [main]
   workflow_dispatch:
 jobs:
   prepare:
     name: Prepare Release
     runs-on: ubuntu-latest
     outputs:
-      commit_count: ${{ steps.commits.outputs.count }}
-      release_version: ${{ steps.release.outputs.version }}
-      previous_version: ${{ steps.last_release.outputs.tag }}
+      needed: ${{ steps.gate.outputs.needed }}
+      version: ${{ steps.version.outputs.version }}
+      previous: ${{ steps.gate.outputs.last }}
     steps:
-      - id: checkout
-        name: Clone Git Repository
+      - name: Clone Git Repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           fetch-depth: 0
-      - id: last_release
-        name: Fetch last release info
-        run: echo "tag=$(gh release view --json tagName --jq '.tagName')" >> "$GITHUB_OUTPUT"
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - id: commits
-        name: Count Commits
-        run: echo "count=$(git rev-list --count ${{ steps.last_release.outputs.tag }}..HEAD -- go.mod main.go internal api config Dockerfile)" >> "$GITHUB_OUTPUT"
-      - id: release
-        name: Create Release Version
-        if: steps.commits.outputs.count > 0 || steps.last_release.outputs.tag == ''
-        run: echo "version=$(date +'%Y.%-m.%-d')" >> "$GITHUB_OUTPUT"
+      - id: gate
+        name: Check whether a release is needed
+        uses: metio/ci/needs-release@2026.6.20225709
+        with:
+          paths: go.mod main.go internal api config Dockerfile
+      - id: version
+        name: Compute the next version
+        if: steps.gate.outputs.needed == 'true'
+        uses: metio/ci/calver@2026.6.20225709
   build:
     name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
     needs: prepare
+    if: needs.prepare.outputs.needed == 'true'
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -65,25 +62,20 @@ jobs:
           - goos: darwin
             goarch: arm64
     steps:
-      - id: checkout
-        name: Clone Git Repository
-        if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
+      - name: Clone Git Repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-      - id: setup_go
-        name: Set up Go
+      - name: Set up Go
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
-        if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
         with:
           go-version-file: go.mod
           cache: true
       - id: build
         name: Build & Archive
-        if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
         # Cross-compile and archive for this platform: tar.gz on linux/darwin,
         # zip on windows (with a .exe binary).
         run: |
           set -euo pipefail
-          ver="${{ needs.prepare.outputs.release_version }}"
+          ver="${{ needs.prepare.outputs.version }}"
           os="${{ matrix.goos }}"
           arch="${{ matrix.goarch }}"
           name="${{ github.event.repository.name }}"
@@ -101,9 +93,7 @@ jobs:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           GOARM: ${{ matrix.goarm }}
-      - id: upload
-        name: Upload Artifact
-        if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
+      - name: Upload Artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: dist-${{ matrix.goos }}-${{ matrix.goarch }}
@@ -111,101 +101,75 @@ jobs:
           path: |
             *.tar.gz
             *.zip
+  container:
+    name: Container Release
+    needs: [prepare, build]
+    if: needs.prepare.outputs.needed == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write # cosign keyless image signing
+      contents: read
+      packages: write # push to GHCR
+    steps:
+      - name: Clone Git Repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - name: Build, push and sign the image
+        uses: metio/ci/container-release@2026.6.20225709
+        with:
+          image: ghcr.io/${{ github.repository }}
+          version: ${{ needs.prepare.outputs.version }}
   github:
     name: GitHub Release
     # Gate the release on a green image build too: the release notes advertise
     # ghcr.io/metio/jaas:<version>, so that tag must exist before the release is
-    # published. `build` supplies the attached binaries/checksums; `container`
-    # serializes the release after the image build+push+sign (job order in this
-    # file is irrelevant — `needs` drives execution), so a failed build skips
-    # the release instead of leaving a published release that points at a
-    # non-existent image. The cost is a longer wall-clock release; the benefit
-    # is no dangling releases.
+    # published. A failed build/container skips the release instead of leaving a
+    # published release that points at a non-existent image.
     needs: [prepare, build, container]
+    if: needs.prepare.outputs.needed == 'true'
     runs-on: ubuntu-latest
     permissions:
-      contents: write   # create the GitHub Release
-      id-token: write   # cosign keyless sign-blob (Fulcio OIDC)
+      contents: write # create the GitHub Release
+      id-token: write # cosign keyless sign-blob (Fulcio OIDC)
     steps:
-      - id: checkout
-        name: Clone Git Repository
-        if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
+      - name: Clone Git Repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           fetch-depth: 0
-      - id: cosign-install
-        name: Install Cosign
-        if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
-        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
-      - id: cliff-install
-        name: Install git-cliff
-        if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
-        run: |
-          curl -fsSL https://github.com/orhun/git-cliff/releases/download/v2.10.1/git-cliff-2.10.1-x86_64-unknown-linux-gnu.tar.gz | tar -xz -C /tmp
-          sudo mv /tmp/git-cliff-2.10.1/git-cliff /usr/local/bin/git-cliff
-      - id: download
-        name: Download Artifacts
-        if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
+      - name: Download Artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           path: dist
           pattern: dist-*
           merge-multiple: true
-      - id: checksums
-        name: Calculate Checksums
-        if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
+      - name: Calculate Checksums
         # One SHA256SUMS over every archive (tar.gz for linux/darwin, zip for
         # windows). nullglob keeps the glob empty-safe.
+        env:
+          SUMS: ${{ github.event.repository.name }}_${{ needs.prepare.outputs.version }}_SHA256SUMS
         run: |
           cd dist
           shopt -s nullglob
-          sha256sum ./*.tar.gz ./*.zip > "${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_SHA256SUMS"
-      - id: sign_checksums
-        name: Sign Checksums (cosign keyless)
-        if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
-        # Newer cosign defaults to the Sigstore bundle format: --output-signature
-        # / --output-certificate are ignored and a single --bundle file (signature
-        # + certificate + Rekor proof) is written instead. Omitting --bundle makes
-        # cosign try to open an empty path and fail the whole release.
-        run: >
-          cosign sign-blob
-          --yes
-          --bundle dist/${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_SHA256SUMS.bundle
-          dist/${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_SHA256SUMS
-      - id: release_notes
+          sha256sum ./*.tar.gz ./*.zip > "$SUMS"
+      - name: Sign Checksums (cosign keyless)
+        uses: metio/ci/cosign-sign-blob@2026.6.20225709
+        with:
+          file: dist/${{ github.event.repository.name }}_${{ needs.prepare.outputs.version }}_SHA256SUMS
+      - id: notes
         name: Generate Release Notes
-        if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
+        uses: metio/ci/release-notes@2026.6.20225709
+        with:
+          version: ${{ needs.prepare.outputs.version }}
+          previous: ${{ needs.prepare.outputs.previous }}
+      - name: Append usage and verification footer
         env:
-          # git-cliff reads GITHUB_TOKEN (not GH_TOKEN) for its remote API calls;
-          # without it the calls are unauthenticated (60/hr) and rate-limit out,
-          # so release notes render without their PR/contributor enrichment.
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          NOTES: ${{ steps.notes.outputs.file }}
         run: |
-          set -euo pipefail
-          version="${{ needs.prepare.outputs.release_version }}"
-          prev="${{ needs.prepare.outputs.previous_version }}"
-          # --tag labels the (still uncreated) release so the cliff.toml header
-          # renders this version; --tag-pattern scopes release boundaries to the
-          # bare calendar tags this repo uses. The config is fetched from the
-          # org-wide git-cliff-config repo, pinned to a commit SHA (Renovate bumps
-          # the digest via the custom manager in renovate.json).
-          cliff_args=(
-            --config-url "https://raw.githubusercontent.com/metio/git-cliff-config/3dc6a68c93387761e404ac28dbeb60b3d80883f6/cliff.toml"
-            --tag "$version"
-            --tag-pattern '^[0-9]+\.[0-9]+\.[0-9]+$'
-          )
-          # A bare "HEAD" positional is rejected as a range; for the first release
-          # omit the positional so git-cliff walks full history.
-          [ -n "$prev" ] && cliff_args+=("${prev}..HEAD")
-          git-cliff "${cliff_args[@]}" > notes.md
-
-          # Static footer: usage + cosign verification, appended after the
-          # generated changelog.
-          cat >> notes.md <<EOF
+          cat >> "$NOTES" <<EOF
 
           ## Usage
 
-          Pull the container from \`ghcr.io/metio/jaas:${version}\`.
+          Pull the container from \`ghcr.io/metio/jaas:${VERSION}\`.
           See **Upgrading** — https://jaas.projects.metio.wtf/installation/upgrading/ — for any required actions on your part.
 
           Prebuilt binaries are attached below:
@@ -218,94 +182,17 @@ jobs:
 
           All release artifacts are signed with cosign keyless. See **Verifying releases** — https://jaas.projects.metio.wtf/installation/verifying-releases/ — for the verification commands.
           EOF
-      - id: create_release
-        name: Create Release
-        if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
+      - name: Create Release
         uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3
         with:
-          tag_name: ${{ needs.prepare.outputs.release_version }}
-          name: ${{ needs.prepare.outputs.release_version }}
+          tag_name: ${{ needs.prepare.outputs.version }}
+          name: ${{ needs.prepare.outputs.version }}
           token: ${{ secrets.GITHUB_TOKEN }}
           draft: false
           prerelease: false
-          body_path: notes.md
+          body_path: ${{ steps.notes.outputs.file }}
           files: |
             dist/*.tar.gz
             dist/*.zip
-            dist/${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_SHA256SUMS
-            dist/${{ github.event.repository.name }}_${{ needs.prepare.outputs.release_version }}_SHA256SUMS.bundle
-  container:
-    name: Container Release
-    needs: [prepare, build]
-    runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-      contents: read
-      packages: write
-    steps:
-      - id: checkout
-        name: Clone Git Repository
-        if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-      - id: cosign-install
-        if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
-        name: Install Cosign
-        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
-      - id: buildx
-        if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
-        name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
-      - id: registry_login
-        if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
-        name: Login to GHCR
-        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - id: timestamp
-        if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
-        name: Create Timestamp
-        run: echo "date=$(date --rfc-3339=seconds)" >> "$GITHUB_OUTPUT"
-      - id: publish
-        if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
-        name: Publish Image
-        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7
-        with:
-          builder: ${{ steps.buildx.outputs.name }}
-          context: .
-          file: ./Dockerfile
-          push: true
-          # Same arch set every metio image ships. The Dockerfile cross-compiles
-          # via Go (builder pinned to $BUILDPLATFORM), so no QEMU is needed.
-          platforms: linux/amd64,linux/arm64,linux/arm/v7,linux/ppc64le,linux/riscv64,linux/s390x
-          build-args: |
-            VERSION=${{ needs.prepare.outputs.release_version }}
-            COMMIT=${{ github.sha }}
-          tags: |
-            ghcr.io/metio/jaas:latest
-            ghcr.io/metio/jaas:${{ needs.prepare.outputs.release_version }}
-          labels: |
-            org.opencontainers.image.title=jaas
-            org.opencontainers.image.licenses=0BSD
-            org.opencontainers.image.vendor=metio
-            org.opencontainers.image.url=https://github.com/${{ github.repository }}
-            org.opencontainers.image.documentation=https://github.com/${{ github.repository }}
-            org.opencontainers.image.source=https://github.com/${{ github.repository }}
-            org.opencontainers.image.version=${{ needs.prepare.outputs.release_version }}
-            org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.created=${{ steps.timestamp.outputs.date }}
-          cache-from: type=registry,ref=ghcr.io/metio/jaas:buildcache
-          cache-to: type=registry,ref=ghcr.io/metio/jaas:buildcache,mode=max
-          sbom: true
-          provenance: true
-      - id: sign_image
-        if: needs.prepare.outputs.commit_count > 0 || needs.prepare.outputs.previous_version == ''
-        name: Sign Image
-        run: |
-          cosign sign \
-            --yes \
-            --annotations "repo=${{ github.repository }}" \
-            --annotations "workflow=${{ github.workflow }}" \
-            --annotations "ref=${{ github.sha }}" \
-            ghcr.io/metio/jaas@${{ steps.publish.outputs.digest }}
+            dist/${{ github.event.repository.name }}_${{ needs.prepare.outputs.version }}_SHA256SUMS
+            dist/${{ github.event.repository.name }}_${{ needs.prepare.outputs.version }}_SHA256SUMS.bundle
