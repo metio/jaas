@@ -47,14 +47,31 @@ type TracingConfig struct {
 	ServiceVersion string
 
 	// SampleRatio controls TraceID-ratio sampling (0.0..1.0). Zero or
-	// negative pins always-off (no spans); >=1 pins always-on. Defaults
-	// to 1.0 when unset and Endpoint is non-empty.
+	// negative pins always-off (no spans); >=1 pins always-on; a value in
+	// (0,1) samples that fraction. The flag defaults to 1.0, so an unset
+	// ratio with a configured Endpoint samples every trace.
 	SampleRatio float64
 }
 
 // Shutdown is returned by InitTracer; main.go defers it with a bounded
 // context so a slow collector doesn't hold up termination.
 type Shutdown func(ctx context.Context) error
+
+// samplerFor maps a sample ratio to a sampler honoring the SampleRatio
+// contract: <=0 is always-off, >=1 is always-on, and a value in between
+// samples that fraction. TraceIDRatioBased(0) is NOT always-off (it still
+// admits a vanishing fraction by rounding), so the zero/negative case must map
+// explicitly to NeverSample.
+func samplerFor(ratio float64) sdktrace.Sampler {
+	switch {
+	case ratio <= 0:
+		return sdktrace.NeverSample()
+	case ratio >= 1:
+		return sdktrace.AlwaysSample()
+	default:
+		return sdktrace.TraceIDRatioBased(ratio)
+	}
+}
 
 // InitTracer wires the OTel SDK against the configured OTLP endpoint and
 // registers a global tracer provider. When cfg.Endpoint is empty, a
@@ -68,9 +85,6 @@ func InitTracer(ctx context.Context, cfg TracingConfig) (Shutdown, error) {
 	}
 	if cfg.ServiceName == "" {
 		cfg.ServiceName = "jaas"
-	}
-	if cfg.SampleRatio <= 0 {
-		cfg.SampleRatio = 1.0
 	}
 
 	var dialOpts []otlptracegrpc.Option
@@ -100,7 +114,7 @@ func InitTracer(ctx context.Context, cfg TracingConfig) (Shutdown, error) {
 	tp := sdktrace.NewTracerProvider(
 		sdktrace.WithBatcher(exp),
 		sdktrace.WithResource(res),
-		sdktrace.WithSampler(sdktrace.TraceIDRatioBased(cfg.SampleRatio)),
+		sdktrace.WithSampler(samplerFor(cfg.SampleRatio)),
 	)
 	otel.SetTracerProvider(tp)
 
