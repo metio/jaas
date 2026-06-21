@@ -20,8 +20,6 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -349,46 +347,44 @@ func TestExtractTarball_CorruptGzipReturnsError(t *testing.T) {
 	}
 }
 
-func TestExtractTarball_RejectsMultiMemberGzip(t *testing.T) {
-	// A concatenated multi-member .tar.gz: archive/tar stops at the first
-	// member's end-of-archive marker, so the second member's files would be
-	// silently dropped and the call would otherwise return success with a
-	// partial map. The trailing-data check must reject it instead.
-	first := buildTarGz(t, map[string]string{"main.jsonnet": `{ a: 1 }`})
-	second := buildTarGz(t, map[string]string{"sneaky.jsonnet": `{ b: 2 }`})
-	concatenated := append(append([]byte{}, first...), second...)
-
-	_, err := extractTarball(bytes.NewReader(concatenated), "", 1<<20)
-	if err == nil {
-		t.Fatal("multi-member gzip accepted; trailing data silently dropped")
+func TestExtractTarball_MultiMemberSingleTarExtractsAll(t *testing.T) {
+	// One tar gzipped across TWO members (a producer that flushes mid-stream, or
+	// member concatenation of a single logical tar). With multistream on the
+	// members decompress transparently as one stream, so every file must be
+	// extracted — not just the first member's.
+	var tarBuf bytes.Buffer
+	tw := tar.NewWriter(&tarBuf)
+	for name, content := range map[string]string{"main.jsonnet": `{ a: 1 }`, "helper.libsonnet": `{ b: 2 }`} {
+		if err := tw.WriteHeader(&tar.Header{Name: name, Mode: 0o644, Size: int64(len(content)), Typeflag: tar.TypeReg}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tw.Write([]byte(content)); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if !errors.Is(err, ErrGzipTrailingData) {
-		t.Errorf("error = %v, want ErrGzipTrailingData", err)
-	}
-}
-
-func TestExtractTarball_RejectsMultiMemberGzip_OsFile(t *testing.T) {
-	// The production caller (Fetch → downloadToTemp) passes an *os.File, which
-	// is NOT an io.ByteReader. The bytes.Reader-based test above masks the
-	// real-world bug because gzip consumes a bytes.Reader without read-ahead;
-	// over an *os.File gzip buffers and reads past member one, so the
-	// trailing-member check must operate on a shared bufio.Reader to stay exact.
-	first := buildTarGz(t, map[string]string{"main.jsonnet": `{ a: 1 }`})
-	second := buildTarGz(t, map[string]string{"sneaky.jsonnet": `{ b: 2 }`})
-	concatenated := append(append([]byte{}, first...), second...)
-
-	p := filepath.Join(t.TempDir(), "a.tar.gz")
-	if err := os.WriteFile(p, concatenated, 0o600); err != nil {
+	if err := tw.Close(); err != nil {
 		t.Fatal(err)
 	}
-	fh, err := os.Open(p)
+	raw := tarBuf.Bytes()
+	mid := len(raw) / 2
+
+	var out bytes.Buffer
+	for _, chunk := range [][]byte{raw[:mid], raw[mid:]} {
+		gz := gzip.NewWriter(&out)
+		if _, err := gz.Write(chunk); err != nil {
+			t.Fatal(err)
+		}
+		if err := gz.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	files, err := extractTarball(bytes.NewReader(out.Bytes()), "", 1<<20)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("multi-member single-tar extract: %v", err)
 	}
-	defer fh.Close()
-
-	if _, err := extractTarball(fh, "", 1<<20); !errors.Is(err, ErrGzipTrailingData) {
-		t.Fatalf("multi-member gzip via *os.File: err = %v, want ErrGzipTrailingData (second member must not be silently dropped)", err)
+	if files["main.jsonnet"] != `{ a: 1 }` || files["helper.libsonnet"] != `{ b: 2 }` {
+		t.Fatalf("multi-member gzip dropped files: %#v", files)
 	}
 }
 
