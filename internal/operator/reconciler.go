@@ -1530,8 +1530,17 @@ func (r *SnippetReconciler) markSynced(ctx context.Context, snip *jaasv1.Jsonnet
 	// enqueued the next reconcile against the fresh spec, so skipping the
 	// write here (and the event / metric / requeue below) is correct — the
 	// stale reconcile leaves no trail.
+	//
+	// The re-read goes through APIReader (uncached) for the same reason
+	// publishConsistencyGate does: the manager's cache can lag the apiserver
+	// by tens of milliseconds, long enough for a fast spec-edit to be missed,
+	// so a cached read here would defeat the gate it backs.
+	reader := r.APIReader
+	if reader == nil {
+		reader = r.Client
+	}
 	var latest jaasv1.JsonnetSnippet
-	if err := r.Client.Get(ctx, key, &latest); err != nil {
+	if err := reader.Get(ctx, key, &latest); err != nil {
 		return ctrl.Result{}, err
 	}
 	if latest.Generation != judgedGen {

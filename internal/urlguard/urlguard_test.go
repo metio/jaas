@@ -217,6 +217,11 @@ func TestValidateHTTPURL_RejectsUnspecified(t *testing.T) {
 		"http://0.0.0.0",
 		"http://0.0.0.0:8080",
 		"http://[::]",
+		// The whole 0.0.0.0/8 block, not just 0.0.0.0: Linux routes
+		// connect() to any 0.0.0.x address to loopback.
+		"http://0.0.0.1",
+		"http://0.0.0.7:6443/x",
+		"http://0.1.2.3",
 	} {
 		t.Run(raw, func(t *testing.T) {
 			err := ValidateHTTPURL(raw)

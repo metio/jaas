@@ -492,6 +492,14 @@ func (b *S3Backend) HTTPHandler() http.Handler {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
+		// Mirror *Store.HTTPHandler's allowlist: only `<rev>.tar.gz` requests are
+		// served, so a caller reaching this port can't read arbitrary non-artifact
+		// object keys from the (prefix-scoped) bucket. The allowlist matches the
+		// only filename shape Backend.Put ever produces.
+		if !strings.HasSuffix(r.URL.Path, ".tar.gz") {
+			http.NotFound(w, r)
+			return
+		}
 		key, err := url.PathUnescape(strings.TrimPrefix(r.URL.Path, "/"))
 		if err != nil || key == "" {
 			http.NotFound(w, r)

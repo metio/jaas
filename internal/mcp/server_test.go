@@ -164,6 +164,29 @@ func TestValidate_EvalUnavailable(t *testing.T) {
 	}
 }
 
+// TestValidate_ContextCanceled covers validate's cancellation path: a request
+// canceled mid-eval (client disconnect / parent ctx cancel) is an operational
+// failure surfaced as a tool error — NOT a valid=false verdict. Reporting the
+// snippet invalid would mislead the agent about a compilable snippet.
+func TestValidate_ContextCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // canceled before the eval starts
+	// A non-trivial snippet so the eval goroutine cannot outrace the parent's
+	// select to the already-closed ctx.Done(); the deadline wrapper then
+	// returns ctx.Err() (context.Canceled).
+	src := `std.foldl(function(a, b) a + b, std.range(1, 50000), 0)`
+	res, out, err := Config{}.validateHandler(ctx, nil, renderInput{Source: src})
+	if err != nil {
+		t.Fatalf("unexpected Go error: %v", err)
+	}
+	if res == nil || !res.IsError {
+		t.Fatalf("a canceled request must surface as a tool error, got res=%+v out=%+v", res, out)
+	}
+	if out.Valid {
+		t.Fatal("a canceled request must not report valid=true")
+	}
+}
+
 func TestMergedExtVars_Property(t *testing.T) {
 	rapid.Check(t, func(rt *rapid.T) {
 		kv := rapid.MapOf(rapid.StringN(0, 8, 8), rapid.String())

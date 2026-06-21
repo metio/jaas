@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path"
 	"sort"
 	"strings"
 
@@ -156,7 +157,16 @@ func extractTarGz(r io.Reader) (map[string]string, error) {
 		if total > maxDiffArtifactBytes {
 			return nil, fmt.Errorf("artifact exceeds %d bytes; too large to diff", int64(maxDiffArtifactBytes))
 		}
-		files[hdr.Name] = string(buf)
+		// Defense-in-depth: the artifacts are operator-written, but never key the
+		// diff map on a name that traverses, is absolute, or carries NUL/backslash
+		// — matching the validation internal/sources applies on the fetch path, so
+		// a future non-operator writer can't smuggle an escaping entry in here.
+		clean := path.Clean(hdr.Name)
+		if strings.ContainsRune(hdr.Name, 0) || strings.Contains(hdr.Name, `\`) ||
+			clean == ".." || strings.HasPrefix(clean, "../") || strings.HasPrefix(clean, "/") {
+			continue
+		}
+		files[clean] = string(buf)
 	}
 	return files, nil
 }
