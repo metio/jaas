@@ -38,12 +38,19 @@ metadata:
 spec: {}
 EOF
 
-# tigerastatus is the operator's aggregate health (calico-node + apiserver +
-# ippools). It is created once the operator reconciles, so wait for the resource
-# to appear before waiting on its Available condition.
-for _ in $(seq 1 60); do
-  kubectl get tigerastatus >/dev/null 2>&1 && break
+# Wait for the projectcalico.org/v3 aggregated API (calico-apiserver) to be
+# served — exactly what engine=calico needs. `kubectl get
+# networkpolicies.projectcalico.org` errors ("server doesn't have a resource
+# type") until the calico-apiserver is registered and the aggregation layer is
+# healthy, then exits 0 (empty list). This is more robust than waiting on
+# tigerastatus, which the CRD makes list-able (exit 0) before the operator has
+# created any instance — so a `kubectl wait --all` there races to "no matching
+# resources found".
+for _ in $(seq 1 120); do
+  kubectl get networkpolicies.projectcalico.org -A >/dev/null 2>&1 && break
   sleep 5
 done
-kubectl wait --for=condition=Available tigerastatus --all --timeout=420s
+kubectl get networkpolicies.projectcalico.org -A >/dev/null 2>&1 \
+  || { echo "projectcalico.org/v3 API never became available" >&2; kubectl get tigerastatus >&2 || true; exit 1; }
+# calico-node makes the nodes Ready once the CNI is up.
 kubectl wait --for=condition=Ready nodes --all --timeout=420s
