@@ -1,0 +1,11 @@
+# SPDX-FileCopyrightText: The jaas Authors
+# SPDX-License-Identifier: 0BSD
+#
+# kind cluster with no default CNI so Cilium can be installed as the CNI that
+# actually ENFORCES NetworkPolicy (kind's built-in kindnet does not). Cilium is
+# installed with ipam.mode=kubernetes, so it uses the nodes' PodCIDRs and the
+# kind-default podSubnet is left in place (no override needed here).
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+networking:
+  disableDefaultCNI: true

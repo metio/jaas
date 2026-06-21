@@ -1,0 +1,12 @@
+# SPDX-FileCopyrightText: The jaas Authors
+# SPDX-License-Identifier: 0BSD
+#
+# kind cluster with no default CNI, so Calico can be installed as the CNI that
+# actually ENFORCES NetworkPolicy (kind's built-in kindnet does not). podSubnet
+# is 192.168.0.0/16 to match Calico's default IP pool (manifests/calico.yaml), so
+# pod networking comes up without extra IPAM configuration.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+networking:
+  disableDefaultCNI: true
+  podSubnet: "192.168.0.0/16"
