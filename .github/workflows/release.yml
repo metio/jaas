@@ -21,13 +21,13 @@ jobs:
           fetch-depth: 0
       - id: gate
         name: Check whether a release is needed
-        uses: metio/ci/needs-release@2026.6.20225709
+        uses: metio/ci/needs-release@fbf40d1f4d74a73bb160893af0d1c27eab5a0841 # 2026.6.20225709
         with:
           paths: go.mod main.go internal api config Dockerfile
       - id: version
         name: Compute the next version
         if: steps.gate.outputs.needed == 'true'
-        uses: metio/ci/calver@2026.6.20225709
+        uses: metio/ci/calver@fbf40d1f4d74a73bb160893af0d1c27eab5a0841 # 2026.6.20225709
   build:
     name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
     needs: prepare
@@ -114,7 +114,7 @@ jobs:
       - name: Clone Git Repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
       - name: Build, push and sign the image
-        uses: metio/ci/container-release@2026.6.20225709
+        uses: metio/ci/container-release@fbf40d1f4d74a73bb160893af0d1c27eab5a0841 # 2026.6.20225709
         with:
           image: ghcr.io/${{ github.repository }}
           version: ${{ needs.prepare.outputs.version }}
@@ -151,12 +151,12 @@ jobs:
           shopt -s nullglob
           sha256sum ./*.tar.gz ./*.zip > "$SUMS"
       - name: Sign Checksums (cosign keyless)
-        uses: metio/ci/cosign-sign-blob@2026.6.20225709
+        uses: metio/ci/cosign-sign-blob@fbf40d1f4d74a73bb160893af0d1c27eab5a0841 # 2026.6.20225709
         with:
           file: dist/${{ github.event.repository.name }}_${{ needs.prepare.outputs.version }}_SHA256SUMS
       - id: notes
         name: Generate Release Notes
-        uses: metio/ci/release-notes@2026.6.20225709
+        uses: metio/ci/release-notes@fbf40d1f4d74a73bb160893af0d1c27eab5a0841 # 2026.6.20225709
         with:
           version: ${{ needs.prepare.outputs.version }}
           previous: ${{ needs.prepare.outputs.previous }}
