@@ -781,6 +781,100 @@ jobs:
           kubectl describe jsonnetsnippet np-smoke || true
           kubectl describe externalartifact np-smoke || true
 
+  # Real NetworkPolicy enforcement under a CNI that actually enforces (kindnet,
+  # used by the `networkpolicy` job above, does not). Each chart engine is run on
+  # the matching CNI: the kubernetes engine on Calico gets the full allow+deny
+  # assertion (the storage-port allowlist scopes ingress to flux-system, so a
+  # fetch from another namespace is genuinely dropped); the calico / cilium
+  # engines render a pod-scoped allow-all on the required ports (no per-source
+  # filter to deny), so they assert allow + operator-works under their native
+  # dialect; the clusterNetworkPolicy engine (policy.networking.k8s.io/v1alpha2)
+  # has no on-kind enforcer yet, so its CRDs are installed and the dialect is
+  # validated at apply level. Cluster is created with no default CNI so the real
+  # one can be installed (kind --wait 0s: nodes go Ready only after that).
+  networkpolicy-enforcement:
+    name: NetworkPolicy enforced (${{ matrix.cni }} / ${{ matrix.engine }})
+    needs: discover
+    if: needs.discover.outputs.chart_version != '' && needs.discover.outputs.relevant == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - cni: calico
+            engine: kubernetes
+            kindcfg: kind-calico.yaml
+            enforce: "1"
+          - cni: calico
+            engine: calico
+            kindcfg: kind-calico.yaml
+            enforce: "0"
+          - cni: cilium
+            engine: cilium
+            kindcfg: kind-cilium.yaml
+            enforce: "0"
+          - cni: calico
+            engine: clusterNetworkPolicy
+            kindcfg: kind-calico.yaml
+            enforce: "0"
+    steps:
+      - name: Clone Git Repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build container image (dev / HEAD)
+        run: docker build --build-arg VERSION=smoke --build-arg COMMIT=${{ github.sha }} -t jaas:smoke .
+      - name: Create kind cluster (no default CNI)
+        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1
+        with:
+          version: ${{ needs.discover.outputs.kind_latest }}
+          cluster_name: jaas-npe
+          node_image: kindest/node:${{ needs.discover.outputs.k8s_latest }}
+          config: hack/smoke/${{ matrix.kindcfg }}
+          wait: "0s"
+      - name: Install the enforcing CNI (${{ matrix.cni }})
+        run: hack/smoke/setup-${{ matrix.cni }}.sh
+      - name: Install the Network Policy API CRDs (clusterNetworkPolicy engine)
+        if: matrix.engine == 'clusterNetworkPolicy'
+        run: hack/smoke/setup-networkpolicy-api.sh
+      - name: Load image into kind
+        run: kind load docker-image jaas:smoke --name jaas-npe
+      - name: Cluster prereqs (Flux)
+        run: hack/smoke/setup-flux.sh ${{ needs.discover.outputs.flux_latest }}
+      - name: Install released chart (NetworkPolicy enabled, engine=${{ matrix.engine }}) with the dev image
+        run: |
+          kubectl create namespace jaas-system
+          helm upgrade --install jaas oci://ghcr.io/metio/helm-charts/jaas \
+            --version "${{ needs.discover.outputs.chart_version }}" \
+            --namespace jaas-system \
+            --set image.registry=docker.io \
+            --set image.repository=library/jaas \
+            --set-string image.tag=smoke \
+            --set operator.enabled=true \
+            --set operator.defaultServiceAccount=default \
+            --set libraries.grafonnet.enabled=false \
+            --set libraries.docsonnet.enabled=false \
+            --set libraries.xtd.enabled=false \
+            --set networkPolicy.enabled=true \
+            --set networkPolicy.engine=${{ matrix.engine }} \
+            --wait --timeout 5m
+          kubectl apply --server-side --force-conflicts -f config/crd/bases/
+      - name: Operator scenario — NetworkPolicy enforcement
+        run: ENFORCE=${{ matrix.enforce }} hack/smoke/scenario-networkpolicy-enforcement.sh
+      - name: Diagnostics on failure
+        if: failure()
+        run: |
+          kubectl -n jaas-system get all || true
+          kubectl get networkpolicies.networking.k8s.io -A -o wide || true
+          kubectl get ciliumnetworkpolicies.cilium.io -A -o wide || true
+          kubectl get networkpolicies.projectcalico.org -A -o wide || true
+          kubectl get clusternetworkpolicies.policy.networking.k8s.io -A -o wide || true
+          kubectl -n jaas-system logs deploy/jaas --tail=300 || true
+          kubectl describe jsonnetsnippet np-enforce || true
+
   # Single stably-named aggregate — the only check to mark "required". It always
   # runs (if: always()) so it reports on every PR, including ones where the kind
   # jobs skip (not operator-relevant, or no released chart yet) — those pass.
@@ -798,6 +892,7 @@ jobs:
       - image-volume
       - impersonation
       - networkpolicy
+      - networkpolicy-enforcement
     if: always()
     runs-on: ubuntu-latest
     steps:

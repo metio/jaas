@@ -129,6 +129,23 @@ fetch_artifact() {
     --image=docker.io/curlimages/curl:8.10.1 "smoke-curl-$$" -- sh -c "$script"
 }
 
+# fetch_artifact_denied <url> <from-ns> — fail unless fetching the artifact from
+# a throwaway pod in <from-ns> is BLOCKED. The counterpart to fetch_artifact:
+# under an enforcing CNI the chart's storage-port allowlist admits only
+# flux-system, so a fetch from any other namespace must be dropped. A SUCCESSFUL
+# fetch means the allowlist is NOT being enforced. The short connect timeout
+# makes a dropped dial fail fast instead of hanging on the default timeout; the
+# curl image is pinned and long-form per repo convention.
+fetch_artifact_denied() {
+  local url=$1 ns=$2
+  if kubectl -n "$ns" run --rm -i --restart=Never \
+      --image=docker.io/curlimages/curl:8.10.1 "smoke-deny-$$" \
+      -- curl -fsS --connect-timeout 8 --max-time 15 "$url" -o /dev/null; then
+    die "artifact was reachable from $ns — the storage-port allowlist is NOT enforcing (it should admit only flux-system)"
+  fi
+  log "artifact correctly BLOCKED from $ns (storage-port allowlist enforced)"
+}
+
 # has_event <name> <ns> <type> <reason> — true if a matching event exists.
 has_event() {
   kubectl -n "$2" get events --field-selector "involvedObject.name=$1" \
