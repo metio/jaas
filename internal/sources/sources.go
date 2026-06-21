@@ -23,6 +23,7 @@ package sources
 
 import (
 	"archive/tar"
+	"bufio"
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
@@ -812,7 +813,15 @@ func extractTarballWithLimits(r io.Reader, pathPrefix string, maxBytes, perEntry
 	// skips, which tar.Next still decompresses. Wrapping the compressed
 	// input instead would only bound the on-disk archive size (already
 	// covered by MaxArchiveBytes) and let a tiny bomb expand unbounded.
-	gz, err := gzip.NewReader(r)
+	// Wrap r in a bufio.Reader and hand THAT to gzip: a bufio.Reader is an
+	// io.ByteReader, so gzip consumes it directly instead of adding its own
+	// internal buffering. With a bare *os.File (not an io.ByteReader) gzip would
+	// buffer and read ahead past the first member's boundary, so the gz.Reset
+	// trailing-member check below would re-read from an already-advanced offset
+	// and miss a concatenated second member entirely. Sharing one bufio.Reader
+	// between NewReader and Reset keeps the offset exact.
+	br := bufio.NewReader(r)
+	gz, err := gzip.NewReader(br)
 	if err != nil {
 		return nil, fmt.Errorf("gzip: %w", err)
 	}
@@ -884,17 +893,26 @@ func extractTarballWithLimits(r io.Reader, pathPrefix string, maxBytes, perEntry
 	// capped reader so the gzip reader reaches this member's real boundary;
 	// the cap still guards against a bomb hiding in that tail.
 	if _, err := io.Copy(io.Discard, capped); err != nil {
-		return nil, fmt.Errorf("gzip drain: %w", err)
+		// A bomb hiding in the member tail surfaces as the cap error — keep it
+		// so the classifier reports "too large", not "trailing data". Any other
+		// drain error is a corrupt member: non-transient, so route it through
+		// the trailing-data sentinel rather than the default transient path
+		// (which would retry a permanently-malformed archive forever).
+		if errors.Is(err, ErrDecompressedTooLarge) {
+			return nil, err
+		}
+		return nil, fmt.Errorf("%w: draining the first gzip member: %v", ErrGzipTrailingData, err)
 	}
 	// With multistream disabled the gzip reader is now at the first member's
 	// EOF. gz.Reset advancing to a NEXT member (multi-member archive) means
 	// the upstream published a concatenated .tar.gz whose tail this extract
 	// silently dropped — reject it rather than return the partial map as
-	// success.
-	if err := gz.Reset(r); err == nil {
+	// success. A non-EOF error means trailing non-gzip garbage, equally a
+	// malformed archive: both are non-transient via the sentinel.
+	if err := gz.Reset(br); err == nil {
 		return nil, ErrGzipTrailingData
 	} else if !errors.Is(err, io.EOF) {
-		return nil, fmt.Errorf("gzip trailing check: %w", err)
+		return nil, fmt.Errorf("%w: %v", ErrGzipTrailingData, err)
 	}
 	return files, nil
 }

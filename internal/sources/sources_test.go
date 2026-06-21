@@ -20,6 +20,8 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -362,6 +364,31 @@ func TestExtractTarball_RejectsMultiMemberGzip(t *testing.T) {
 	}
 	if !errors.Is(err, ErrGzipTrailingData) {
 		t.Errorf("error = %v, want ErrGzipTrailingData", err)
+	}
+}
+
+func TestExtractTarball_RejectsMultiMemberGzip_OsFile(t *testing.T) {
+	// The production caller (Fetch → downloadToTemp) passes an *os.File, which
+	// is NOT an io.ByteReader. The bytes.Reader-based test above masks the
+	// real-world bug because gzip consumes a bytes.Reader without read-ahead;
+	// over an *os.File gzip buffers and reads past member one, so the
+	// trailing-member check must operate on a shared bufio.Reader to stay exact.
+	first := buildTarGz(t, map[string]string{"main.jsonnet": `{ a: 1 }`})
+	second := buildTarGz(t, map[string]string{"sneaky.jsonnet": `{ b: 2 }`})
+	concatenated := append(append([]byte{}, first...), second...)
+
+	p := filepath.Join(t.TempDir(), "a.tar.gz")
+	if err := os.WriteFile(p, concatenated, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fh, err := os.Open(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fh.Close()
+
+	if _, err := extractTarball(fh, "", 1<<20); !errors.Is(err, ErrGzipTrailingData) {
+		t.Fatalf("multi-member gzip via *os.File: err = %v, want ErrGzipTrailingData (second member must not be silently dropped)", err)
 	}
 }
 
