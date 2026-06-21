@@ -1359,8 +1359,7 @@ func classifyFetchError(err error) (reason, msg string, transient bool) {
 	case errors.Is(err, sources.ErrArtifactBodyTooLarge),
 		errors.Is(err, sources.ErrTarballTooLarge),
 		errors.Is(err, sources.ErrTarEntryTooLarge),
-		errors.Is(err, sources.ErrDecompressedTooLarge),
-		errors.Is(err, sources.ErrGzipTrailingData):
+		errors.Is(err, sources.ErrDecompressedTooLarge):
 		// Tarball-shape errors are non-transient — the upstream
 		// must shrink / sanitize / re-publish. Without these arms the
 		// errors fell through to the default transient branch and

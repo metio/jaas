@@ -151,11 +151,6 @@ func TestClassifyFetchError_NonTransientCases(t *testing.T) {
 			wantMsgIn: "decompressed gzip stream exceeded",
 		},
 		{
-			name:      "ErrGzipTrailingData (multi-member / truncated)",
-			err:       sources.ErrGzipTrailingData,
-			wantMsgIn: "trailing data",
-		},
-		{
 			name:      "ErrArtifactNotFound (permanent 4xx)",
 			err:       sources.ErrArtifactNotFound,
 			wantMsgIn: "permanent HTTP error",
