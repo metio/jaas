@@ -585,6 +585,14 @@ func validTarEntryPath(p string) error {
 	if strings.HasPrefix(p, "/") {
 		return fmt.Errorf("storage: tar entry %q is absolute", p)
 	}
+	// A NUL truncates the name for C-based extractors, and a backslash is a
+	// path separator on Windows — both let a member name that looks safe here
+	// escape on extraction. The Fetcher rejects them on incoming artifacts;
+	// inline spec.files keys reach the tar through this gate instead, so apply
+	// the same guard or the two paths disagree on what a safe name is.
+	if strings.ContainsRune(p, 0) || strings.ContainsRune(p, '\\') {
+		return fmt.Errorf("storage: tar entry %q contains a NUL or backslash", p)
+	}
 	for _, part := range strings.Split(p, "/") {
 		if part == ".." {
 			return fmt.Errorf("storage: tar entry %q contains a traversal", p)

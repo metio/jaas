@@ -102,6 +102,44 @@ func newStore(t *testing.T) storage.Backend {
 	return store
 }
 
+func TestResolveRevisions(t *testing.T) {
+	r1, r2 := "sha256:newer", "sha256:older"
+	tests := []struct {
+		name             string
+		history          []string // most-recent first
+		from, to         string
+		wantFrom, wantTo string
+		wantErr          bool
+	}{
+		{name: "both explicit needs no history", from: "x", to: "y", wantFrom: "x", wantTo: "y"},
+		{name: "both default from two-entry history", history: []string{r1, r2}, wantFrom: r2, wantTo: r1},
+		// The bug: an explicit from + one retained revision must default `to`,
+		// not error telling the caller to "pass explicit from/to".
+		{name: "explicit from, default to, one entry", history: []string{r1}, from: "x", wantFrom: "x", wantTo: r1},
+		{name: "explicit to, default from, two entries", history: []string{r1, r2}, to: "y", wantFrom: r2, wantTo: "y"},
+		{name: "default to with no history errors", history: nil, from: "x", wantErr: true},
+		{name: "default from with one entry errors", history: []string{r1}, to: "y", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			snip := snippetWithHistory("ns", "name", tt.history...)
+			gotFrom, gotTo, err := resolveRevisions(snip, tt.from, tt.to)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("expected error, got from=%q to=%q", gotFrom, gotTo)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if gotFrom != tt.wantFrom || gotTo != tt.wantTo {
+				t.Errorf("got (from=%q,to=%q), want (from=%q,to=%q)", gotFrom, gotTo, tt.wantFrom, tt.wantTo)
+			}
+		})
+	}
+}
+
 func TestDiffRevisionsHandler(t *testing.T) {
 	const ns, name = "team-a", "dash"
 	r1, r2 := "sha256:1111111111111111", "sha256:2222222222222222"

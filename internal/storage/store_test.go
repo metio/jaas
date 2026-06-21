@@ -346,6 +346,10 @@ func TestValidNoTraversal_AcceptsCleanComponents(t *testing.T) {
 func TestValidTarEntryPath_RejectsAllUnsafeShapes(t *testing.T) {
 	cases := []string{
 		"", "/abs/path", "../escape", "a/../escape", "deeply/nested/../escape",
+		// NUL truncates the name for C extractors; backslash is a Windows path
+		// separator — both can escape on extraction and must be rejected, the
+		// same as the Fetcher rejects them on incoming artifacts.
+		"a\x00b", "evil\\..\\x", "a\\b",
 	}
 	for _, c := range cases {
 		if err := validTarEntryPath(c); err == nil {

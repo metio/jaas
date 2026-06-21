@@ -1268,16 +1268,17 @@ func isPermanentAPIError(err error) bool {
 
 // rbacDenialMessage builds the user-facing message for a permanent
 // API error. The Forbidden path quotes the apiserver's verbatim
-// error (which names the SA, verb, and resource), prefixed with a
-// pointer to the README's tenant-RBAC section. The NoMatchError path
-// names the missing kind so the operator knows which CRD to install.
+// error (which names the SA, verb, and resource); decorateMessage
+// appends the rbacdenied runbook link with the remediation steps. The
+// NoMatchError path names the missing kind so the operator knows which
+// CRD to install.
 // The Invalid / BadRequest / MethodNotSupported paths name the
 // schema or verb mismatch — the operator must rebuild the artifact or
 // adjust spec, not retry.
 func rbacDenialMessage(context string, err error) string {
 	switch {
 	case apierrors.IsForbidden(err):
-		return "RBAC denied " + context + " — grant the missing verb (see README's tenant-RBAC section). " + err.Error()
+		return "RBAC denied " + context + " — grant the tenant ServiceAccount the missing verb. " + err.Error()
 	case apimeta.IsNoMatchError(err), runtime.IsNotRegisteredError(err):
 		return context + " refers to a kind not registered with the apiserver — install the corresponding CRD. " + err.Error()
 	case apierrors.IsInvalid(err), apierrors.IsBadRequest(err):
@@ -1300,8 +1301,8 @@ func rbacDenialMessage(context string, err error) string {
 //   - apiserver-level RBAC denial (apierrors.IsForbidden) is
 //     NON-transient. Retry can't grant a verb; the cluster operator
 //     must update the chart's ClusterRole or the tenant's RoleBinding.
-//     Message names "RBAC denied" so kubectl describe sends operators
-//     to the verb table in README's tenant-RBAC section.
+//     Message names "RBAC denied" so kubectl describe surfaces it,
+//     with the rbacdenied runbook link appended by decorateMessage.
 //   - CRD not installed (meta.IsNoMatchError) is NON-transient. The
 //     cluster operator must install the CRD (typically Flux's
 //     source-controller). Message names the missing kind.

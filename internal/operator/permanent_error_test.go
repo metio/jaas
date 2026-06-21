@@ -65,7 +65,7 @@ func TestRbacDenialMessage_NamesEachPermanentKind(t *testing.T) {
 		err  error
 		want string
 	}{
-		{"Forbidden", apierrors.NewForbidden(gr, "w", errors.New("rbac")), "grant the missing verb"},
+		{"Forbidden", apierrors.NewForbidden(gr, "w", errors.New("rbac")), "grant the tenant ServiceAccount the missing verb"},
 		{"NoMatchError", &apimeta.NoKindMatchError{GroupKind: gk}, "install the corresponding CRD"},
 		{"Invalid", apierrors.NewInvalid(gk, "w", nil), "violates the CRD's validation"},
 		{"BadRequest", apierrors.NewBadRequest("bad payload"), "violates the CRD's validation"},

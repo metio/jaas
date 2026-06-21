@@ -96,21 +96,23 @@ func (cfg Config) diffRevisionsHandler(ctx context.Context, _ *mcpsdk.CallToolRe
 }
 
 // resolveRevisions picks the revisions to compare. Explicit inputs win;
-// otherwise each empty side defaults to the most recent (to) and
-// second-most-recent (from) retained revision — status.history is most-recent
-// first. Defaulting needs at least two retained revisions.
+// each empty side defaults from status.history (most-recent first): `to` from
+// the newest revision, `from` from the second-newest. The history depth needed
+// depends on which side(s) must be defaulted — defaulting only `to` needs one
+// retained revision, defaulting `from` needs two. A caller that supplies one
+// side must not be told to "pass explicit from/to".
 func resolveRevisions(snip *jaasv1.JsonnetSnippet, from, to string) (string, string, error) {
-	if from != "" && to != "" {
-		return from, to, nil
-	}
 	hist := snip.Status.History
-	if len(hist) < 2 {
-		return "", "", fmt.Errorf("need two retained revisions to diff, but %s/%s has %d; pass explicit from/to, or raise spec.history", snip.Namespace, snip.Name, len(hist))
-	}
 	if to == "" {
+		if len(hist) < 1 {
+			return "", "", fmt.Errorf("no retained revisions to diff for %s/%s; publish a revision first, or raise spec.history", snip.Namespace, snip.Name)
+		}
 		to = hist[0].Revision
 	}
 	if from == "" {
+		if len(hist) < 2 {
+			return "", "", fmt.Errorf("need two retained revisions to default 'from', but %s/%s has %d; pass an explicit from, or raise spec.history", snip.Namespace, snip.Name, len(hist))
+		}
 		from = hist[1].Revision
 	}
 	return from, to, nil
