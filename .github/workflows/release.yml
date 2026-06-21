@@ -6,6 +6,14 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+# Serialize release runs. Each run's release-notes lower bound is the latest tag
+# at the time its prepare job runs; two merges in quick succession would both
+# read that bound before either run has tagged, producing overlapping notes.
+# Queueing (no cancel) lets the earlier release finish and create its tag first,
+# so the next run's notes start from that tag and carry only its own commits.
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
 jobs:
   prepare:
     name: Prepare Release
