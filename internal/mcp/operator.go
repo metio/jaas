@@ -77,6 +77,15 @@ func registerOperatorTools(server *mcpsdk.Server, cfg Config) {
 		Name:        "get_snippet",
 		Description: "Get one JsonnetSnippet's full status: Ready condition (status, reason, message), the per-reason runbook URL, suspend state, revision, artifact URL, and the retained revision history.",
 	}, cfg.getSnippetHandler)
+
+	// diff_revisions reads published artifacts in-process, so it needs the
+	// artifact backend in addition to the Kubernetes client. It stays read-only.
+	if cfg.Store != nil {
+		mcpsdk.AddTool(server, &mcpsdk.Tool{
+			Name:        "diff_revisions",
+			Description: "Diff the published output of a JsonnetSnippet between two retained revisions. Omit the revisions to compare the two most recent in status.history. Returns a per-file unified diff of the artifact contents.",
+		}, cfg.diffRevisionsHandler)
+	}
 }
 
 func (cfg Config) listSnippetsHandler(ctx context.Context, _ *mcpsdk.CallToolRequest, in listSnippetsInput) (*mcpsdk.CallToolResult, listSnippetsOutput, error) {

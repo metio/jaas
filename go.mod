@@ -14,6 +14,7 @@ require (
 	github.com/google/go-jsonnet v0.22.0
 	github.com/minio/minio-go/v7 v7.2.0
 	github.com/modelcontextprotocol/go-sdk v1.6.1
+	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2
 	github.com/prometheus/client_golang v1.23.2
 	github.com/spf13/pflag v1.0.10
 	go.opentelemetry.io/otel v1.44.0
@@ -80,7 +81,6 @@ require (
 	github.com/onsi/gomega v1.40.0 // indirect
 	github.com/philhofer/fwd v1.2.0 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
-	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/prometheus/client_model v0.6.2 // indirect
 	github.com/prometheus/common v0.67.5 // indirect
 	github.com/prometheus/procfs v0.20.1 // indirect

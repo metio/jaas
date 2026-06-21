@@ -621,6 +621,10 @@ func (m *mockStore) Delete(_ context.Context, namespace, name string) error {
 
 func (m *mockStore) HTTPHandler() http.Handler { return http.NotFoundHandler() }
 
+func (m *mockStore) Open(_ context.Context, _, _, _ string) (io.ReadCloser, error) {
+	return nil, storage.ErrRevisionNotFound
+}
+
 func (m *mockStore) Close() error { return nil }
 
 func (m *mockStore) Sweep(_ context.Context, _ time.Duration) (int, error) { return 0, nil }

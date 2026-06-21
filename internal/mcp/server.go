@@ -21,6 +21,8 @@ import (
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/metio/jaas/internal/storage"
 )
 
 // rfc3339 is the timestamp layout used for every time field the tools emit.
@@ -67,6 +69,12 @@ type Config struct {
 	// unless the operator opts in (--mcp-allow-mutations). Has no effect without
 	// a KubeClient.
 	AllowMutations bool
+
+	// Store reads published artifact revisions in-process for the read-only
+	// diff_revisions tool. The embedded operator-mode server sets it to the
+	// same artifact backend the reconciler publishes to; when nil (or without a
+	// KubeClient) the diff tool is not registered.
+	Store storage.Backend
 }
 
 // NewServer builds the MCP server with the jaas tool catalog registered. It
