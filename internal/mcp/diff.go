@@ -119,7 +119,12 @@ func resolveRevisions(snip *jaasv1.JsonnetSnippet, from, to string) (string, str
 }
 
 func (cfg Config) readRevision(ctx context.Context, namespace, name, revision string) (map[string]string, error) {
-	rc, err := cfg.Store.Open(ctx, namespace, name, revision)
+	// The artifact is stored under the short revision: the Publisher strips the
+	// "sha256:" prefix before Store.Put, and Open keys on "<shortrev>.tar.gz".
+	// But status.history (where from/to default) records the full "sha256:<hex>"
+	// form, so strip the prefix here or Open never finds the object — on either
+	// backend.
+	rc, err := cfg.Store.Open(ctx, namespace, name, strings.TrimPrefix(revision, "sha256:"))
 	if err != nil {
 		return nil, err
 	}

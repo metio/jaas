@@ -108,6 +108,9 @@ type fakeS3 struct {
 	// failList, when non-nil, makes serveList return a 5xx body so the
 	// test can drive S3Backend.Delete / Prune's list-stream error path.
 	failList string
+	// failPut, when non-nil, makes every object/part PUT return a 5xx so the
+	// test can drive S3Backend.Put's mid-stream pipe error + drain path.
+	failPut string
 }
 
 func newFakeS3(bucket string) *fakeS3 {
@@ -134,6 +137,14 @@ func (f *fakeS3) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodPut:
+		if f.failPut != "" {
+			// 400 (not 5xx): a non-retryable status so minio-go fails the upload
+			// immediately. A retryable 5xx makes minio rewind+retry the part
+			// buffer, whose internal retry has its own Seek-vs-Read race — not
+			// what this exercises (Put's own pipe error/drain path).
+			http.Error(w, f.failPut, http.StatusBadRequest)
+			return
+		}
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
 			http.Error(w, "read body", http.StatusBadRequest)
@@ -584,6 +595,28 @@ func TestS3_HTTPHandlerStreamsObject(t *testing.T) {
 // any non-`.tar.gz` key is refused before the bucket is touched, so a caller
 // reaching this port cannot read arbitrary objects under the prefix. Mirrors
 // *Store.HTTPHandler.
+// TestS3_PutSurfacesUploadError exercises Put's mid-stream error path: the
+// upload fails while the tarball is still being streamed through the io.Pipe, so
+// Put must surface the error AND unblock its writer goroutine (CloseWithError +
+// drain + cancel) rather than deadlock. A deadlock would hang the test until the
+// suite timeout; the assertion is just that Put returns the error.
+func TestS3_PutSurfacesUploadError(t *testing.T) {
+	b, fake, _ := newTestS3Backend(t, "")
+	fake.failPut = "injected upload failure"
+	// Incompressible 20 MiB payload so the gzip'd stream crosses the 16 MiB part
+	// boundary and the writer is genuinely mid-stream when the upload fails.
+	body := make([]byte, 20*1024*1024)
+	rng := newPRNG(0x1234567890ABCDEF)
+	for i := range body {
+		body[i] = byte(rng.next())
+	}
+	_, err := b.Put(context.Background(), "ns", "snip", strings.Repeat("a", 64),
+		[]FileEntry{{Path: "big.bin", Content: body}})
+	if err == nil {
+		t.Fatal("Put succeeded despite an injected upload failure; expected an error")
+	}
+}
+
 func TestS3_HTTPHandler_RejectsNonTarball(t *testing.T) {
 	b, fake, _ := newTestS3Backend(t, "")
 	// Plant a non-artifact object directly in the bucket; without the allowlist

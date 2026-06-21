@@ -80,14 +80,20 @@ func snippetWithHistory(namespace, name string, revisions ...string) *jaasv1.Jso
 	return s
 }
 
-// putRevision writes one revision's files into the store.
+// putRevision writes one revision's files into the store under the SHORT
+// revision key, exactly as the Publisher does (it strips the "sha256:" prefix
+// before Store.Put). Callers pass the full "sha256:<hex>" form that
+// status.history records, so the round-trip exercises the prefix-strip the diff
+// tool must apply on read — storing under the full form would mask that
+// production key mismatch.
 func putRevision(t *testing.T, store storage.Backend, namespace, name, revision string, files map[string]string) {
 	t.Helper()
 	var entries []storage.FileEntry
 	for p, c := range files {
 		entries = append(entries, storage.FileEntry{Path: p, Content: []byte(c)})
 	}
-	if _, err := store.Put(context.Background(), namespace, name, revision, entries); err != nil {
+	shortRev := strings.TrimPrefix(revision, "sha256:")
+	if _, err := store.Put(context.Background(), namespace, name, shortRev, entries); err != nil {
 		t.Fatalf("put %s: %v", revision, err)
 	}
 }
@@ -100,6 +106,34 @@ func newStore(t *testing.T) storage.Backend {
 	}
 	t.Cleanup(func() { _ = store.Close() })
 	return store
+}
+
+func FuzzExtractTarGz(f *testing.F) {
+	// Seed with a valid single-member tar.gz so the fuzzer mutates outward from
+	// a parseable archive, plus a non-gzip blob.
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gz)
+	_ = tw.WriteHeader(&tar.Header{Name: "main.json", Typeflag: tar.TypeReg, Mode: 0o644, Size: 2})
+	_, _ = tw.Write([]byte("{}"))
+	_ = tw.Close()
+	_ = gz.Close()
+	f.Add(buf.Bytes())
+	f.Add([]byte("not a gzip stream"))
+
+	f.Fuzz(func(t *testing.T, data []byte) {
+		files, err := extractTarGz(bytes.NewReader(data))
+		if err != nil {
+			return // rejecting malformed input is the expected outcome
+		}
+		// Anything accepted must carry a safe, non-escaping key.
+		for name := range files {
+			if name == ".." || strings.HasPrefix(name, "../") || strings.HasPrefix(name, "/") ||
+				strings.ContainsRune(name, 0) || strings.ContainsRune(name, '\\') {
+				t.Errorf("extractTarGz accepted an unsafe entry name %q", name)
+			}
+		}
+	})
 }
 
 func TestResolveRevisions(t *testing.T) {
