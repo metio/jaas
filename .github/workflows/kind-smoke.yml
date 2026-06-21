@@ -893,6 +893,9 @@ jobs:
       matrix:
         include:
           - engine: istio
+            principal: cluster.local/ns/mesh-clients/sa/mesh-reader
+          - engine: linkerd
+            principal: mesh-reader.mesh-clients.serviceaccount.identity.linkerd.cluster.local
     steps:
       - name: Clone Git Repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
@@ -918,7 +921,10 @@ jobs:
         run: |
           for ns in jaas-system mesh-clients; do
             kubectl create namespace "$ns"
+            # Mark for injection in both meshes' idioms — each marker is inert
+            # unless that mesh is installed, so the step stays engine-agnostic.
             kubectl label namespace "$ns" istio-injection=enabled
+            kubectl annotate namespace "$ns" linkerd.io/inject=enabled
           done
           # The authorized client identity. The denied client reuses the
           # namespace default SA, so allow/deny turns on the ServiceAccount alone.
@@ -939,7 +945,7 @@ jobs:
             --set serviceMesh.enabled=true \
             --set serviceMesh.engine=${{ matrix.engine }} \
             --set serviceMesh.mtls=permissive \
-            --set 'serviceMesh.storage.from[0].principals[0]=cluster.local/ns/mesh-clients/sa/mesh-reader' \
+            --set 'serviceMesh.storage.from[0].principals[0]=${{ matrix.principal }}' \
             --wait --timeout 5m
           kubectl apply --server-side --force-conflicts -f config/crd/bases/
       - name: Operator scenario — service-mesh authz enforcement (by SA identity)
