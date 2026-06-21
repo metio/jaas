@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -1362,6 +1363,75 @@ func TestReconcile_DeletionWithdrawForbiddenForceDropsImmediately(t *testing.T) 
 	}
 	if !found {
 		t.Errorf("no Warning WithdrawForced event among %v", gotEvents)
+	}
+}
+
+// TestReconcileDelete_ForceDropMetricCountsOnceAcrossFailedUpdate pins that the
+// force-drop metric fires once per actual drop, not once per failed
+// finalizer-removal Update retry — otherwise a flapping apiserver inflates the
+// broken-pipeline alert metric.
+func TestReconcileDelete_ForceDropMetricCountsOnceAcrossFailedUpdate(t *testing.T) {
+	snip := sampleSnippet()
+	snip.Finalizers = []string{FinalizerName}
+	deletedAt := metav1.NewTime(time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC))
+	snip.DeletionTimestamp = &deletedAt
+
+	forbiddenErr := apierrors.NewForbidden(
+		schema.GroupResource{Group: "source.toolkit.fluxcd.io", Resource: "externalartifacts"},
+		snip.Name, errors.New("RBAC: forbidden"),
+	)
+
+	var updateCalls int
+	c := fake.NewClientBuilder().
+		WithScheme(publisherScheme(t)).
+		WithObjects(snip).
+		WithStatusSubresource(&jaasv1.JsonnetSnippet{}, func() client.Object {
+			u := &unstructured.Unstructured{}
+			u.SetGroupVersionKind(externalArtifactGVK)
+			return u
+		}()).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Delete: func(_ context.Context, _ client.WithWatch, obj client.Object, _ ...client.DeleteOption) error {
+				if u, ok := obj.(*unstructured.Unstructured); ok && u.GroupVersionKind() == externalArtifactGVK {
+					return forbiddenErr
+				}
+				return nil
+			},
+			Update: func(ctx context.Context, cl client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+				if _, ok := obj.(*jaasv1.JsonnetSnippet); ok {
+					updateCalls++
+					if updateCalls == 1 {
+						return apierrors.NewConflict(schema.GroupResource{Resource: "jsonnetsnippets"}, snip.Name, errors.New("conflict"))
+					}
+				}
+				return cl.Update(ctx, obj, opts...)
+			},
+		}).
+		Build()
+	r := newReconciler(t, c)
+	r.Publisher = newTestPublisher(t, c)
+	r.Clock = func() time.Time { return deletedAt.Time.Add(1 * time.Second) }
+	r.EventRecorder = events.NewFakeRecorder(8)
+
+	key := types.NamespacedName{Name: snip.Name, Namespace: snip.Namespace}
+	labels := []string{snip.Namespace, snip.Name, "withdraw_permanent"}
+	before := testutil.ToFloat64(snippetForceDropTotal.WithLabelValues(labels...))
+
+	// Round 1: Withdraw forbidden → force-drop decided, but the finalizer Update
+	// fails → error returned and NOTHING emitted.
+	if _, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: key}); err == nil {
+		t.Fatal("expected the failed finalizer Update to surface as an error")
+	}
+	if mid := testutil.ToFloat64(snippetForceDropTotal.WithLabelValues(labels...)); mid != before {
+		t.Errorf("force-drop metric moved on a failed-Update reconcile: before=%v mid=%v", before, mid)
+	}
+
+	// Round 2: retry. Update succeeds → force-drop emitted exactly once.
+	if _, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: key}); err != nil {
+		t.Fatalf("retry reconcile: %v", err)
+	}
+	if after := testutil.ToFloat64(snippetForceDropTotal.WithLabelValues(labels...)); after-before != 1 {
+		t.Errorf("force-drop metric delta = %v, want exactly 1 across the failed+successful Update", after-before)
 	}
 }
 
@@ -2948,8 +3018,15 @@ func TestReconcile_SuspendSkipsPipelineAndFlipsSuspendedReason(t *testing.T) {
 		t.Fatalf("finalizer reconcile: %v", err)
 	}
 	// Round 2 hits the suspend branch.
-	if _, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: key}); err != nil {
+	res, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: key})
+	if err != nil {
 		t.Fatalf("suspend reconcile: %v", err)
+	}
+	// A paused snippet must not self-requeue — an unsuspend spec edit (or a
+	// watch event) drives the next reconcile, not a timer. A non-zero requeue
+	// would wake it every minute forever and churn the reconcile-total metric.
+	if res.RequeueAfter != 0 {
+		t.Errorf("suspend reconcile RequeueAfter = %v, want 0", res.RequeueAfter)
 	}
 
 	var got jaasv1.JsonnetSnippet

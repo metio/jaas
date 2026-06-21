@@ -31,10 +31,12 @@ type JsonnetSnippetSpec struct {
 	// from one tree.
 	//
 	// Restricted to relative `[A-Za-z0-9._/-]+` paths with no `..`
-	// segments at admission so a tenant can't push a tarball-extract
-	// or operator-pod-FS traversal through this field. The reconciler
-	// enforces the same shape as a fallback when admission is
-	// bypassed.
+	// segments by the CRD's structural schema (the Pattern + XValidation
+	// markers below), which the apiserver enforces on every write — a
+	// validating-webhook bypass does not disable it. The reconciler never
+	// resolves this as a filesystem path: it is only a key into the
+	// resolved source's in-memory file map and the eval diagnostic label,
+	// so there is no on-disk traversal to re-guard at reconcile time.
 	// +kubebuilder:default=main.jsonnet
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=255

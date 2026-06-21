@@ -318,25 +318,34 @@ func (r *SnippetReconciler) reconcileDelete(ctx context.Context, logger *slog.Lo
 		r.forgetPerSnippetCaches(ctx, logger, snip)
 		return ctrl.Result{}, nil
 	}
+	var forced *forceDropInfo
 	if r.Publisher != nil {
 		tenant, err := r.tenantClient(ctx, snip)
 		if err != nil {
-			if forced, requeueErr := r.classifyWithdrawFailure(ctx, logger, snip, err,
-				"tenant_client_timeout", "tenant_client_permanent", "build impersonation client"); !forced {
+			info, requeueErr := r.classifyWithdrawFailure(snip, err,
+				"tenant_client_timeout", "tenant_client_permanent", "build impersonation client")
+			if info == nil {
 				return ctrl.Result{}, requeueErr
 			}
-			// Forced: fall through to RemoveFinalizer + Update below.
+			forced = info // fall through to RemoveFinalizer + Update below.
 		} else if err := r.Publisher.Withdraw(ctx, tenant, snip); err != nil {
-			if forced, requeueErr := r.classifyWithdrawFailure(ctx, logger, snip, err,
-				"withdraw_timed_out", "withdraw_permanent", "withdraw artifact"); !forced {
+			info, requeueErr := r.classifyWithdrawFailure(snip, err,
+				"withdraw_timed_out", "withdraw_permanent", "withdraw artifact")
+			if info == nil {
 				return ctrl.Result{}, requeueErr
 			}
-			// Forced: fall through to RemoveFinalizer + Update below.
+			forced = info
 		}
 	}
 	controllerutil.RemoveFinalizer(snip, FinalizerName)
 	if err := r.Client.Update(ctx, snip); err != nil {
+		// Force-drop event + metric are NOT emitted here: a failed Update means
+		// the finalizer is still on. The retry re-decides and emits once the
+		// Update lands, so the alert metric counts one drop, not one per retry.
 		return ctrl.Result{}, err
+	}
+	if forced != nil {
+		r.forceDropFinalizer(ctx, logger, snip, forced.elapsed, forced.dropReason, forced.lastErr)
 	}
 	r.forgetPerSnippetCaches(ctx, logger, snip)
 	logger.InfoContext(ctx, "Finalizer removed; JsonnetSnippet may now be garbage-collected")
@@ -353,10 +362,13 @@ func (r *SnippetReconciler) reconcileDelete(ctx context.Context, logger *slog.Lo
 // timeout or the classifier fires. timeoutReason / permanentReason label the
 // jaas_snippet_force_drop_total metric; wrapPrefix contextualises err.
 //
-// Returns (true, nil) after force-dropping — the caller falls through to
-// remove the finalizer — or (false, requeueErr) for the caller to return and
-// let controller-runtime retry.
-func (r *SnippetReconciler) classifyWithdrawFailure(ctx context.Context, logger *slog.Logger, snip *jaasv1.JsonnetSnippet, err error, timeoutReason, permanentReason, wrapPrefix string) (bool, error) {
+// Returns (info, nil) when the finalizer should be force-dropped — the caller
+// removes the finalizer and then calls forceDropFinalizer(info) to emit the
+// Warning event + metric, so they fire exactly once, AFTER the finalizer Update
+// actually lands. Returns (nil, requeueErr) for the caller to return and let
+// controller-runtime retry. Emitting before the Update would double-count the
+// jaas_snippet_force_drop_total alert metric on every failed-Update retry.
+func (r *SnippetReconciler) classifyWithdrawFailure(snip *jaasv1.JsonnetSnippet, err error, timeoutReason, permanentReason, wrapPrefix string) (*forceDropInfo, error) {
 	wrapped := fmt.Errorf("%s: %w", wrapPrefix, err)
 	forceDrop, elapsed := r.withdrawTimedOut(snip)
 	dropReason := timeoutReason
@@ -366,10 +378,18 @@ func (r *SnippetReconciler) classifyWithdrawFailure(ctx context.Context, logger 
 		dropReason = permanentReason
 	}
 	if forceDrop {
-		r.forceDropFinalizer(ctx, logger, snip, elapsed, dropReason, wrapped)
-		return true, nil
+		return &forceDropInfo{elapsed: elapsed, dropReason: dropReason, lastErr: wrapped}, nil
 	}
-	return false, wrapped
+	return nil, wrapped
+}
+
+// forceDropInfo carries the force-drop decision from classifyWithdrawFailure to
+// the post-Update emission point, so the event + metric fire once the finalizer
+// is genuinely gone, not on a retry that hasn't dropped it yet.
+type forceDropInfo struct {
+	elapsed    time.Duration
+	dropReason string
+	lastErr    error
 }
 
 // forgetPerSnippetCaches evicts every cache entry keyed by this snippet
@@ -424,10 +444,11 @@ func (r *SnippetReconciler) withdrawTimedOut(snip *jaasv1.JsonnetSnippet) (bool,
 	return elapsed >= wait, elapsed
 }
 
-// forceDropFinalizer emits the Warning event + diagnostic log that
-// accompanies a force-drop of the finalizer. The actual RemoveFinalizer
-// + Client.Update lives in reconcileDelete so the success and force-drop
-// paths share that code.
+// forceDropFinalizer emits the Warning event + metric + diagnostic log that
+// accompanies a force-drop of the finalizer. reconcileDelete calls it only
+// AFTER the RemoveFinalizer + Client.Update has succeeded, so the event and the
+// jaas_snippet_force_drop_total metric fire exactly once per actual drop rather
+// than once per failed-Update retry.
 //
 // dropReason is a short stable string naming which decision branch
 // triggered the drop ("tenant_client_timeout", "tenant_client_permanent",
@@ -1449,6 +1470,14 @@ func (r *SnippetReconciler) failReady(ctx context.Context, snip *jaasv1.JsonnetS
 	}
 	r.emitConditionEvent(snip, prev, metav1.ConditionFalse, reason, message)
 	recordReconcileOutcome(snip.Namespace, snip.Name, string(metav1.ConditionFalse), reason)
+	// Intentional/healthy states (Suspended, Pending) are not failures awaiting
+	// out-of-band repair — a spec edit (unsuspend) or the next watch event
+	// drives them, so they get no self-heal requeue. Without this a suspended
+	// snippet would wake every minute forever, re-running the GC pass and
+	// bumping the reconcile-total metric, contradicting "paused".
+	if happyReasonsNoRunbook[reason] {
+		return ctrl.Result{}, nil
+	}
 	// Terminal failures don't engage controller-runtime's error backoff
 	// (we return nil error so the queue doesn't spin). Several of them —
 	// RBAC denied, missing CRD, a library fixed in another namespace —
