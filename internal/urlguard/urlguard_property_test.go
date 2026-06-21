@@ -39,8 +39,9 @@ func alternativeForms(a, b, c, d byte) []string {
 
 // genForbiddenIPv4 draws a byte tuple that denotes a forbidden IPv4 address:
 // loopback (127.0.0.0/8), link-local incl. cloud metadata (169.254.0.0/16),
-// unspecified (0.0.0.0), or multicast (224.0.0.0/4). ipIsForbidden classifies
-// exactly these.
+// "this network" 0.0.0.0/8 (the unspecified 0.0.0.0 plus the rest of the /8,
+// which Linux routes to loopback), or multicast (224.0.0.0/4). ipIsForbidden
+// classifies exactly these.
 func genForbiddenIPv4() *rapid.Generator[[4]byte] {
 	return rapid.Custom(func(t *rapid.T) [4]byte {
 		kind := rapid.IntRange(0, 3).Draw(t, "kind")
@@ -52,8 +53,8 @@ func genForbiddenIPv4() *rapid.Generator[[4]byte] {
 			return [4]byte{127, b, c, d}
 		case 1: // link-local 169.254.0.0/16 (cloud metadata lives here)
 			return [4]byte{169, 254, c, d}
-		case 2: // unspecified
-			return [4]byte{0, 0, 0, 0}
+		case 2: // "this network" 0.0.0.0/8 (incl. the unspecified 0.0.0.0)
+			return [4]byte{0, b, c, d}
 		default: // multicast 224.0.0.0/4 → first octet 224..239
 			return [4]byte{byte(224 + rapid.IntRange(0, 15).Draw(t, "mcast")), b, c, d}
 		}

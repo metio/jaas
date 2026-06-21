@@ -2161,6 +2161,39 @@ func TestMarkSynced_StaleGenerationAbortsBeforeWrite(t *testing.T) {
 	}
 }
 
+// TestMarkSynced_StalenessGateUsesAPIReader pins that the staleness re-read
+// consults the uncached APIReader, not the cache-lagging client. The cached
+// client carries the judged generation (a cached read would proceed and write),
+// but the uncached APIReader sees a moved generation, so markSynced must skip —
+// which can only happen if it read through APIReader.
+func TestMarkSynced_StalenessGateUsesAPIReader(t *testing.T) {
+	key := types.NamespacedName{Name: sampleSnippet().Name, Namespace: sampleSnippet().Namespace}
+
+	cached := sampleSnippet()
+	cached.Finalizers = []string{FinalizerName}
+	cached.Generation = 1 // matches judgedGen → a cached read would proceed
+	cachedClient := clientWithStatus(t, cached)
+
+	fresh := sampleSnippet()
+	fresh.Finalizers = []string{FinalizerName}
+	fresh.Generation = 5 // apiserver truth: the spec has moved on
+	apiReader := clientWithStatus(t, fresh)
+
+	r := newReconciler(t, cachedClient)
+	r.APIReader = apiReader
+
+	_, err := r.markSynced(context.Background(), cached,
+		`{"ok":true}`, "sha256:abc123", "http://artifact/", 2, 1)
+	if err != nil {
+		t.Fatalf("markSynced: %v", err)
+	}
+
+	got := refetch(t, cachedClient, key)
+	if got.Status.Revision != "" {
+		t.Errorf("Status.Revision = %q, want empty — markSynced must consult the uncached APIReader (gen 5 ≠ judged 1) and skip", got.Status.Revision)
+	}
+}
+
 // countingStatusClient counts Get and Status().Update calls without
 // changing their semantics. Lets a test prove the staleness gate did a
 // single Get and short-circuited before any status write.

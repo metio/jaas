@@ -65,10 +65,15 @@ func (cfg Config) renderHandler(ctx context.Context, _ *mcpsdk.CallToolRequest, 
 func (cfg Config) validateHandler(ctx context.Context, _ *mcpsdk.CallToolRequest, in renderInput) (*mcpsdk.CallToolResult, validateOutput, error) {
 	_, err := cfg.evaluate(ctx, in)
 	if err != nil {
-		// A full eval-slot or a timeout is an operational failure of the
+		// A full eval-slot, a timeout, or a cancelled request (client
+		// disconnect / parent ctx cancel) is an operational failure of the
 		// server, not a verdict on the snippet — surface it as a tool error.
-		// A genuine compile error is the validation verdict valid=false.
-		if errors.Is(err, eval.ErrEvalUnavailable) || errors.Is(err, context.DeadlineExceeded) {
+		// Reporting valid=false there would tell the agent a perfectly valid
+		// snippet failed to compile. A genuine compile error is the validation
+		// verdict valid=false.
+		if errors.Is(err, eval.ErrEvalUnavailable) ||
+			errors.Is(err, context.DeadlineExceeded) ||
+			errors.Is(err, context.Canceled) {
 			return cfg.evalErrorResult(err), validateOutput{}, nil
 		}
 		return nil, validateOutput{Valid: false, Error: err.Error()}, nil

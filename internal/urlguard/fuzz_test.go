@@ -58,6 +58,7 @@ func FuzzValidateHTTPURL(f *testing.F) {
 		"http://169.254.169.254/", // AWS metadata
 		"http://localhost/",
 		"http://0.0.0.0/",
+		"http://0.0.0.1/", // 0.0.0.0/8 — Linux routes the whole /8 to loopback
 		"http://224.0.0.1/",
 		"http://239.255.255.250/",
 

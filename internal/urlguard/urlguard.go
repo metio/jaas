@@ -173,7 +173,18 @@ func ipIsForbidden(ip net.IP) bool {
 		ip.IsLinkLocalUnicast() ||
 		ip.IsLinkLocalMulticast() ||
 		ip.IsMulticast() ||
-		ip.IsUnspecified()
+		ip.IsUnspecified() ||
+		isThisNetwork(ip)
+}
+
+// isThisNetwork reports whether ip falls in 0.0.0.0/8 ("this network",
+// RFC 1122 §3.2.1.3). IsUnspecified catches only 0.0.0.0 exactly, but on Linux
+// connect() to any 0.0.0.x address routes to loopback, so a host like
+// http://0.0.0.1 would otherwise pass both the string check and the dial-time
+// IP re-check and reach a local service. The whole /8 must be refused.
+func isThisNetwork(ip net.IP) bool {
+	ip4 := ip.To4()
+	return ip4 != nil && ip4[0] == 0
 }
 
 // parseAlternativeIPv4 mirrors inet_aton(3): it accepts the

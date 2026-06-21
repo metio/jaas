@@ -6,6 +6,9 @@
 package mcp
 
 import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
 	"context"
 	"strings"
 	"testing"
@@ -16,6 +19,51 @@ import (
 	jaasv1 "github.com/metio/jaas/api/v1"
 	"github.com/metio/jaas/internal/storage"
 )
+
+// TestExtractTarGz_RejectsTraversingEntries pins the defense-in-depth guard:
+// a tar entry whose name traverses (`..`), is absolute, or carries NUL/backslash
+// is dropped rather than keyed into the diff map under an escaping path.
+func TestExtractTarGz_RejectsTraversingEntries(t *testing.T) {
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gz)
+	entries := map[string]string{
+		"good.json":       `{"ok":true}`,
+		"../escape.json":  `{"evil":true}`,
+		"/abs.json":       `{"evil":true}`,
+		"a/../../up.json": `{"evil":true}`,
+	}
+	for name, content := range entries {
+		if err := tw.WriteHeader(&tar.Header{Name: name, Typeflag: tar.TypeReg, Mode: 0o644, Size: int64(len(content))}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tw.Write([]byte(content)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	files, err := extractTarGz(&buf)
+	if err != nil {
+		t.Fatalf("extractTarGz: %v", err)
+	}
+	if _, ok := files["good.json"]; !ok {
+		t.Error("clean entry good.json was dropped")
+	}
+	for _, bad := range []string{"../escape.json", "/abs.json", "a/../../up.json", "../up.json", "escape.json"} {
+		if _, ok := files[bad]; ok {
+			t.Errorf("traversing/absolute entry %q was kept: %v", bad, files)
+		}
+	}
+	if len(files) != 1 {
+		t.Errorf("expected only the clean entry to survive, got %d: %v", len(files), files)
+	}
+}
 
 // snippetWithHistory builds a snippet whose status.history lists the given
 // revisions most-recent-first, matching the operator's convention.

@@ -580,6 +580,27 @@ func TestS3_HTTPHandlerStreamsObject(t *testing.T) {
 	}
 }
 
+// TestS3_HTTPHandler_RejectsNonTarball pins the suffix allowlist: a request for
+// any non-`.tar.gz` key is refused before the bucket is touched, so a caller
+// reaching this port cannot read arbitrary objects under the prefix. Mirrors
+// *Store.HTTPHandler.
+func TestS3_HTTPHandler_RejectsNonTarball(t *testing.T) {
+	b, fake, _ := newTestS3Backend(t, "")
+	// Plant a non-artifact object directly in the bucket; without the allowlist
+	// the handler would GET and stream it back.
+	fake.objects["ns/snip/secret.json"] = []byte(`{"token":"shh"}`)
+	h := b.HTTPHandler()
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/ns/snip/secret.json", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("non-.tar.gz GET status = %d, want 404 (allowlist must block it)", rec.Code)
+	}
+	if strings.Contains(rec.Body.String(), "shh") {
+		t.Errorf("non-.tar.gz GET leaked the planted object body: %q", rec.Body.String())
+	}
+}
+
 // TestS3_PutStreams_LargePayload_RoundTripsWithCorrectDigest exercises
 // the streaming path: a payload that exceeds the multipart-part size
 // must round-trip through io.Pipe → multipart upload → reassembly
