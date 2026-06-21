@@ -916,10 +916,13 @@ jobs:
         run: hack/smoke/setup-${{ matrix.engine }}.sh
       - name: Create + mesh-inject the install and client namespaces
         run: |
-          for ns in jaas-system mesh-allowed mesh-denied; do
+          for ns in jaas-system mesh-clients; do
             kubectl create namespace "$ns"
             kubectl label namespace "$ns" istio-injection=enabled
           done
+          # The authorized client identity. The denied client reuses the
+          # namespace default SA, so allow/deny turns on the ServiceAccount alone.
+          kubectl -n mesh-clients create serviceaccount mesh-reader
       - name: Install released chart (serviceMesh enabled, engine=${{ matrix.engine }}) with the dev image
         run: |
           helm upgrade --install jaas oci://ghcr.io/metio/helm-charts/jaas \
@@ -936,10 +939,10 @@ jobs:
             --set serviceMesh.enabled=true \
             --set serviceMesh.engine=${{ matrix.engine }} \
             --set serviceMesh.mtls=permissive \
-            --set 'serviceMesh.storage.from[0].namespaces[0]=mesh-allowed' \
+            --set 'serviceMesh.storage.from[0].principals[0]=cluster.local/ns/mesh-clients/sa/mesh-reader' \
             --wait --timeout 5m
           kubectl apply --server-side --force-conflicts -f config/crd/bases/
-      - name: Operator scenario — service-mesh authz enforcement
+      - name: Operator scenario — service-mesh authz enforcement (by SA identity)
         run: ENGINE=${{ matrix.engine }} hack/smoke/scenario-servicemesh.sh
       - name: Diagnostics on failure
         if: failure()
@@ -948,7 +951,7 @@ jobs:
           kubectl -n jaas-system get authorizationpolicies.security.istio.io,peerauthentications.security.istio.io -o yaml || true
           kubectl -n jaas-system get servers.policy.linkerd.io,authorizationpolicies.policy.linkerd.io -o yaml || true
           kubectl -n jaas-system logs deploy/jaas --all-containers=true --tail=200 || true
-          kubectl -n mesh-denied logs deploy/mesh-deny --all-containers=true --tail=50 || true
+          kubectl -n mesh-clients logs deploy/mesh-deny --all-containers=true --tail=50 || true
 
   # Single stably-named aggregate — the only check to mark "required". It always
   # runs (if: always()) so it reports on every PR, including ones where the kind

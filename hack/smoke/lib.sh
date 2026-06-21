@@ -146,13 +146,16 @@ fetch_artifact_denied() {
   log "artifact correctly BLOCKED from $ns (storage-port allowlist enforced)"
 }
 
-# deploy_meshed_curl <ns> <name> — deploy a long-running curl Deployment in <ns>
-# and wait until it is ready. The service-mesh scenarios curl through the pod's
-# sidecar via `kubectl exec` rather than `kubectl run`, because an injected
-# sidecar never lets a one-shot pod complete (the proxy keeps running). <ns> must
-# already be mesh-injected so the pod gets a sidecar and a workload identity.
+# deploy_meshed_curl <ns> <name> [serviceAccount] — deploy a long-running curl
+# Deployment in <ns> under the given ServiceAccount (default "default") and wait
+# until it is ready. The service-mesh scenarios curl through the pod's sidecar
+# via `kubectl exec` rather than `kubectl run`, because an injected sidecar never
+# lets a one-shot pod complete (the proxy keeps running). <ns> must already be
+# mesh-injected so the pod gets a sidecar and a workload identity. The SA is what
+# the mesh authz keys on — both Istio (source.principals SPIFFE id) and Linkerd
+# (MeshTLSAuthentication identity) authorize by the pod's ServiceAccount.
 deploy_meshed_curl() {
-  local ns=$1 name=$2
+  local ns=$1 name=$2 sa=${3:-default}
   kubectl -n "$ns" apply -f - <<EOF
 apiVersion: apps/v1
 kind: Deployment
@@ -166,6 +169,7 @@ spec:
   template:
     metadata: { labels: { app: ${name} } }
     spec:
+      serviceAccountName: ${sa}
       containers:
         - name: curl
           image: docker.io/curlimages/curl:8.10.1
