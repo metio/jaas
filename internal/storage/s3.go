@@ -184,6 +184,29 @@ func (b *S3Backend) objectDir(namespace, name string) string {
 	return b.prefix + "/" + dir
 }
 
+// Open returns a reader over the stored <revision>.tar.gz object. The caller
+// closes it. A missing object (never published or pruned) returns
+// ErrRevisionNotFound, detected via an upfront Stat so callers learn of it here
+// rather than only on first Read.
+func (b *S3Backend) Open(ctx context.Context, namespace, name, revision string) (io.ReadCloser, error) {
+	if namespace == "" || name == "" || revision == "" {
+		return nil, fmt.Errorf("storage/s3: namespace/name/revision required, got (%q,%q,%q)", namespace, name, revision)
+	}
+	key := b.objectKey(namespace, name, revision)
+	obj, err := b.client.GetObject(ctx, b.bucket, key, minio.GetObjectOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("storage/s3: get %q: %w", key, err)
+	}
+	if _, err := obj.Stat(); err != nil {
+		_ = obj.Close()
+		if minio.ToErrorResponse(err).Code == "NoSuchKey" {
+			return nil, fmt.Errorf("%w: %s/%s@%s", ErrRevisionNotFound, namespace, name, revision)
+		}
+		return nil, fmt.Errorf("storage/s3: stat %q: %w", key, err)
+	}
+	return obj, nil
+}
+
 // Put streams the deterministic tar.gz directly into PutObject via an
 // io.Pipe — no full-tarball buffer in memory. Identical inputs produce
 // identical bytes (sorted entries + zero ModTime + PAX format), so the

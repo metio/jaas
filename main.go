@@ -451,6 +451,7 @@ func run(args, env []string, stdout, stderr io.Writer, sigs <-chan os.Signal) in
 					KubeClient:        mcpKubeClient,
 					RunbookBaseURL:    operator.RunbookBaseURL,
 					AllowMutations:    *f.MCPAllowMutations,
+					Store:             opStore,
 				}),
 			}
 			mcpListener, err = net.Listen("tcp", mcpServer.Addr)

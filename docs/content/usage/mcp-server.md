@@ -92,12 +92,13 @@ Reach it from your machine with a port-forward:
 kubectl --namespace jaas-system port-forward deploy/jaas 8084:8084
 ```
 
-The in-cluster server adds two read tools:
+The in-cluster server adds these read tools:
 
 | Tool | Purpose |
 |---|---|
 | `list_snippets` | List `JsonnetSnippet` resources with their Ready status, reason, suspend state, revision, and artifact URL. Omit the namespace to list across every namespace the operator can read. |
 | `get_snippet` | One snippet's full status: the Ready condition (status, reason, message), the per-reason [runbook](../../runbooks/) URL, suspend state, revision, artifact URL, and the retained revision history. |
+| `diff_revisions` | A per-file unified diff of a snippet's published output between two retained revisions. Omit the revisions to compare the two most recent in `status.history`; pass `from`/`to` (sha256) to diff specific ones. Reads the artifacts straight from the operator's store. Needs `spec.history` greater than 1 to retain a second revision. |
 
 ## Gated mutations
 

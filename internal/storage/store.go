@@ -19,8 +19,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -170,6 +172,30 @@ func (s *Store) Put(_ context.Context, namespace, name, revision string, entries
 		SizeBytes:    size,
 		DigestSHA256: digest,
 	}, nil
+}
+
+// Open returns a reader over the stored <revision>.tar.gz for
+// (namespace, name, revision). It reads through the same os.Root FS view as the
+// HTTP handler, so the read path inherits the no-escape traversal guard: a
+// planted symlink that escapes the root is refused, not followed. A revision
+// that was never published or has been pruned returns ErrRevisionNotFound.
+func (s *Store) Open(_ context.Context, namespace, name, revision string) (io.ReadCloser, error) {
+	if namespace == "" || name == "" || revision == "" {
+		return nil, fmt.Errorf("storage: namespace/name/revision required, got (%q,%q,%q)", namespace, name, revision)
+	}
+	if err := validNoTraversal(namespace, name, revision); err != nil {
+		return nil, err
+	}
+	// fs.FS uses forward-slash, root-relative paths regardless of OS.
+	rel := path.Join(namespace, name, revision+".tar.gz")
+	f, err := s.fs.FS().Open(rel)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, fmt.Errorf("%w: %s/%s@%s", ErrRevisionNotFound, namespace, name, revision)
+		}
+		return nil, fmt.Errorf("storage: open %q: %w", rel, err)
+	}
+	return f, nil
 }
 
 func (s *Store) writeTarGz(relPath string, entries []FileEntry) (string, int64, error) {

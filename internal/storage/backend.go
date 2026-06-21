@@ -7,10 +7,17 @@ package storage
 
 import (
 	"context"
+	"errors"
+	"io"
 	"net/http"
 	"strings"
 	"time"
 )
+
+// ErrRevisionNotFound is returned by Backend.Open when the requested
+// (namespace, name, revision) artifact is absent — never published, or pruned.
+// Callers test for it with errors.Is.
+var ErrRevisionNotFound = errors.New("storage: revision not found")
 
 // Backend is the pluggable artifact-store contract the reconciler's Publisher
 // writes against. Two production implementations satisfy it:
@@ -62,6 +69,14 @@ type Backend interface {
 	// Returns the count removed. S3-style backends where Put is
 	// already atomic return (0, nil).
 	Sweep(ctx context.Context, maxTmpAge time.Duration) (int, error)
+
+	// Open returns a reader over the stored `<revision>.tar.gz` for
+	// (namespace, name, revision) — the same bytes Put wrote — for in-process
+	// read-only consumers (the MCP diff tool) that need an artifact's content
+	// without going through the HTTP handler. The caller closes the reader. A
+	// revision that was never published or has been pruned returns an error
+	// satisfying errors.Is(err, ErrRevisionNotFound).
+	Open(ctx context.Context, namespace, name, revision string) (io.ReadCloser, error)
 
 	// HTTPHandler returns the handler the storage HTTP server mounts at
 	// "/". The returned handler is safe for concurrent use.
