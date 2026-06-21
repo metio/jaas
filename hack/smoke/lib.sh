@@ -146,6 +146,44 @@ fetch_artifact_denied() {
   log "artifact correctly BLOCKED from $ns (storage-port allowlist enforced)"
 }
 
+# deploy_meshed_curl <ns> <name> — deploy a long-running curl Deployment in <ns>
+# and wait until it is ready. The service-mesh scenarios curl through the pod's
+# sidecar via `kubectl exec` rather than `kubectl run`, because an injected
+# sidecar never lets a one-shot pod complete (the proxy keeps running). <ns> must
+# already be mesh-injected so the pod gets a sidecar and a workload identity.
+deploy_meshed_curl() {
+  local ns=$1 name=$2
+  kubectl -n "$ns" apply -f - <<EOF
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${name}
+  namespace: ${ns}
+  labels: { app: ${name} }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: ${name} } }
+  template:
+    metadata: { labels: { app: ${name} } }
+    spec:
+      containers:
+        - name: curl
+          image: docker.io/curlimages/curl:8.10.1
+          command: ["sleep", "infinity"]
+EOF
+  kubectl -n "$ns" rollout status deploy/"$name" --timeout=180s
+}
+
+# meshed_http_status <ns> <deploy> <url> — echo the HTTP status code curl gets
+# hitting <url> from inside the meshed <deploy> (so the request traverses the
+# sidecar and the target's inbound mesh authz). "000" means the connection
+# failed outright (e.g. a Linkerd reset), which counts as a rejection.
+meshed_http_status() {
+  local ns=$1 deploy=$2 url=$3
+  kubectl -n "$ns" exec "deploy/$deploy" -c curl -- \
+    curl -s -o /dev/null -w '%{http_code}' --max-time 15 "$url" 2>/dev/null || echo "000"
+}
+
 # has_event <name> <ns> <type> <reason> — true if a matching event exists.
 has_event() {
   kubectl -n "$2" get events --field-selector "involvedObject.name=$1" \
