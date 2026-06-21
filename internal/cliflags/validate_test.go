@@ -65,6 +65,13 @@ func TestFlags_Validate_RejectsInvalid(t *testing.T) {
 		{"negative evaluation-timeout", func(f *cliflags.Flags) { *f.EvaluationTimeout = -time.Second }},
 		{"negative shutdown-delay", func(f *cliflags.Flags) { *f.ShutdownDelay = -time.Second }},
 		{"negative webhook-cert-validity", func(f *cliflags.Flags) { *f.WebhookCertValidity = -time.Hour }},
+		// An endpoint path with a space / brace / slash would panic net/http's
+		// pattern parser at bind time; empty registers a dead route. Validate
+		// must reject all of these as a clean exit-2 flag error instead.
+		{"endpoint-path with space", func(f *cliflags.Flags) { *f.JsonnetEndpointPath = "a b" }},
+		{"endpoint-path with brace", func(f *cliflags.Flags) { *f.JsonnetEndpointPath = "a{x}" }},
+		{"endpoint-path with slash", func(f *cliflags.Flags) { *f.JsonnetEndpointPath = "a/b" }},
+		{"endpoint-path empty", func(f *cliflags.Flags) { *f.JsonnetEndpointPath = "" }},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -36,6 +36,7 @@ func Groups() []string {
 		"Webhook (TLS provisioning)",
 		"Leader election",
 		"Metrics",
+		"MCP",
 		"Tracing",
 		"Logging and lifecycle",
 	}
@@ -137,6 +138,26 @@ type DefaultFunc func() int
 // result to exit code 2 (flag-usage error). Zero is a valid, documented value
 // for the caps (disable / use the engine default), so only negatives are
 // rejected.
+// validEndpointPath reports whether s is a single clean URL path segment safe to
+// interpolate into the "/<path>/{snippet...}" mux pattern. Anything else — empty,
+// spaces, slashes, or the {} pattern metacharacters — would either register a
+// dead route or panic net/http's pattern parser when the server binds.
+func validEndpointPath(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case c >= 'A' && c <= 'Z', c >= 'a' && c <= 'z', c >= '0' && c <= '9',
+			c == '.', c == '_', c == '-':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
 func (f *Flags) Validate() error {
 	nonNegInts := []struct {
 		name string
@@ -171,6 +192,9 @@ func (f *Flags) Validate() error {
 	}
 	if *f.WebhookPort < 1 || *f.WebhookPort > 65535 {
 		return fmt.Errorf("--webhook-port must be in 1..65535, got %d", *f.WebhookPort)
+	}
+	if !validEndpointPath(*f.JsonnetEndpointPath) {
+		return fmt.Errorf("--jsonnet-endpoint-path must be a single non-empty path segment matching [A-Za-z0-9._-], got %q", *f.JsonnetEndpointPath)
 	}
 
 	durations := []struct {

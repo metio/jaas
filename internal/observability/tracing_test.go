@@ -7,11 +7,34 @@ package observability
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/trace/noop"
 )
+
+// TestSamplerFor pins the SampleRatio contract: a ratio of exactly 0 (or
+// negative) is always-off, NOT the always-on it became when the old code
+// coerced `<=0` to 1.0. 1+ is always-on; in between is ratio-based.
+func TestSamplerFor(t *testing.T) {
+	cases := []struct {
+		ratio float64
+		want  string
+	}{
+		{0, "AlwaysOffSampler"},
+		{-1, "AlwaysOffSampler"},
+		{1, "AlwaysOnSampler"},
+		{2, "AlwaysOnSampler"},
+		{0.25, "TraceIDRatioBased"},
+	}
+	for _, tc := range cases {
+		got := samplerFor(tc.ratio).Description()
+		if !strings.Contains(got, tc.want) {
+			t.Errorf("samplerFor(%v).Description() = %q, want to contain %q", tc.ratio, got, tc.want)
+		}
+	}
+}
 
 // A non-empty endpoint must build the full OTLP exporter + resource +
 // sampler + provider without a live collector (otlptrace dials lazily, so
