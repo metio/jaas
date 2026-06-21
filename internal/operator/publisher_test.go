@@ -210,6 +210,45 @@ func TestPublish_ReadyConditionPreservesLastTransitionTime(t *testing.T) {
 	}
 }
 
+// TestSetReadyCondition_PreservesForeignConditions pins that stamping Ready
+// keeps any non-Ready condition a co-managing controller put on the artifact —
+// the conditions are a set keyed by type, and the publisher owns only Ready.
+func TestSetReadyCondition_PreservesForeignConditions(t *testing.T) {
+	ea := &unstructured.Unstructured{Object: map[string]interface{}{}}
+	if err := unstructured.SetNestedSlice(ea.Object, []interface{}{
+		map[string]interface{}{"type": "Stalled", "status": "False", "reason": "Healthy"},
+		map[string]interface{}{"type": "Ready", "status": "True", "lastTransitionTime": "2020-01-01T00:00:00Z"},
+	}, "status", "conditions"); err != nil {
+		t.Fatal(err)
+	}
+
+	setReadyCondition(ea, "2026-06-21T00:00:00Z")
+
+	conds, _, _ := unstructured.NestedSlice(ea.Object, "status", "conditions")
+	var sawStalled, sawReady bool
+	var readyLTT string
+	for _, c := range conds {
+		m, _ := c.(map[string]interface{})
+		switch m["type"] {
+		case "Stalled":
+			sawStalled = true
+		case "Ready":
+			sawReady = true
+			readyLTT, _ = m["lastTransitionTime"].(string)
+		}
+	}
+	if !sawStalled {
+		t.Error("non-Ready 'Stalled' condition was dropped on republish")
+	}
+	if !sawReady {
+		t.Error("Ready condition missing after setReadyCondition")
+	}
+	// Ready was already True → lastTransitionTime must be preserved.
+	if readyLTT != "2020-01-01T00:00:00Z" {
+		t.Errorf("lastTransitionTime = %q, want preserved 2020-01-01T00:00:00Z", readyLTT)
+	}
+}
+
 func TestPublish_SourceMode_PacksAllSpecFiles(t *testing.T) {
 	c := newPublisherClient(t)
 	p := newTestPublisher(t, c)

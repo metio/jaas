@@ -208,7 +208,7 @@ func Register(fs *pflag.FlagSet, maxConcurrentEvalsDefault DefaultFunc) *Flags {
 	f := &Flags{}
 
 	f.LibraryPaths = fs.StringArray("library-path", nil, "The path of a directory containing jsonnet libraries (can be specified multiple times). Rightmost matching library will be used.")
-	f.Snippets = fs.StringArray("snippet", nil, "The path of a jsonnet file or directory containing snippets (can be specified multiple times). Snippets will be loaded from the given path, where the file name is the snippet name.")
+	f.Snippets = fs.StringArray("snippet", nil, "The path of a jsonnet file to serve (can be specified multiple times). The value is used verbatim both as the file to evaluate and as the request path that serves it, e.g. --snippet=dir/foo.jsonnet is requested at /<jsonnet-endpoint>/dir/foo.jsonnet.")
 	f.SnippetDirectories = fs.StringArray("snippet-directory", nil, "The path of a directory containing snippets as subdirectories (can be specified multiple times). Snippets will be loaded from subdirectories of the given path, where the directory name is the snippet name.")
 	f.ExtVarFlags = fs.StringArray("ext-var", nil, "External variable as KEY=VALUE for std.extVar lookups (can be specified multiple times). Takes precedence over JAAS_EXT_VAR_* env vars on conflict.")
 	f.ShowVersion = fs.Bool("version", false, "Print version and exit")

@@ -356,12 +356,19 @@ func (p *Publisher) writeStatus(ctx context.Context, c client.Client, ea *unstru
 func setReadyCondition(latest *unstructured.Unstructured, now string) {
 	lastTransition := now
 	existing, _, _ := unstructured.NestedSlice(latest.Object, "status", "conditions")
+	// Rebuild the conditions, keeping every non-Ready condition and replacing
+	// only our Ready one. A wholesale overwrite would drop any condition a
+	// co-managing Flux controller stamps on the ExternalArtifact (Reconciling,
+	// Stalled, …); the artifact's conditions are a set keyed by type, and this
+	// owns only Ready.
+	conditions := make([]interface{}, 0, len(existing)+1)
 	for _, c := range existing {
 		m, ok := c.(map[string]interface{})
 		if !ok {
 			continue
 		}
 		if t, _ := m["type"].(string); t != "Ready" {
+			conditions = append(conditions, c)
 			continue
 		}
 		if s, _ := m["status"].(string); s == "True" {
@@ -369,7 +376,6 @@ func setReadyCondition(latest *unstructured.Unstructured, now string) {
 				lastTransition = lt
 			}
 		}
-		break
 	}
 	ready := map[string]interface{}{
 		"type":               "Ready",
@@ -379,7 +385,8 @@ func setReadyCondition(latest *unstructured.Unstructured, now string) {
 		"lastTransitionTime": lastTransition,
 		"observedGeneration": latest.GetGeneration(),
 	}
-	_ = unstructured.SetNestedSlice(latest.Object, []interface{}{ready}, "status", "conditions")
+	conditions = append(conditions, ready)
+	_ = unstructured.SetNestedSlice(latest.Object, conditions, "status", "conditions")
 }
 
 func (p *Publisher) now() time.Time {
