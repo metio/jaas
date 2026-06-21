@@ -13,6 +13,45 @@ snippet imports a vendored library without bundling it.
 
 Deploy them with the [joi Helm chart](/installation/helm-values/#joi-library-chart),
 which renders a `JsonnetLibrary` + `OCIRepository` pair for each enabled library.
+With Flux, install it via a `HelmRelease` and enable the libraries you need under
+`values.libraries`:
+
+```yaml
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: joi
+  namespace: jaas-system
+spec:
+  interval: 1h
+  url: oci://ghcr.io/metio/helm-charts/joi
+  ref:
+    # Latest released chart; pin to a tag for production (Renovate can bump it).
+    semver: ">=0.0.0"
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: joi
+  namespace: jaas-system
+spec:
+  interval: 1h
+  chartRef:
+    kind: OCIRepository
+    name: joi
+  values:
+    libraries:
+      k8s-libsonnet:
+        enabled: true
+      grafonnet:
+        enabled: true
+```
+
+Install it in the namespace where your snippets live: a `JsonnetLibrary` is
+namespaced, and a snippet references one in its own namespace. (`helm upgrade
+--install joi oci://ghcr.io/metio/helm-charts/joi --set
+libraries.grafonnet.enabled=true` does the same from the command line.)
+
 A snippet then imports a library by its alias, choosing the version in the import
 path:
 

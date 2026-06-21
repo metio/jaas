@@ -126,6 +126,57 @@ correct when downstream Flux consumers fetch artifacts from inside the cluster.
 Set it explicitly only when consumers dereference the artifacts through an
 Ingress or external hostname.
 
+### Install with Flux (GitOps)
+
+To manage JaaS from a Flux GitOps repository instead of `helm` on the command
+line, point an `OCIRepository` at the chart and install it with a `HelmRelease`.
+The `values:` block takes exactly the same keys as the `--values` file above —
+this example is the operator shape with local storage:
+
+```yaml
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: jaas
+  namespace: jaas-system
+spec:
+  interval: 1h
+  url: oci://ghcr.io/metio/helm-charts/jaas
+  ref:
+    # Latest released chart. Pin to a specific tag for production; Renovate can
+    # keep the pin current.
+    semver: ">=0.0.0"
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: jaas
+  namespace: jaas-system
+spec:
+  interval: 1h
+  chartRef:
+    kind: OCIRepository
+    name: jaas
+  values:
+    operator:
+      enabled: true
+      storage:
+        backend: local
+        persistence:
+          enabled: true
+          size: 10Gi
+```
+
+Both resources live in `jaas-system`, so the namespace must exist first: create
+it with `kubectl create namespace jaas-system`, or include a `Namespace` manifest
+alongside them. The source- and helm-controllers reconcile an `OCIRepository` and
+`HelmRelease` directly, so no wrapping `Kustomization` is required — apply the two
+with `kubectl apply -f`, or commit them to whatever Git/OCI source your Flux setup
+already syncs. For the HTTP-renderer shape, drop the `operator` block and set
+`snippets` / `libraries` under `values:` instead. `HelmRelease` gives you
+upgrades, rollbacks, and drift correction; pull the chart version forward by
+bumping the `OCIRepository` `ref`.
+
 ### Manage the CRDs
 
 The chart ships its CRDs (`JsonnetSnippet`, `JsonnetLibrary`) inside the regular
