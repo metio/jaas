@@ -18,7 +18,7 @@ RUN apt-get update && apt-get install -y git curl jq reuse yamllint shellcheck
 # rather than Debian's `npm` package, which drags in ~600 MB of eslint/webpack/
 # X11 transitive deps the dev shell has no use for.
 # renovate: datasource=node-version depName=node
-ARG NODE_VERSION=22.11.0
+ARG NODE_VERSION=22.23.0
 RUN ARCH="$(dpkg --print-architecture)" \
     && case "$ARCH" in amd64) N=x64 ;; arm64) N=arm64 ;; armhf) N=armv7l ;; *) N="$ARCH" ;; esac \
     && curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${N}.tar.gz" \
