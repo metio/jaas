@@ -292,6 +292,10 @@ func TestProbeHandlers_RejectNonGETMethods(t *testing.T) {
 				if ct := rr.Header().Get("Content-Type"); ct != "application/json" {
 					t.Errorf("Content-Type = %q, want application/json", ct)
 				}
+				// RFC 7231 §6.5.5: a 405 must advertise the supported methods.
+				if got := rr.Header().Get("Allow"); got != http.MethodGet {
+					t.Errorf("Allow header = %q, want %q", got, http.MethodGet)
+				}
 				if !json.Valid(rr.Body.Bytes()) {
 					t.Errorf("405 body is not valid JSON: %q", rr.Body.String())
 				}

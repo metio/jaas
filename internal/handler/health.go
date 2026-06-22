@@ -48,6 +48,8 @@ func StartupHandler(state *HealthState) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			w.Header().Set("Content-Type", "application/json")
+			// RFC 7231 §6.5.5 requires a 405 to advertise the supported methods.
+			w.Header().Set("Allow", http.MethodGet)
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			_, _ = w.Write([]byte(`{"status":"method_not_allowed"}`))
 			return
@@ -67,6 +69,8 @@ func ReadinessHandler(state *HealthState) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			w.Header().Set("Content-Type", "application/json")
+			// RFC 7231 §6.5.5 requires a 405 to advertise the supported methods.
+			w.Header().Set("Allow", http.MethodGet)
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			_, _ = w.Write([]byte(`{"status":"method_not_allowed"}`))
 			return
@@ -86,6 +90,8 @@ func LivenessHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			w.Header().Set("Content-Type", "application/json")
+			// RFC 7231 §6.5.5 requires a 405 to advertise the supported methods.
+			w.Header().Set("Allow", http.MethodGet)
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			_, _ = w.Write([]byte(`{"status":"method_not_allowed"}`))
 			return
