@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -325,4 +326,22 @@ func registeredTools(t *testing.T, cfg Config) map[string]bool {
 		present[tool.Name] = true
 	}
 	return present
+}
+
+// TestShortRevAndRevisionReadError covers both branches of the display helpers.
+func TestShortRevAndRevisionReadError(t *testing.T) {
+	if got := shortRev("sha256:0123456789abcdef0000"); got != "0123456789ab" {
+		t.Errorf("shortRev(long) = %q", got)
+	}
+	if got := shortRev("sha256:abcd"); got != "abcd" { // <=12 after trim
+		t.Errorf("shortRev(short) = %q", got)
+	}
+	notFound := revisionReadError("from", "sha256:deadbeefcafe00", storage.ErrRevisionNotFound)
+	if !strings.Contains(notFound, "not in the artifact store") || !strings.Contains(notFound, "deadbeefcafe") {
+		t.Errorf("revisionReadError(not found) = %q", notFound)
+	}
+	other := revisionReadError("to", "sha256:deadbeefcafe00", errors.New("boom"))
+	if !strings.Contains(other, "cannot read to revision") || !strings.Contains(other, "boom") {
+		t.Errorf("revisionReadError(other) = %q", other)
+	}
 }
