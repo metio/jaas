@@ -60,10 +60,13 @@ func (m clientsetTokenMinter) Mint(ctx context.Context, namespace, serviceAccoun
 }
 
 // cachedToken is one entry in tokenCache. token is the JWT the apiserver
-// signed; expires is the absolute expiration timestamp reported with it.
+// signed; expires is the absolute expiration timestamp reported with it;
+// refreshAt is the instant at/after which lookup treats the entry as stale —
+// expires minus the effective refresh margin (see refreshMarginFor).
 type cachedToken struct {
-	token   string
-	expires time.Time
+	token     string
+	expires   time.Time
+	refreshAt time.Time
 }
 
 // tokenCache is the per-(namespace, ServiceAccount) cache of minted tokens.
@@ -157,7 +160,8 @@ func (c *tokenCache) Token(ctx context.Context, namespace, serviceAccount string
 		}
 		c.mu.Lock()
 		if c.epochs[key] == epochAtMint {
-			c.tokens[key] = cachedToken{token: token, expires: expires}
+			margin := c.refreshMarginFor(expires)
+			c.tokens[key] = cachedToken{token: token, expires: expires, refreshAt: expires.Add(-margin)}
 		}
 		c.mu.Unlock()
 		// Return the freshly-minted token to this caller (and every
@@ -172,8 +176,8 @@ func (c *tokenCache) Token(ctx context.Context, namespace, serviceAccount string
 	return res.(string), nil
 }
 
-// lookup returns (token, true) when a cached entry for key is fresh enough
-// (more than refreshMargin away from expiry); otherwise ("", false).
+// lookup returns (token, true) when a cached entry for key has not yet reached
+// its refreshAt instant; otherwise ("", false).
 func (c *tokenCache) lookup(key string) (string, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -181,10 +185,26 @@ func (c *tokenCache) lookup(key string) (string, bool) {
 	if !ok {
 		return "", false
 	}
-	if cached.expires.Sub(c.now()) <= c.refreshMargin {
+	if !c.now().Before(cached.refreshAt) {
 		return "", false
 	}
 	return cached.token, true
+}
+
+// refreshMarginFor returns the refresh margin to apply to a token expiring at
+// expires. It is the configured refreshMargin, but clamped to a third of the
+// token's actual lifetime: an apiserver that caps the SA token TTL below the
+// margin (e.g. --service-account-max-token-expiration=2m) would otherwise mint
+// tokens that are already past the fixed margin, so the cache would never serve
+// a hit and every reconcile would hammer the TokenRequest API. Clamping keeps
+// the cache useful (a short-lived token is reused for ~2/3 of its life) while
+// still refreshing before expiry.
+func (c *tokenCache) refreshMarginFor(expires time.Time) time.Duration {
+	margin := c.refreshMargin
+	if lifetime := expires.Sub(c.now()); lifetime > 0 && lifetime/3 < margin {
+		margin = lifetime / 3
+	}
+	return margin
 }
 
 // Forget evicts the cached token for namespace/serviceAccount. Called when

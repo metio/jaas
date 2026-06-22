@@ -307,6 +307,14 @@ func (r *SnippetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 // emits a Warning WithdrawForced event, drops the finalizer anyway, and
 // logs the orphaned-storage risk so operators can clean up by hand.
 func (r *SnippetReconciler) reconcileDelete(ctx context.Context, logger *slog.Logger, snip *jaasv1.JsonnetSnippet) (ctrl.Result, error) {
+	// Drop the cycle verdict up front, on every delete reconcile. The full
+	// forgetPerSnippetCaches runs only on the GC-able exits below (it skips the
+	// requeuing error paths so a snippet that comes back doesn't re-mint its
+	// token), but the cycle verdict is keyed by a UID that is never reused and
+	// is cheap to recompute, so leaving it pinned on a delete that keeps failing
+	// its Withdraw would leak an entry with no TTL. Forget is idempotent and
+	// only the live reconcile path computes cycles, so dropping it here is safe.
+	r.CycleCache.Forget(snip.UID)
 	if !controllerutil.ContainsFinalizer(snip, FinalizerName) {
 		// Snippet is on its way out without our finalizer — either we
 		// never got to add it (transient apiserver 5xx during the Update

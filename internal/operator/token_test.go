@@ -81,17 +81,22 @@ func TestTokenCache_DistinctSAsHaveSeparateEntries(t *testing.T) {
 }
 
 func TestTokenCache_RefreshesWhenTokenWithinMargin(t *testing.T) {
-	// Token expires in 1 second; refresh margin is 5 minutes — so the
-	// cache treats the existing token as near-expiry and re-mints.
-	fm := &fakeMinter{token: "t1", expires: time.Now().Add(1 * time.Second)}
+	// 1h token, 5m margin: once the clock advances to within the margin of
+	// expiry the cache treats the token as near-expiry and re-mints. Drive the
+	// clock deterministically rather than waiting real time.
+	base := time.Now()
+	clock := base
+	fm := &fakeMinter{token: "t1", expires: base.Add(1 * time.Hour)}
 	c := newTokenCache(fm)
-	_, _ = c.Token(context.Background(), "ns", "sa")
+	c.now = func() time.Time { return clock }
+	_, _ = c.Token(context.Background(), "ns", "sa") // refreshAt = expires - 5m = base+55m
 
 	fm.mu.Lock()
 	fm.token = "t2"
-	fm.expires = time.Now().Add(1 * time.Hour)
+	fm.expires = base.Add(2 * time.Hour)
 	fm.mu.Unlock()
 
+	clock = base.Add(56 * time.Minute) // 4m before expiry — inside the 5m margin
 	tok, err := c.Token(context.Background(), "ns", "sa")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -101,6 +106,43 @@ func TestTokenCache_RefreshesWhenTokenWithinMargin(t *testing.T) {
 	}
 	if fm.callCount() != 2 {
 		t.Errorf("mint calls = %d, want 2", fm.callCount())
+	}
+}
+
+// TestTokenCache_ShortLivedTokenStillCached pins the refresh-margin clamp: an
+// apiserver capping the SA token TTL below the 5m margin must NOT make every
+// reconcile re-mint (a TokenRequest storm). The token is reused until ~2/3
+// through its life, then refreshed before expiry.
+func TestTokenCache_ShortLivedTokenStillCached(t *testing.T) {
+	base := time.Now()
+	clock := base
+	fm := &fakeMinter{token: "t1", expires: base.Add(120 * time.Second)} // 2m TTL
+	c := newTokenCache(fm)
+	c.now = func() time.Time { return clock }
+
+	if tok, _ := c.Token(context.Background(), "ns", "sa"); tok != "t1" {
+		t.Fatalf("first call got %q, want t1", tok)
+	}
+	// margin = min(5m, 120s/3) = 40s, so refreshAt = base+80s. At base+30s the
+	// token must still be served from cache — the storm the clamp prevents.
+	clock = base.Add(30 * time.Second)
+	if tok, _ := c.Token(context.Background(), "ns", "sa"); tok != "t1" {
+		t.Errorf("at +30s got %q, want cached t1", tok)
+	}
+	if n := fm.callCount(); n != 1 {
+		t.Fatalf("mint calls at +30s = %d, want 1 (clamp must keep the token cached)", n)
+	}
+	// Past refreshAt the cache re-mints before expiry.
+	fm.mu.Lock()
+	fm.token = "t2"
+	fm.expires = base.Add(4 * time.Minute)
+	fm.mu.Unlock()
+	clock = base.Add(85 * time.Second) // past base+80s refreshAt, still before 120s expiry
+	if tok, _ := c.Token(context.Background(), "ns", "sa"); tok != "t2" {
+		t.Errorf("at +85s got %q, want re-minted t2", tok)
+	}
+	if n := fm.callCount(); n != 2 {
+		t.Errorf("mint calls at +85s = %d, want 2", n)
 	}
 }
 
