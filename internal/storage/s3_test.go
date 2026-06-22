@@ -12,6 +12,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -963,5 +964,36 @@ func TestS3WriteError_ScrubsBackendDetails(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestS3_Open_RoundTripAndNotFound covers the in-process reader (used by the MCP
+// diff tool): a stored revision opens + gunzips, and a missing one maps the
+// backend's NoSuchKey to ErrRevisionNotFound.
+func TestS3_Open_RoundTripAndNotFound(t *testing.T) {
+	b, _, _ := newTestS3Backend(t, "")
+	ctx := context.Background()
+	if _, err := b.Put(ctx, "ns", "snip", "rev1", []FileEntry{{Path: "main.json", Content: []byte(`{"ok":true}`)}}); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+
+	rc, err := b.Open(ctx, "ns", "snip", "rev1")
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer rc.Close()
+	gz, err := gzip.NewReader(rc)
+	if err != nil {
+		t.Fatalf("opened object must be gzip: %v", err)
+	}
+	if _, err := io.Copy(io.Discard, gz); err != nil {
+		t.Fatalf("read: %v", err)
+	}
+
+	if _, err := b.Open(ctx, "ns", "snip", "missing"); !errors.Is(err, ErrRevisionNotFound) {
+		t.Errorf("Open(missing) = %v, want ErrRevisionNotFound", err)
+	}
+	if _, err := b.Open(ctx, "", "snip", "rev1"); err == nil {
+		t.Error("Open with empty namespace must error")
 	}
 }
