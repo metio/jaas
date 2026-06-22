@@ -26,8 +26,11 @@ RUN ARCH="$(dpkg --print-architecture)" \
 
 # typos: the spell-checker the CI `typos` job runs against .typos.toml. It is a
 # Rust binary with no Go/Node/Python toolchain in this image, so fetch the
-# prebuilt release tarball rather than `cargo install`.
-ARG TYPOS_VERSION=1.28.4
+# prebuilt release tarball rather than `cargo install`. Keep this in step with
+# the version the crate-ci/typos action ships so a local run catches exactly
+# what CI does — Renovate bumps it from the upstream releases.
+# renovate: datasource=github-releases depName=crate-ci/typos
+ARG TYPOS_VERSION=1.47.2
 RUN ARCH="$(uname -m)" \
     && case "$ARCH" in x86_64) T=x86_64 ;; aarch64) T=aarch64 ;; *) T="$ARCH" ;; esac \
     && curl -fsSL "https://github.com/crate-ci/typos/releases/download/v${TYPOS_VERSION}/typos-v${TYPOS_VERSION}-${T}-unknown-linux-musl.tar.gz" \
