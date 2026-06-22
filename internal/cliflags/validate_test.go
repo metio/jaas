@@ -93,6 +93,12 @@ func TestFlags_Validate_RejectsInvalid(t *testing.T) {
 			*f.EnableMCP = true
 			*f.MCPBindAddress = ""
 		}},
+		{"sample-ratio below zero", func(f *cliflags.Flags) { *f.TracingSampleRatio = -0.1 }},
+		{"sample-ratio above one", func(f *cliflags.Flags) { *f.TracingSampleRatio = 2.0 }},
+		{"log-level bogus", func(f *cliflags.Flags) { *f.LogLevel = "trace" }},
+		{"log-format bogus", func(f *cliflags.Flags) { *f.LogFormat = "yaml" }},
+		{"webhook-cert-mode bogus", func(f *cliflags.Flags) { *f.WebhookCertMode = "vault" }},
+		{"storage-backend bogus", func(f *cliflags.Flags) { *f.StorageBackend = "gcs" }},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
