@@ -465,6 +465,29 @@ func TestReconcile_AnnotationOnlyUpdateReconcilesAndStampsNewToken(t *testing.T)
 	}
 }
 
+// TestReconcile_FailingSnippetStampsLastHandledReconcileAt pins that a
+// terminal failure still acknowledges the reconcile-request token. An operator
+// who runs `flux reconcile` on a snippet stuck on a terminal reason polls
+// status.lastHandledReconcileAt for completion; if failReady never stamped it,
+// the CLI would report a timeout though the controller acted.
+func TestReconcile_FailingSnippetStampsLastHandledReconcileAt(t *testing.T) {
+	snip := sampleSnippet()
+	snip.Finalizers = []string{FinalizerName}
+	snip.Spec.Files = nil // forces ReasonInvalidSpec via failReady
+	snip.Annotations = map[string]string{ReconcileRequestAnnotation: "token-1"}
+	c := clientWithStatus(t, snip)
+	r := newReconciler(t, c)
+	key := types.NamespacedName{Name: snip.Name, Namespace: snip.Namespace}
+	runReconcile(t, r, key)
+
+	got := refetch(t, c, key)
+	assertReady(t, got, metav1.ConditionFalse, ReasonInvalidSpec)
+	if got.Status.LastHandledReconcileAt != "token-1" {
+		t.Errorf("LastHandledReconcileAt = %q on failing snippet, want %q",
+			got.Status.LastHandledReconcileAt, "token-1")
+	}
+}
+
 func TestReconcile_UnchangedTokenIsIdempotent(t *testing.T) {
 	snip := sampleSnippet()
 	snip.Finalizers = []string{FinalizerName}
