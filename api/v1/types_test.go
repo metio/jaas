@@ -380,3 +380,53 @@ func TestSyncStatus_DeepCopy_EmptyConditionsAndNoTimestamp(t *testing.T) {
 		t.Errorf("LastSyncTime: got %v, want nil", cp.LastSyncTime)
 	}
 }
+
+// TestConditionAccessors exercises the GetConditions/SetConditions helpers the
+// Flux conditions machinery calls on both CR kinds.
+func TestConditionAccessors(t *testing.T) {
+	conds := []metav1.Condition{{Type: ConditionReady, Status: metav1.ConditionTrue, Reason: "Synced"}}
+
+	snip := &JsonnetSnippet{}
+	snip.SetConditions(conds)
+	if got := snip.GetConditions(); len(got) != 1 || got[0].Type != ConditionReady {
+		t.Fatalf("JsonnetSnippet conditions round-trip = %+v", got)
+	}
+	lib := &JsonnetLibrary{}
+	lib.SetConditions(conds)
+	if got := lib.GetConditions(); len(got) != 1 || got[0].Reason != "Synced" {
+		t.Fatalf("JsonnetLibrary conditions round-trip = %+v", got)
+	}
+}
+
+// TestSyncStatusDeepCopy exercises SyncStatus (incl. its History []RevisionEntry
+// and LastSyncTime pointer) and RevisionEntry deep-copies, and asserts the copy
+// is independent of the original.
+func TestSyncStatusDeepCopy(t *testing.T) {
+	now := metav1.NewTime(time.Now())
+	orig := &SyncStatus{
+		ObservedGeneration: 3,
+		Revision:           "sha256:aaaa",
+		LastSyncTime:       &now,
+		History: []RevisionEntry{
+			{Revision: "sha256:aaaa", Time: now},
+			{Revision: "sha256:bbbb", Time: now},
+		},
+		Conditions: []metav1.Condition{{Type: ConditionReady, Status: metav1.ConditionTrue}},
+	}
+	cp := orig.DeepCopy()
+	if cp.Revision != "sha256:aaaa" || len(cp.History) != 2 || cp.LastSyncTime == nil {
+		t.Fatalf("deep copy lost fields: %+v", cp)
+	}
+	// Mutating the copy must not touch the original (proves the slice/pointer
+	// were copied, not aliased).
+	cp.History[0].Revision = "sha256:mutated"
+	cp.Conditions[0].Reason = "Changed"
+	if orig.History[0].Revision != "sha256:aaaa" || orig.Conditions[0].Reason != "" {
+		t.Fatal("deep copy aliased the original's History/Conditions")
+	}
+	// Exercise RevisionEntry's own DeepCopy entry point.
+	re := orig.History[1].DeepCopy()
+	if re.Revision != "sha256:bbbb" {
+		t.Fatalf("RevisionEntry.DeepCopy = %+v", re)
+	}
+}
