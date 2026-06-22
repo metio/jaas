@@ -512,6 +512,17 @@ func (b *S3Backend) HTTPHandler() http.Handler {
 			http.NotFound(w, r)
 			return
 		}
+		// Reject traversal/empty segments before prepending the prefix. AWS and
+		// minio treat ".." as a literal key segment (so a conformant backend just
+		// 404s), but a normalizing S3-compatible gateway could otherwise resolve
+		// it and read outside the configured prefix — and every other
+		// key-constructing path in this package runs the same guard.
+		for _, seg := range strings.Split(key, "/") {
+			if seg == "" || seg == "." || seg == ".." {
+				http.NotFound(w, r)
+				return
+			}
+		}
 		if b.prefix != "" {
 			key = b.prefix + "/" + key
 		}
