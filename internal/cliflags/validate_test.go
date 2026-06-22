@@ -46,6 +46,17 @@ func TestFlags_Validate_AcceptsZeroCapsAndTimeouts(t *testing.T) {
 	}
 }
 
+// "0" disables the metrics endpoint and a malformed --mcp-bind-address is
+// ignored while MCP is disabled — both must validate.
+func TestFlags_Validate_AcceptsDisabledMetricsAndIgnoredMCPAddr(t *testing.T) {
+	f := validFlags(t)
+	*f.MetricsBindAddress = "0"
+	*f.MCPBindAddress = "" // not validated while --enable-mcp is false
+	if err := f.Validate(); err != nil {
+		t.Fatalf("metrics=0 + disabled-mcp empty addr should validate, got %v", err)
+	}
+}
+
 func TestFlags_Validate_RejectsInvalid(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -72,6 +83,16 @@ func TestFlags_Validate_RejectsInvalid(t *testing.T) {
 		{"endpoint-path with brace", func(f *cliflags.Flags) { *f.JsonnetEndpointPath = "a{x}" }},
 		{"endpoint-path with slash", func(f *cliflags.Flags) { *f.JsonnetEndpointPath = "a/b" }},
 		{"endpoint-path empty", func(f *cliflags.Flags) { *f.JsonnetEndpointPath = "" }},
+		// Empty --metrics-bind-address maps to controller-runtime's :8080
+		// default, colliding with the jsonnet HTTP server — reject it rather
+		// than crash at bind time. "0" (disable) is accepted, see below.
+		{"metrics-bind-address empty", func(f *cliflags.Flags) { *f.MetricsBindAddress = "" }},
+		{"metrics-bind-address missing colon", func(f *cliflags.Flags) { *f.MetricsBindAddress = "8083" }},
+		{"metrics-bind-address port out of range", func(f *cliflags.Flags) { *f.MetricsBindAddress = ":70000" }},
+		{"mcp-bind-address empty when enabled", func(f *cliflags.Flags) {
+			*f.EnableMCP = true
+			*f.MCPBindAddress = ""
+		}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
