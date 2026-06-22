@@ -14,6 +14,7 @@ package cliflags
 import (
 	"fmt"
 	"net"
+	"slices"
 	"strconv"
 	"time"
 
@@ -253,6 +254,29 @@ func (f *Flags) Validate() error {
 			return fmt.Errorf("%s must be >= 0, got %s", d.name, d.val)
 		}
 	}
+
+	if r := *f.TracingSampleRatio; r < 0 || r > 1 {
+		return fmt.Errorf("--tracing-sample-ratio must be in 0.0..1.0, got %v", r)
+	}
+
+	// Enumerated flags — an out-of-set value would otherwise fail deep in
+	// startup (or, for log-level/format, silently fall back) instead of as a
+	// clean usage error.
+	enums := []struct {
+		name, val string
+		allowed   []string
+	}{
+		{"--log-level", *f.LogLevel, []string{"debug", "info", "warn", "error"}},
+		{"--log-format", *f.LogFormat, []string{"json", "text"}},
+		{"--webhook-cert-mode", *f.WebhookCertMode, []string{"cert-manager", "self-signed"}},
+		{"--storage-backend", *f.StorageBackend, []string{"local", "s3"}},
+	}
+	for _, e := range enums {
+		if !slices.Contains(e.allowed, e.val) {
+			return fmt.Errorf("%s must be one of %v, got %q", e.name, e.allowed, e.val)
+		}
+	}
+
 	return nil
 }
 
