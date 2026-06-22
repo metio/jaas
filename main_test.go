@@ -1620,7 +1620,7 @@ func TestRun_FluxIntegration_BadStoragePathReturnsOne(t *testing.T) {
 	}
 }
 
-func TestRun_FluxIntegration_UnknownBackendReturnsOne(t *testing.T) {
+func TestRun_FluxIntegration_UnknownBackendReturnsTwo(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	sigs := make(chan os.Signal, 1)
 	withRestoredSlogDefault(t)
@@ -1629,8 +1629,10 @@ func TestRun_FluxIntegration_UnknownBackendReturnsOne(t *testing.T) {
 		"--storage-base-url=http://x",
 		"--storage-backend=disk",
 	}, nil, &stdout, &stderr, sigs)
-	if code != 1 {
-		t.Errorf("exit code = %d, want 1", code)
+	// An out-of-set enum is a usage error caught by Flags.Validate at parse
+	// time (exit 2), not a runtime failure (exit 1).
+	if code != 2 {
+		t.Errorf("exit code = %d, want 2", code)
 	}
 	if !strings.Contains(stderr.String(), "storage-backend") {
 		t.Errorf("stderr = %q, want it to mention storage-backend", stderr.String())
