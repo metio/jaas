@@ -50,6 +50,16 @@ func (v *SnippetValidator) ValidateCreate(ctx context.Context, snip *jaasv1.Json
 
 // ValidateUpdate is called on every update request before persistence.
 func (v *SnippetValidator) ValidateUpdate(ctx context.Context, _ *jaasv1.JsonnetSnippet, snip *jaasv1.JsonnetSnippet) (admission.Warnings, error) {
+	// An object being deleted has no spec-validity invariant left to enforce,
+	// and admission must never block its own controller's cleanup: the
+	// finalizer-removal Update carries the unchanged spec, so re-running cycle
+	// detection on a snippet that is part of a dependency cycle would reject the
+	// removal and wedge the snippet in Terminating forever. Editing the spec to
+	// break the cycle still validates the new spec via the create/normal-update
+	// path, so this only skips the spec-unchanged teardown writes.
+	if !snip.GetDeletionTimestamp().IsZero() {
+		return nil, nil
+	}
 	return v.validate(ctx, snip)
 }
 
