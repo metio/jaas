@@ -80,6 +80,8 @@ func JsonnetHandler(cfg Config) http.HandlerFunc {
 
 		if request.Method != http.MethodGet {
 			logger.ErrorContext(ctx, "Unsupported HTTP method used", slog.String("method", request.Method))
+			// RFC 7231 §6.5.5 requires a 405 to advertise the supported methods.
+			writer.Header().Set("Allow", http.MethodGet)
 			writeProblem(ctx, logger, writer, http.StatusMethodNotAllowed,
 				ErrCodeMethodNotAllowed, "Method not allowed", "only GET is supported", "")
 			return

@@ -478,6 +478,10 @@ func TestJsonnetHandler_MethodNotAllowed(t *testing.T) {
 			if got, want := rr.Header().Get("Content-Type"), "application/problem+json"; got != want {
 				t.Errorf("Content-Type = %q, want %q", got, want)
 			}
+			// RFC 7231 §6.5.5: a 405 must advertise the supported methods.
+			if got, want := rr.Header().Get("Allow"), http.MethodGet; got != want {
+				t.Errorf("Allow header = %q, want %q", got, want)
+			}
 			body := decodeError(t, rr)
 			if body.Code != ErrCodeMethodNotAllowed {
 				t.Errorf("code = %q, want %q", body.Code, ErrCodeMethodNotAllowed)
