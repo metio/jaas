@@ -58,11 +58,17 @@ log "ALLOW: the artifact must be reachable on the storage port from an admitted 
 URL="$(ea_url "$NAME" "$NS")"
 [ -n "$URL" ] || die "snippet $NAME published no ExternalArtifact URL"
 log "ExternalArtifact URL: $URL"
-fetch_artifact "$URL" '"networkPolicy": "enforced"' flux-system
+# Probe by the storage Service's ClusterIP, not its DNS name: this scenario
+# asserts L3/L4 policy enforcement, so a probe-pod DNS failure (e.g. under the
+# clusterNetworkPolicy engine's cluster-scoped baseline egress) must not be
+# mistaken for a policy result.
+PROBE_URL="$(cluster_ip_url "$URL")"
+log "probing storage via ClusterIP: $PROBE_URL"
+fetch_artifact "$PROBE_URL" '"networkPolicy": "enforced"' flux-system
 
 if [ "$ENFORCE" = "1" ]; then
   log "DENY: the storage port must be BLOCKED from a non-admitted namespace ($NS)"
-  fetch_artifact_denied "$URL" "$NS"
+  fetch_artifact_denied "$PROBE_URL" "$NS"
 else
   log "ENFORCE=0: skipping the deny assertion (dialect is allow-all on the ports, or has no on-kind enforcer)"
 fi

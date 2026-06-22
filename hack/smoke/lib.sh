@@ -107,6 +107,33 @@ ea_url() {
   kubectl -n "$2" get externalartifact "$1" -o jsonpath='{.status.artifact.url}' 2>/dev/null || true
 }
 
+# cluster_ip_url <url> — rewrite an in-cluster storage URL
+# (http://<svc>.<ns>.svc.cluster.local:<port>/<path>) to hit the Service's
+# ClusterIP directly, keeping the port and path. The NetworkPolicy enforcement
+# probe is about L3/L4 reachability to the storage pod, not name resolution;
+# probing by IP keeps a cluster-DNS hiccup — or a baseline egress policy that
+# doesn't admit DNS to kube-dns (the clusterNetworkPolicy engine renders
+# cluster-scoped policy that reaches the probe pod's namespace) — from
+# masquerading as a policy result. The destination pod's ingress policy still
+# governs the dial, so allow/deny semantics are unchanged. An IPv6 ClusterIP is
+# bracketed for curl.
+cluster_ip_url() {
+  local url=$1 rest hostport host port path svc ns ip
+  rest=${url#*://}
+  hostport=${rest%%/*}
+  path=${rest#"$hostport"}
+  port=${hostport##*:}
+  host=${hostport%:*}
+  svc=${host%%.*}
+  ns=${host#*.}; ns=${ns%%.*}
+  ip="$(kubectl -n "$ns" get svc "$svc" -o jsonpath='{.spec.clusterIP}' 2>/dev/null || true)"
+  if [ -z "$ip" ] || [ "$ip" = "None" ]; then
+    die "cannot resolve ClusterIP for service $ns/$svc (from URL $url)"
+  fi
+  case "$ip" in *:*) ip="[$ip]" ;; esac
+  printf 'http://%s:%s%s\n' "$ip" "$port" "$path"
+}
+
 # fetch_artifact <url> [grep_pattern] [namespace] — fetch the artifact tarball
 # from a throwaway in-cluster curl pod. With grep_pattern set, also untars and
 # asserts the pattern appears in the rendered output (the Publisher writes
