@@ -293,3 +293,25 @@ func recordReconcileOutcome(namespace, name, status, reason string) {
 func recordRenderedBytes(namespace, name string, bytes int) {
 	snippetRenderedBytes.WithLabelValues(namespace, name).Observe(float64(bytes))
 }
+
+// deleteSnippetMetrics evicts the per-snippet time series that describe a
+// live snippet's operation, so a deleted snippet leaves no orphaned series
+// pinned in the registry. Each vector is labelled by (namespace, name) plus,
+// for some, extra dimensions (status/reason); DeletePartialMatch removes every
+// series matching the namespace+name regardless of the extra labels, while the
+// two-label vectors use the exact DeleteLabelValues. Without this, a cluster
+// that churns snippets (CI namespaces, GitOps create/delete cycles) grows the
+// operator's resident set and /metrics scrape size without bound.
+//
+// snippet_force_drop_total is deliberately NOT evicted: it is emitted at
+// deletion as the alert signal that a snippet's finalizer was force-dropped
+// with orphaned objects left behind, so it must outlive the snippet — its
+// cardinality is bounded by the (rare) force-drop incident count, not by
+// snippet churn.
+func deleteSnippetMetrics(namespace, name string) {
+	match := prometheus.Labels{"namespace": namespace, "name": name}
+	snippetReconcileTotal.DeletePartialMatch(match)
+	snippetRenderedBytes.DeletePartialMatch(match)
+	snippetRateLimitedTotal.DeleteLabelValues(namespace, name)
+	snippetEvalUnavailableTotal.DeleteLabelValues(namespace, name)
+}
