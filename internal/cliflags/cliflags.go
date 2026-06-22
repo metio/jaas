@@ -13,6 +13,7 @@ package cliflags
 
 import (
 	"fmt"
+	"net"
 	"strconv"
 	"time"
 
@@ -158,6 +159,21 @@ func validEndpointPath(s string) bool {
 	return true
 }
 
+// validBindAddress checks that addr parses as host:port with a numeric port in
+// 1..65535 (host may be empty, e.g. ":8083"). An empty or port-less value is a
+// flag error rather than a confusing bind-time crash.
+func validBindAddress(name, addr string) error {
+	_, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return fmt.Errorf("%s must be a host:port address (e.g. \":8083\"), got %q", name, addr)
+	}
+	n, err := strconv.Atoi(port)
+	if err != nil || n < 1 || n > 65535 {
+		return fmt.Errorf("%s port must be an integer in 1..65535, got %q", name, addr)
+	}
+	return nil
+}
+
 func (f *Flags) Validate() error {
 	nonNegInts := []struct {
 		name string
@@ -193,6 +209,23 @@ func (f *Flags) Validate() error {
 	if *f.WebhookPort < 1 || *f.WebhookPort > 65535 {
 		return fmt.Errorf("--webhook-port must be in 1..65535, got %d", *f.WebhookPort)
 	}
+
+	// Bind addresses must parse as host:port (host may be empty, e.g. ":8083").
+	// An empty --metrics-bind-address is rejected because controller-runtime
+	// maps it to its built-in :8080 default, which collides with the jsonnet
+	// HTTP server and crashes the process at bind time; "0" is the documented
+	// disable token. --mcp-bind-address is only checked when MCP is enabled.
+	if *f.MetricsBindAddress != "0" {
+		if err := validBindAddress("--metrics-bind-address", *f.MetricsBindAddress); err != nil {
+			return err
+		}
+	}
+	if *f.EnableMCP {
+		if err := validBindAddress("--mcp-bind-address", *f.MCPBindAddress); err != nil {
+			return err
+		}
+	}
+
 	if !validEndpointPath(*f.JsonnetEndpointPath) {
 		return fmt.Errorf("--jsonnet-endpoint-path must be a single non-empty path segment matching [A-Za-z0-9._-], got %q", *f.JsonnetEndpointPath)
 	}
