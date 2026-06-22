@@ -447,9 +447,13 @@ func (f *Fetcher) release() {
 // shape as the old io.ReadAll path so callers see no behavioural
 // change.
 //
-// The concurrency semaphore bounds in-flight downloads so the sum of
-// tempfile sizes can't exceed MaxConcurrentDownloads × MaxArchiveBytes
-// at any moment, regardless of how many reconciles call in parallel.
+// The concurrency semaphore bounds the download (on-the-wire) phase to
+// MaxConcurrentDownloads, so the bytes streaming through this function at
+// once can't exceed MaxConcurrentDownloads × MaxArchiveBytes. Note the
+// slot is released when this function returns: the caller still holds the
+// returned tempfile through extraction, so peak on-disk tempfile count is
+// bounded by concurrent reconciles (controller-runtime's
+// MaxConcurrentReconciles), not by this semaphore.
 //
 // Caller owns the tempfile lifecycle — defer Close + Remove on the
 // returned *os.File.
