@@ -723,9 +723,11 @@ func (r *SnippetReconciler) reconcileSpec(ctx context.Context, logger *slog.Logg
 	// the snippet through the uncached APIReader; on mismatch we
 	// defer — the watch event from the spec edit has already
 	// enqueued the next reconcile.
-	if proceed, err := r.publishConsistencyGate(ctx, types.NamespacedName{Name: snip.Name, Namespace: snip.Namespace}, judgedGen); err != nil {
+	latest, proceed, err := r.publishConsistencyGate(ctx, types.NamespacedName{Name: snip.Name, Namespace: snip.Namespace}, judgedGen)
+	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("publish consistency gate: %w", err)
-	} else if !proceed {
+	}
+	if !proceed {
 		logger.InfoContext(ctx, "Publish deferred: spec moved since reconcile started",
 			slog.Int64("judgedGeneration", judgedGen))
 		return ctrl.Result{}, nil
@@ -735,9 +737,13 @@ func (r *SnippetReconciler) reconcileSpec(ctx context.Context, logger *slog.Logg
 	// rendered content's revision (computed eagerly here so we can
 	// merge it with prior history) plus the most-recent (history-1)
 	// entries from Status.History. shortRev strips the "sha256:" prefix
-	// to match what the Backend wants on disk.
+	// to match what the Backend wants on disk. Derive it from the gate's
+	// fresh read (latest), not the lagging cache (snip), so the pruned-on-
+	// disk set agrees with the history markSynced writes from the same
+	// fresh apiserver state — otherwise a kept revision's tarball could be
+	// pruned out from under a downstream consumer.
 	renderedRev := sha256ContentHash(rendered)
-	keepShortRevs := buildKeepShortRevs(renderedRev, snip.Status.History, snip.Spec.History)
+	keepShortRevs := buildKeepShortRevs(renderedRev, latest.Status.History, latest.Spec.History)
 
 	pr, err := r.tracedPublish(ctx, tenant, snip, rendered, files, keepShortRevs)
 	if err != nil {
@@ -1200,7 +1206,14 @@ func (r *SnippetReconciler) resolveSnippetSource(ctx context.Context, tenant cli
 //
 // (proceed=false, err=nil) means "defer cleanly"; the caller returns
 // ctrl.Result{} with no error.
-func (r *SnippetReconciler) publishConsistencyGate(ctx context.Context, key types.NamespacedName, judgedGen int64) (bool, error) {
+// publishConsistencyGate re-reads the snippet through the uncached APIReader and
+// reports whether the publish should proceed (Generation still matches the one
+// the render was judged against). On success it also returns the fresh object so
+// the caller can derive the prune keep-set from the same snapshot the post-
+// publish history write uses — building the keep-set from the lagging cache read
+// taken at reconcile entry could otherwise prune a tarball that markSynced then
+// records in status.History.
+func (r *SnippetReconciler) publishConsistencyGate(ctx context.Context, key types.NamespacedName, judgedGen int64) (*jaasv1.JsonnetSnippet, bool, error) {
 	reader := r.APIReader
 	if reader == nil {
 		reader = r.Client
@@ -1210,14 +1223,14 @@ func (r *SnippetReconciler) publishConsistencyGate(ctx context.Context, key type
 		if apierrors.IsNotFound(err) {
 			// Snippet was deleted in the gap. The deletion reconcile
 			// is already enqueued; nothing to publish.
-			return false, nil
+			return nil, false, nil
 		}
-		return false, fmt.Errorf("pre-publish consistency Get: %w", err)
+		return nil, false, fmt.Errorf("pre-publish consistency Get: %w", err)
 	}
 	if latest.Generation != judgedGen {
-		return false, nil
+		return nil, false, nil
 	}
-	return true, nil
+	return &latest, true, nil
 }
 
 // isCrossNamespaceRef reports whether ref names a different namespace
