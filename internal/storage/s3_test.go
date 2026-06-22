@@ -478,6 +478,23 @@ func TestS3_PutRejectsTraversal(t *testing.T) {
 	}
 }
 
+// TestS3_OpenRejectsTraversal pins that Open validates its components like
+// every other key-constructing method, so a '/'- or '..'-bearing identifier
+// cannot address a different object within the bucket prefix. The guard fires
+// before any GetObject call.
+func TestS3_OpenRejectsTraversal(t *testing.T) {
+	b, _, _ := newTestS3Backend(t, "")
+	if _, err := b.Open(context.Background(), "..", "snip", "rev"); err == nil {
+		t.Errorf("expected traversal rejection on namespace")
+	}
+	if _, err := b.Open(context.Background(), "ns", "..", "rev"); err == nil {
+		t.Errorf("expected traversal rejection on name")
+	}
+	if _, err := b.Open(context.Background(), "ns", "snip", "a/b"); err == nil {
+		t.Errorf("expected traversal rejection on revision with slash")
+	}
+}
+
 func TestS3_PruneRemovesOlderRevisions(t *testing.T) {
 	b, fake, _ := newTestS3Backend(t, "")
 	for _, rev := range []string{"r1", "r2", "r3"} {
