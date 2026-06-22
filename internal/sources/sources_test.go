@@ -81,6 +81,33 @@ func verifyDigest(body []byte, expected string) error {
 	return verifyExpectedDigest(hex.EncodeToString(sum[:]), expected)
 }
 
+// TestExtractTarball_RejectsDuplicateEntryName pins that two entries
+// normalising to the same path are rejected rather than silently last-write-wins
+// (which also double-counts them against the aggregate cap).
+func TestExtractTarball_RejectsDuplicateEntryName(t *testing.T) {
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gz)
+	for _, content := range []string{"first", "second"} {
+		if err := tw.WriteHeader(&tar.Header{Name: "dup.libsonnet", Mode: 0o644, Size: int64(len(content)), Typeflag: tar.TypeReg}); err != nil {
+			t.Fatalf("write header: %v", err)
+		}
+		if _, err := tw.Write([]byte(content)); err != nil {
+			t.Fatalf("write body: %v", err)
+		}
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatalf("close tar: %v", err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatalf("close gzip: %v", err)
+	}
+	_, err := extractTarball(bytes.NewReader(buf.Bytes()), "", 1<<20)
+	if err == nil || !strings.Contains(err.Error(), "duplicate entry path") {
+		t.Fatalf("err = %v, want a duplicate-entry rejection", err)
+	}
+}
+
 func TestExtractTarball_HappyPath(t *testing.T) {
 	body := buildTarGz(t, map[string]string{
 		"main.jsonnet":     `{ ok: true }`,
