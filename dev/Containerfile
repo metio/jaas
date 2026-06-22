@@ -17,6 +17,7 @@ RUN apt-get update && apt-get install -y git curl jq reuse yamllint shellcheck
 # locally against .markdownlint.yaml. Node comes from the upstream tarball
 # rather than Debian's `npm` package, which drags in ~600 MB of eslint/webpack/
 # X11 transitive deps the dev shell has no use for.
+# renovate: datasource=node-version depName=node
 ARG NODE_VERSION=22.11.0
 RUN ARCH="$(dpkg --print-architecture)" \
     && case "$ARCH" in amd64) N=x64 ;; arm64) N=arm64 ;; armhf) N=armv7l ;; *) N="$ARCH" ;; esac \
@@ -84,6 +85,7 @@ RUN ARCH="$(dpkg --print-architecture)" \
 # from its values.yaml `# @schema` annotations. hack/gen-docs-data.sh runs it on
 # the chart sources fetched from helm-charts to build the docs values reference.
 # dadav/helm-schema release tags carry no `v` prefix (e.g. 0.23.4).
+# renovate: datasource=github-releases depName=dadav/helm-schema
 ARG GO_HELM_SCHEMA_VERSION=0.23.4
 RUN ARCH="$(uname -m)" \
     && case "$ARCH" in x86_64) S=x86_64 ;; aarch64) S=arm64 ;; *) S="$ARCH" ;; esac \
