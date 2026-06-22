@@ -740,7 +740,10 @@ func loadOCILibraries(ctx context.Context, libraryPaths []string) map[string]eva
 // on sigs cuts the wait short — a frustrated user hitting Ctrl-C twice gets
 // what they asked for without waiting out the full delay.
 func drainBeforeShutdown(sigs <-chan os.Signal, state *handler.HealthState, delay time.Duration, logger *slog.Logger) {
-	state.SetReady(false)
+	// Latch draining first so a concurrent readiness writer (the operator's
+	// post-cache-sync onReady runs only after the cache syncs, which can land
+	// during the drain window) can't flip readiness back to true while we wait.
+	state.MarkDraining()
 	if delay <= 0 {
 		return
 	}

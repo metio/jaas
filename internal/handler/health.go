@@ -11,9 +11,10 @@ import (
 )
 
 type HealthState struct {
-	mu      sync.RWMutex
-	started bool
-	ready   bool
+	mu       sync.RWMutex
+	started  bool
+	ready    bool
+	draining bool
 }
 
 func NewHealthState() *HealthState {
@@ -26,9 +27,24 @@ func (s *HealthState) MarkStarted() {
 	s.mu.Unlock()
 }
 
+// MarkDraining latches the state into shutdown: from this point SetReady(true)
+// is a no-op, so any readiness writer that runs concurrently with shutdown — the
+// operator's post-cache-sync onReady, say — can't flip the pod back to Ready
+// during the drain window and pull traffic onto a pod that is about to abort
+// connections.
+func (s *HealthState) MarkDraining() {
+	s.mu.Lock()
+	s.draining = true
+	s.ready = false
+	s.mu.Unlock()
+}
+
 func (s *HealthState) SetReady(ready bool) {
 	s.mu.Lock()
-	s.ready = ready
+	// Once draining, readiness only ratchets downward.
+	if !s.draining || !ready {
+		s.ready = ready
+	}
 	s.mu.Unlock()
 }
 

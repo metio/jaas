@@ -77,6 +77,27 @@ func TestHealthState_SetReadyDoesNotImplyStarted(t *testing.T) {
 	}
 }
 
+// TestHealthState_DrainingLatchBlocksSetReadyTrue pins that once draining is
+// latched, a later SetReady(true) (e.g. the operator's post-cache-sync onReady)
+// cannot flip the pod back to Ready during the drain window.
+func TestHealthState_DrainingLatchBlocksSetReadyTrue(t *testing.T) {
+	s := NewHealthState()
+	s.SetReady(true)
+	s.MarkDraining()
+	if s.Ready() {
+		t.Fatal("Ready() = true immediately after MarkDraining")
+	}
+	s.SetReady(true) // a racing readiness writer
+	if s.Ready() {
+		t.Fatal("Ready() = true after SetReady(true) while draining; latch did not hold")
+	}
+	// SetReady(false) still works (no spurious upgrade).
+	s.SetReady(false)
+	if s.Ready() {
+		t.Fatal("Ready() = true after SetReady(false)")
+	}
+}
+
 func TestHealthState_ReadyIsCycleable(t *testing.T) {
 	s := NewHealthState()
 	for i := 0; i < 10; i++ {
