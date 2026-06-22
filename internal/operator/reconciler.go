@@ -1459,6 +1459,13 @@ func (r *SnippetReconciler) failReady(ctx context.Context, snip *jaasv1.JsonnetS
 		return ctrl.Result{}, err
 	}
 	snip.Status.ObservedGeneration = snip.Generation
+	// Acknowledge the reconcile.fluxcd.io/requestedAt token even on a failure
+	// so `flux reconcile` (and any controller polling status.lastHandledReconcileAt)
+	// detects completion. Without this, a snippet stuck on a terminal reason
+	// (RBAC denied, invalid spec, source fetch failed) never acknowledges a
+	// manual `flux reconcile`, which is exactly when an operator is most likely
+	// to issue one — the CLI would report a timeout though the controller acted.
+	snip.Status.LastHandledReconcileAt = snip.Annotations[ReconcileRequestAnnotation]
 	fluxconditions.Set(snip, &metav1.Condition{
 		Type:    jaasv1.ConditionReady,
 		Status:  metav1.ConditionFalse,
