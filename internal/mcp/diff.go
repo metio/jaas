@@ -67,6 +67,14 @@ func (cfg Config) diffRevisionsHandler(ctx context.Context, _ *mcpsdk.CallToolRe
 	if err != nil {
 		return errorResult(err.Error()), diffRevisionsOutput{}, nil
 	}
+	// Diffing a revision against itself reads the same tarball twice and reports
+	// an all-"unchanged" result that an agent can't distinguish from "two
+	// different revisions that rendered byte-identically." Fail fast with a clear
+	// message instead — this also fires when status.history holds duplicate
+	// heads and both sides default to the same revision.
+	if from == to {
+		return errorResult(fmt.Sprintf("from and to are the same revision %s; nothing to diff", from)), diffRevisionsOutput{}, nil
+	}
 
 	fromFiles, err := cfg.readRevision(ctx, in.Namespace, in.Name, from)
 	if err != nil {
