@@ -271,6 +271,20 @@ func TestDiffRevisionsHandler(t *testing.T) {
 			t.Fatalf("expected a tool error when namespace is empty, got %+v", res)
 		}
 	})
+
+	t.Run("same from and to revision is a tool error", func(t *testing.T) {
+		store := newStore(t)
+		putRevision(t, store, ns, name, r2, map[string]string{"main.json": "y"})
+		cfg := Config{KubeClient: fakeClient(t, snippetWithHistory(ns, name, r2, r1)), Store: store}
+
+		res, _, _ := cfg.diffRevisionsHandler(context.Background(), nil, diffRevisionsInput{Namespace: ns, Name: name, From: r2, To: r2})
+		if res == nil || !res.IsError {
+			t.Fatalf("expected a tool error when from == to, got %+v", res)
+		}
+		if !strings.Contains(res.Content[0].(*mcpsdk.TextContent).Text, "same revision") {
+			t.Fatalf("error should mention 'same revision', got %+v", res.Content)
+		}
+	})
 }
 
 func TestDiffTool_RegisteredOnlyWithStore(t *testing.T) {
