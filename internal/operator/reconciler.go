@@ -407,6 +407,7 @@ type forceDropInfo struct {
 func (r *SnippetReconciler) forgetPerSnippetCaches(ctx context.Context, logger *slog.Logger, snip *jaasv1.JsonnetSnippet) {
 	r.Limiter.Forget(snip.Namespace + "/" + snip.Name)
 	r.CycleCache.Forget(snip.UID)
+	deleteSnippetMetrics(snip.Namespace, snip.Name)
 	sa := r.effectiveServiceAccount(snip)
 	if sa == "" || r.TokenCache == nil {
 		return

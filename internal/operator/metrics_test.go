@@ -57,6 +57,53 @@ func TestMetrics_RecordReconcileOutcomeBumpsCounter(t *testing.T) {
 	}
 }
 
+// TestMetrics_DeleteSnippetMetricsEvictsOperationalSeries proves a deleted
+// snippet leaves no orphaned operational series behind, while the force-drop
+// counter — the alert signal emitted at deletion — survives, and a sibling
+// snippet's series are untouched.
+func TestMetrics_DeleteSnippetMetricsEvictsOperationalSeries(t *testing.T) {
+	const ns, name, other = "del-ns", "del-name", "keep-name"
+
+	// The four operational vectors deleteSnippetMetrics is responsible for.
+	operationalCount := func() int {
+		return testutil.CollectAndCount(snippetReconcileTotal) +
+			testutil.CollectAndCount(snippetRenderedBytes) +
+			testutil.CollectAndCount(snippetRateLimitedTotal) +
+			testutil.CollectAndCount(snippetEvalUnavailableTotal)
+	}
+
+	// Populate the operational vectors for the doomed snippet (status/reason
+	// vary so the DeletePartialMatch path is exercised) plus one survivor,
+	// and force-drop the doomed snippet so its alert series exists.
+	recordReconcileOutcome(ns, name, "True", ReasonSynced)
+	recordReconcileOutcome(ns, name, "False", ReasonInvalidSpec) // second series, same ns/name
+	recordRenderedBytes(ns, name, 1024)
+	recordRateLimited(ns, name)
+	recordEvalUnavailable(ns, name)
+	recordForceDrop(ns, name, "timeout")
+	recordReconcileOutcome(ns, other, "True", ReasonSynced) // survivor
+
+	before := operationalCount()
+
+	deleteSnippetMetrics(ns, name)
+
+	after := operationalCount()
+	// Doomed snippet contributed 5 operational series (two reconcile +
+	// rendered + rate-limited + eval-unavailable); all must vanish.
+	if before-after != 5 {
+		t.Errorf("deleteSnippetMetrics removed %d operational series, want 5", before-after)
+	}
+	// The survivor's reconcile series must remain.
+	if v := testutil.ToFloat64(snippetReconcileTotal.WithLabelValues(ns, other, "True", ReasonSynced)); v != 1 {
+		t.Errorf("survivor series = %v, want 1 (deleteSnippetMetrics over-deleted)", v)
+	}
+	// The force-drop counter is an alert signal emitted at deletion; it must
+	// outlive the snippet so operators still see the orphaned-objects warning.
+	if v := testutil.ToFloat64(snippetForceDropTotal.WithLabelValues(ns, name, "timeout")); v != 1 {
+		t.Errorf("force-drop series = %v after deleteSnippetMetrics, want 1 (must survive)", v)
+	}
+}
+
 // TestMetrics_RecordRateLimitedBumpsCounter pins the rate-limit
 // counter wiring. The counter is the durable signal for backpressure
 // — dashboards alert on sustained non-zero values to catch a runaway
