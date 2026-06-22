@@ -531,13 +531,18 @@ func (r *SnippetReconciler) reconcileSpec(ctx context.Context, logger *slog.Logg
 		// SetStatusCondition no-ops when the new condition is
 		// equivalent to the previous one, so this doesn't burn writes.
 		//
-		// Grace-expired revisions still need to drain: a snippet that
-		// stays suspended for the operator's lifetime would otherwise
-		// hold every prior-keep-set revision on storage forever. Run
-		// the GC pass here using the existing Status.History keep-set
-		// (no new revision to add since publish is paused). Watch ticks
-		// + spec.interval drive the cadence; nothing else is needed
-		// because the deletion path's Withdraw bypasses grace entirely.
+		// Drain on suspend entry: revisions already outside the keep-set but
+		// within grace at this moment are pruned here, using the existing
+		// Status.History keep-set (no new revision to add since publish is
+		// paused). failReady (a happy reason) returns no RequeueAfter, and the
+		// suspend branch deliberately does NOT self-requeue — waking a paused
+		// snippet on a timer would churn the reconcile-total metric for no
+		// publish. The next reconcile comes from a watch event (an unsuspend
+		// spec edit, or a referenced library/source changing). The trade-off is
+		// that a revision which crosses its grace boundary *during* suspension
+		// isn't reclaimed until that next event; the leak is bounded (only
+		// revisions that existed at suspend time) because a suspended snippet
+		// produces no new revisions to expire.
 		if r.Publisher != nil && len(snip.Status.History) > 0 {
 			keep := shortRevs(snip.Status.History)
 			if err := r.Publisher.PruneStored(ctx, snip.Namespace, snip.Name, keep); err != nil {
