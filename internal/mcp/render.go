@@ -90,8 +90,19 @@ func (cfg Config) evaluate(ctx context.Context, in renderInput) (string, error) 
 		TLAs:     in.Tlas,
 		MaxStack: cfg.MaxStack,
 		Timeout:  cfg.EvaluationTimeout,
-		Importer: &jsonnet.FileImporter{JPaths: cfg.LibraryPaths},
+		Importer: cfg.importer(),
 	})
+}
+
+// importer returns the jsonnet importer for the eval tools. The network
+// transport gets a root-confined importer so caller-supplied source cannot read
+// outside the library paths; the local stdio renderer keeps the stock
+// FileImporter so a user may import their own files freely.
+func (cfg Config) importer() jsonnet.Importer {
+	if cfg.ConfineImports {
+		return newConfinedImporter(cfg.LibraryPaths)
+	}
+	return &jsonnet.FileImporter{JPaths: cfg.LibraryPaths}
 }
 
 // mergedExtVars overlays a call's ext vars on the server-configured set, with

@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -137,6 +138,100 @@ func TestRenderHandler_ImportResolvesAgainstLibraryPaths(t *testing.T) {
 		t.Fatalf("unexpected tool error: %s", textContent(t, res))
 	}
 	assertJSONEqual(t, out.JSON, `"hi"`)
+}
+
+// TestRenderHandler_ConfinedImporterBlocksFileEscape pins that the network
+// transport's confined importer refuses to read outside the library paths.
+// Without it, a caller-supplied snippet over the unauthenticated MCP HTTP port
+// could importstr the operator's ServiceAccount token or any mounted secret.
+func TestRenderHandler_ConfinedImporterBlocksFileEscape(t *testing.T) {
+	libDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(libDir, "ok.libsonnet"), []byte(`{msg: "hi"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// A "secret" living outside the library root, reachable only by escaping it.
+	secretDir := t.TempDir()
+	secretPath := filepath.Join(secretDir, "token")
+	if err := os.WriteFile(secretPath, []byte("SUPER-SECRET"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := Config{LibraryPaths: []string{libDir}, ConfineImports: true}
+
+	escapes := []struct {
+		name, source string
+	}{
+		{"absolute importstr", `importstr '` + secretPath + `'`},
+		{"absolute import", `import '` + secretPath + `'`},
+		{"dot-dot traversal", `importstr '../` + filepath.Base(secretDir) + `/token'`},
+	}
+	for _, e := range escapes {
+		t.Run(e.name, func(t *testing.T) {
+			res, _, err := cfg.renderHandler(context.Background(), nil, renderInput{Source: e.source})
+			if err != nil {
+				t.Fatalf("unexpected Go error: %v", err)
+			}
+			if !res.IsError {
+				t.Fatalf("escape %q was NOT blocked — confined importer leaked a file read", e.source)
+			}
+			if msg := textContent(t, res); strings.Contains(msg, "SUPER-SECRET") {
+				t.Fatalf("escape %q disclosed the secret contents: %s", e.source, msg)
+			}
+		})
+	}
+
+	// A legitimate library import must still resolve through the confined importer.
+	t.Run("legit library import still works", func(t *testing.T) {
+		res, out, err := cfg.renderHandler(context.Background(), nil, renderInput{Source: `(import "ok.libsonnet").msg`})
+		if err != nil {
+			t.Fatalf("unexpected Go error: %v", err)
+		}
+		if res.IsError {
+			t.Fatalf("legit import rejected by confined importer: %s", textContent(t, res))
+		}
+		assertJSONEqual(t, out.JSON, `"hi"`)
+	})
+}
+
+// TestRenderHandler_ConfinedImporterResolvesTransitiveRelativeImports pins that
+// a confined library file can import a sibling by relative path — the common
+// vendored-library shape (grafonnet et al.) — so confinement doesn't break the
+// legitimate import graph.
+func TestRenderHandler_ConfinedImporterResolvesTransitiveRelativeImports(t *testing.T) {
+	libDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(libDir, "util.libsonnet"), []byte(`{n: 7}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(libDir, "main.libsonnet"), []byte(`{v: (import "util.libsonnet").n}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := Config{LibraryPaths: []string{libDir}, ConfineImports: true}
+	res, out, err := cfg.renderHandler(context.Background(), nil, renderInput{Source: `(import "main.libsonnet").v`})
+	if err != nil {
+		t.Fatalf("unexpected Go error: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("transitive relative import failed under confinement: %s", textContent(t, res))
+	}
+	assertJSONEqual(t, out.JSON, `7`)
+}
+
+// TestNewHTTPHandler_SetsConfineImports pins that the network transport is wired
+// to the confined importer (the stdio path must NOT be, so it stays free to
+// import local files).
+func TestNewHTTPHandler_SetsConfineImports(t *testing.T) {
+	cfg := Config{}
+	if cfg.importer() == nil {
+		t.Fatal("stdio importer is nil")
+	}
+	// The stdio default keeps the stock FileImporter (ConfineImports false).
+	if _, ok := cfg.importer().(*confinedImporter); ok {
+		t.Error("stdio Config must use the stock FileImporter, not the confined one")
+	}
+	confined := Config{ConfineImports: true}
+	if _, ok := confined.importer().(*confinedImporter); !ok {
+		t.Error("ConfineImports=true must select the confined importer")
+	}
 }
 
 func TestRenderHandler_EvalUnavailable(t *testing.T) {
