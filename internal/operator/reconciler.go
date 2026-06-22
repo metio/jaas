@@ -1575,7 +1575,6 @@ func (r *SnippetReconciler) decorateMessage(reason, message string) string {
 // mutate fn is a no-op — the next reconcile (already enqueued by the
 // spec-edit watch event) writes the right pair.
 func (r *SnippetReconciler) markSynced(ctx context.Context, snip *jaasv1.JsonnetSnippet, rendered, revision, artifactURL string, sourceFileCount int, judgedGen int64) (ctrl.Result, error) {
-	prev := apimeta.FindStatusCondition(snip.Status.Conditions, jaasv1.ConditionReady)
 	// sourceFileCount is the resolved source's file count — same value
 	// for inline spec.files and for sourceRef-fetched content. Using
 	// len(snip.Spec.Files) would report 0 for every sourceRef snippet.
@@ -1609,6 +1608,13 @@ func (r *SnippetReconciler) markSynced(ctx context.Context, snip *jaasv1.Jsonnet
 	if latest.Generation != judgedGen {
 		return ctrl.Result{}, nil
 	}
+
+	// Capture the prior Ready condition from the fresh read, not the cached
+	// snip: emitConditionEvent's dedup compares prev against the condition we
+	// write onto latest, so reading prev from a lagging cache could emit a
+	// duplicate Synced event (or suppress a real transition). failReady reads
+	// prev from its fresh object for the same reason.
+	prev := apimeta.FindStatusCondition(latest.Status.Conditions, jaasv1.ConditionReady)
 
 	// Patch the status onto the freshly-read object via the Flux patch.Helper.
 	// The Ready condition is patched through the helper's internal re-Get +
