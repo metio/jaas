@@ -834,6 +834,15 @@ func extractTarballWithLimits(r io.Reader, pathPrefix string, maxBytes, perEntry
 		if !ok {
 			continue
 		}
+		// Reject duplicate normalised names. Keeping last-write-wins would both
+		// double-count the entry against the aggregate cap (a crafted tarball
+		// could pad toward ErrTarballTooLarge with repeated names while its kept
+		// content stays small) and silently pick one of two contents — neither
+		// is acceptable, and a real source-controller artifact never repeats a
+		// path.
+		if _, dup := files[name]; dup {
+			return nil, fmt.Errorf("tar contains duplicate entry path %q", name)
+		}
 		if hdr.Size < 0 {
 			return nil, fmt.Errorf("tar entry %q: negative size", hdr.Name)
 		}
