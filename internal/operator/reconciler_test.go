@@ -1157,6 +1157,66 @@ func TestReconcile_DeletionWithdrawErrorRequeues(t *testing.T) {
 	}
 }
 
+// TestReconcileDelete_ErrorPathStillForgetsCycleVerdict pins that the cycle
+// verdict is evicted on a delete whose Withdraw fails and requeues — even
+// though the full forgetPerSnippetCaches (which would re-mint the SA token on
+// recovery) is deliberately skipped on that error path. The cycle verdict is
+// keyed by a never-reused UID with no TTL, so leaving it pinned across a
+// repeatedly-failing delete would leak it.
+func TestReconcileDelete_ErrorPathStillForgetsCycleVerdict(t *testing.T) {
+	snip := sampleSnippet()
+	snip.UID = types.UID("uid-delete-err")
+	snip.Finalizers = []string{FinalizerName}
+	now := metav1.NewTime(time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC))
+	snip.DeletionTimestamp = &now
+
+	c := fake.NewClientBuilder().
+		WithScheme(publisherScheme(t)).
+		WithObjects(snip).
+		WithStatusSubresource(
+			&jaasv1.JsonnetSnippet{},
+			func() client.Object {
+				u := &unstructured.Unstructured{}
+				u.SetGroupVersionKind(externalArtifactGVK)
+				return u
+			}(),
+		).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Delete: func(_ context.Context, _ client.WithWatch, _ client.Object, _ ...client.DeleteOption) error {
+				return errors.New("withdraw denied")
+			},
+		}).
+		Build()
+	r := newReconciler(t, c)
+	r.Publisher = newTestPublisher(t, c)
+	r.Limiter = NewRateLimiter(0.01, 1)
+	r.CycleCache = newCycleCache()
+	// Stay inside the MaxWithdrawWait window so the requeue (error) path runs.
+	r.Clock = func() time.Time { return snip.DeletionTimestamp.Time.Add(1 * time.Minute) }
+
+	// Seed both per-snippet caches.
+	r.Limiter.Reserve(snip.Namespace + "/" + snip.Name)
+	r.CycleCache.Store(snip.UID, snip.Generation, 0, false, "no cycle")
+
+	if _, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: snip.Name, Namespace: snip.Namespace},
+	}); err == nil {
+		t.Fatal("expected the Withdraw error to requeue, got nil")
+	}
+
+	// Cycle verdict must be gone — the unconditional Forget at the top of
+	// reconcileDelete runs even on this error path.
+	if _, _, ok := r.CycleCache.Lookup(snip.UID, snip.Generation); ok {
+		t.Error("cycle verdict still cached after a failing delete; it leaks")
+	}
+	// The rate-limit bucket must still be drained — forgetPerSnippetCaches is
+	// intentionally skipped on the error path (so a recovering snippet doesn't
+	// re-mint its token), confirming this is the targeted cycle-only eviction.
+	if ok, _ := r.Limiter.Reserve(snip.Namespace + "/" + snip.Name); ok {
+		t.Error("rate-limit bucket was forgotten on the error path; expected it to persist")
+	}
+}
+
 // Regression: a permanently-broken Withdraw (e.g. S3 perma-down, revoked
 // RBAC, deleted bucket) would otherwise pin the snippet in Terminating
 // forever and block namespace deletion. After MaxWithdrawWait elapses
