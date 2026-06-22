@@ -192,6 +192,13 @@ func (b *S3Backend) Open(ctx context.Context, namespace, name, revision string) 
 	if namespace == "" || name == "" || revision == "" {
 		return nil, fmt.Errorf("storage/s3: namespace/name/revision required, got (%q,%q,%q)", namespace, name, revision)
 	}
+	// Every other key-constructing method (Put/Prune/Delete and the filesystem
+	// backend's Open) validates its components; Open must agree on what a legal
+	// identifier is so a '/'-bearing revision can't address a different object
+	// within the bucket prefix.
+	if err := validNoTraversal(namespace, name, revision); err != nil {
+		return nil, err
+	}
 	key := b.objectKey(namespace, name, revision)
 	obj, err := b.client.GetObject(ctx, b.bucket, key, minio.GetObjectOptions{})
 	if err != nil {
