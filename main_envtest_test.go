@@ -131,36 +131,25 @@ func TestRun_FluxIntegration_BindFailureOnStoragePort(t *testing.T) {
 	}
 }
 
-// TestRun_FluxIntegration_InvalidWebhookCertModeFailsWithExit1 pins the
-// --webhook-cert-mode enum: an unrecognised mode is rejected (exit 1) before
-// any listener binds, naming the two accepted values. The check sits inside
-// the --enable-flux-integration + --enable-webhook boot path, so it needs a
-// reachable apiserver to clear loadKubeconfig first.
-func TestRun_FluxIntegration_InvalidWebhookCertModeFailsWithExit1(t *testing.T) {
-	kubeconfig := envtestMainSetup(t)
-
+// TestRun_FluxIntegration_InvalidWebhookCertModeFailsWithExit2 pins the
+// --webhook-cert-mode enum: an unrecognised mode is a usage error caught by
+// Flags.Validate at parse time (exit 2, naming the accepted values) before any
+// kubeconfig load or listener bind — so it needs no apiserver.
+func TestRun_FluxIntegration_InvalidWebhookCertModeFailsWithExit2(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	sigs := make(chan os.Signal, 1)
 	withRestoredSlogDefault(t)
 	code := run([]string{
-		"--listen-address=127.0.0.1",
-		"--port=" + freePort(t),
-		"--management-listen-address=127.0.0.1",
-		"--management-port=" + freePort(t),
-		"--shutdown-delay=0",
 		"--enable-flux-integration",
 		"--enable-webhook",
 		"--webhook-cert-mode=bogus",
-		"--kubeconfig=" + kubeconfig,
 		"--storage-path=" + t.TempDir(),
 		"--storage-base-url=http://example.test/artifacts",
-		"--leader-election-namespace=default",
-		"--metrics-bind-address=0",
 	}, nil, &stdout, &stderr, sigs)
-	if code != 1 {
-		t.Fatalf("exit code = %d, want 1; stderr=%q stdout=%q", code, stderr.String(), stdout.String())
+	if code != 2 {
+		t.Fatalf("exit code = %d, want 2; stderr=%q stdout=%q", code, stderr.String(), stdout.String())
 	}
-	if !strings.Contains(stderr.String(), "Invalid --webhook-cert-mode") {
+	if !strings.Contains(stderr.String(), "webhook-cert-mode") {
 		t.Errorf("stderr = %q, want it to name the invalid --webhook-cert-mode", stderr.String())
 	}
 }
