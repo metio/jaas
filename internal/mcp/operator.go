@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -95,6 +96,12 @@ func (cfg Config) listSnippetsHandler(ctx context.Context, _ *mcpsdk.CallToolReq
 		opts = append(opts, client.InNamespace(in.Namespace))
 	}
 	if err := cfg.KubeClient.List(ctx, &list, opts...); err != nil {
+		// A cluster-wide list under a namespace-scoped operator SA (the
+		// --watch-namespaces install) is a single Forbidden for the whole call,
+		// not a partial result — hint that an explicit namespace would succeed.
+		if in.Namespace == "" && apierrors.IsForbidden(err) {
+			return errorResult(fmt.Sprintf("cannot list JsonnetSnippets cluster-wide: %v; this operator may be namespace-scoped — pass an explicit namespace", err)), listSnippetsOutput{}, nil
+		}
 		return errorResult(fmt.Sprintf("cannot list JsonnetSnippets: %v", err)), listSnippetsOutput{}, nil
 	}
 	out := listSnippetsOutput{Snippets: make([]snippetSummary, 0, len(list.Items))}
