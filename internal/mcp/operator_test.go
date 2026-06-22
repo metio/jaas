@@ -7,13 +7,16 @@ package mcp
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	jaasv1 "github.com/metio/jaas/api/v1"
 )
@@ -239,5 +242,35 @@ func TestOperatorTools_AbsentWithoutClient(t *testing.T) {
 		if tool.Name == "list_snippets" || tool.Name == "get_snippet" {
 			t.Errorf("operator tool %q registered without a KubeClient", tool.Name)
 		}
+	}
+}
+
+// TestListSnippetsHandler_ForbiddenClusterWideHints pins that a Forbidden on
+// the cluster-wide list (the namespace-scoped operator SA) returns a tool error
+// hinting that an explicit namespace would succeed, rather than a bare denial.
+func TestListSnippetsHandler_ForbiddenClusterWideHints(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := jaasv1.AddToScheme(scheme); err != nil {
+		t.Fatalf("add scheme: %v", err)
+	}
+	forbidden := apierrors.NewForbidden(
+		jaasv1.GroupVersion.WithResource("jsonnetsnippets").GroupResource(), "", nil,
+	)
+	c := fake.NewClientBuilder().WithScheme(scheme).WithInterceptorFuncs(interceptor.Funcs{
+		List: func(_ context.Context, _ client.WithWatch, _ client.ObjectList, _ ...client.ListOption) error {
+			return forbidden
+		},
+	}).Build()
+	cfg := Config{KubeClient: c}
+
+	res, _, err := cfg.listSnippetsHandler(context.Background(), nil, listSnippetsInput{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res == nil || !res.IsError {
+		t.Fatalf("expected a tool error on cluster-wide Forbidden, got %+v", res)
+	}
+	if !strings.Contains(textContent(t, res), "pass an explicit namespace") {
+		t.Fatalf("error should hint at an explicit namespace, got %q", textContent(t, res))
 	}
 }
