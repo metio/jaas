@@ -104,6 +104,27 @@ func TestSnippetValidator_ValidateUpdateChecksNewObj(t *testing.T) {
 	}
 }
 
+// TestSnippetValidator_ValidateUpdateSkipsObjectsUnderDeletion pins that an
+// update to a snippet carrying a deletionTimestamp is admitted even when its
+// (unchanged) spec would otherwise be rejected — otherwise the reconciler's own
+// finalizer-removal update is blocked and the snippet wedges in Terminating.
+func TestSnippetValidator_ValidateUpdateSkipsObjectsUnderDeletion(t *testing.T) {
+	v := &SnippetValidator{OperatorExtVars: map[string]string{"cluster": "x"}}
+	now := metav1.Now()
+	snip := &jaasv1.JsonnetSnippet{
+		ObjectMeta: metav1.ObjectMeta{
+			DeletionTimestamp: &now,
+			Finalizers:        []string{FinalizerName},
+		},
+		Spec: jaasv1.JsonnetSnippetSpec{
+			ExternalVariables: map[string]string{"cluster": "tampered"}, // would conflict
+		},
+	}
+	if _, err := v.ValidateUpdate(context.Background(), snip, snip); err != nil {
+		t.Errorf("update of a deleting snippet rejected: %v", err)
+	}
+}
+
 func TestSnippetValidator_ValidateDeleteAlwaysPasses(t *testing.T) {
 	v := &SnippetValidator{OperatorExtVars: map[string]string{"cluster": "x"}}
 	snip := &jaasv1.JsonnetSnippet{
