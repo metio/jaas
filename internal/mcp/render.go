@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/google/go-jsonnet"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -76,7 +77,7 @@ func (cfg Config) validateHandler(ctx context.Context, _ *mcpsdk.CallToolRequest
 			errors.Is(err, context.Canceled) {
 			return cfg.evalErrorResult(err), validateOutput{}, nil
 		}
-		return nil, validateOutput{Valid: false, Error: err.Error()}, nil
+		return nil, validateOutput{Valid: false, Error: cfg.scrubLibraryPaths(err.Error())}, nil
 	}
 	return nil, validateOutput{Valid: true}, nil
 }
@@ -125,10 +126,11 @@ func (cfg Config) mergedExtVars(callExtVars map[string]string) map[string]string
 	return merged
 }
 
-// evalErrorResult maps an eval error to an MCP tool-error result. The rich
-// go-jsonnet diagnostic is returned verbatim: this server is owner-facing
-// (local stdio), so the disclosure-parity model treats it like the operator
-// status path, not the scrubbed public HTTP path.
+// evalErrorResult maps an eval error to an MCP tool-error result. On stdio the
+// rich go-jsonnet diagnostic is returned verbatim (owner-facing, like the
+// operator status path); on the network transport the diagnostic is run through
+// scrubLibraryPaths so a caller-supplied snippet that fails inside a library
+// import can't read back the operator pod's absolute library-mount layout.
 func (cfg Config) evalErrorResult(err error) *mcpsdk.CallToolResult {
 	var msg string
 	switch {
@@ -137,9 +139,28 @@ func (cfg Config) evalErrorResult(err error) *mcpsdk.CallToolResult {
 	case errors.Is(err, context.DeadlineExceeded):
 		msg = fmt.Sprintf("evaluation timed out after %s", cfg.EvaluationTimeout)
 	default:
-		msg = err.Error()
+		msg = cfg.scrubLibraryPaths(err.Error())
 	}
 	return errorResult(msg)
+}
+
+// scrubLibraryPaths strips the configured library-root absolute prefixes from a
+// diagnostic on the confined (network) transport, so a path like
+// "/libraries/grafonnet/main.libsonnet:12:3" reads as
+// "grafonnet/main.libsonnet:12:3" — the file:line and error stay useful, but the
+// operator pod's filesystem layout doesn't leak. A no-op on the stdio renderer
+// (ConfineImports false), where the paths are the user's own.
+func (cfg Config) scrubLibraryPaths(msg string) string {
+	if !cfg.ConfineImports {
+		return msg
+	}
+	for _, root := range cfg.LibraryPaths {
+		if root == "" {
+			continue
+		}
+		msg = strings.ReplaceAll(msg, strings.TrimRight(root, "/")+"/", "")
+	}
+	return msg
 }
 
 // errorResult builds an MCP tool-error result carrying msg as its text content.

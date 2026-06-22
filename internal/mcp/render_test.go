@@ -379,3 +379,22 @@ func TestServer_InMemoryRoundTrip(t *testing.T) {
 		t.Fatalf("expected valid=false for a syntax error, got structured content %v", sc)
 	}
 }
+
+// TestConfig_ScrubLibraryPaths pins that the network transport strips the
+// absolute library-root prefixes from a diagnostic (so the pod's filesystem
+// layout doesn't leak) while keeping the relative path + error, and that the
+// stdio renderer leaves the message untouched.
+func TestConfig_ScrubLibraryPaths(t *testing.T) {
+	const diag = "/libraries/grafonnet/main.libsonnet:12:3-20 expected token"
+	confined := Config{ConfineImports: true, LibraryPaths: []string{"/libraries", "/extra/"}}
+	if got := confined.scrubLibraryPaths(diag); got != "grafonnet/main.libsonnet:12:3-20 expected token" {
+		t.Errorf("confined scrub = %q, want the root prefix stripped", got)
+	}
+	if got := confined.scrubLibraryPaths("/extra/x/y.libsonnet:1:1 boom"); got != "x/y.libsonnet:1:1 boom" {
+		t.Errorf("confined scrub (trailing-slash root) = %q", got)
+	}
+	stdio := Config{ConfineImports: false, LibraryPaths: []string{"/libraries"}}
+	if got := stdio.scrubLibraryPaths(diag); got != diag {
+		t.Errorf("stdio scrub = %q, want unchanged %q", got, diag)
+	}
+}
