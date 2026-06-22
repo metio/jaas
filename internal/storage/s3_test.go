@@ -651,6 +651,28 @@ func TestS3_HTTPHandler_RejectsNonTarball(t *testing.T) {
 	}
 }
 
+// TestS3_HTTPHandler_RejectsTraversal pins that a request path with a ".."
+// segment is refused before GetObject — so a normalizing S3-compatible gateway
+// can't resolve "prefix/../key" to read outside the configured prefix.
+func TestS3_HTTPHandler_RejectsTraversal(t *testing.T) {
+	b, fake, _ := newTestS3Backend(t, "myprefix")
+	// Plant a tarball OUTSIDE the prefix; a resolved "myprefix/../secret.tar.gz"
+	// would land on it.
+	fake.objects["secret.tar.gz"] = []byte("gzip-bytes")
+	h := b.HTTPHandler()
+
+	for _, p := range []string{"/../secret.tar.gz", "/ns/../../secret.tar.gz", "//secret.tar.gz"} {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, p, nil))
+		if rec.Code != http.StatusNotFound {
+			t.Errorf("GET %q status = %d, want 404 (traversal must be blocked)", p, rec.Code)
+		}
+		if strings.Contains(rec.Body.String(), "gzip-bytes") {
+			t.Errorf("GET %q leaked an out-of-prefix object", p)
+		}
+	}
+}
+
 // TestS3_PutStreams_LargePayload_RoundTripsWithCorrectDigest exercises
 // the streaming path: a payload that exceeds the multipart-part size
 // must round-trip through io.Pipe → multipart upload → reassembly
