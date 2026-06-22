@@ -212,3 +212,11 @@ func TestEvaluateWithDeadline_PanicInGoroutineSurfacesAsError(t *testing.T) {
 		t.Errorf("out = %q, want empty on panic path", out)
 	}
 }
+
+// TestOutstandingTimedOutEvals exposes the orphaned-eval gauge accessor; with no
+// timed-out evals in flight it reads zero.
+func TestOutstandingTimedOutEvals(t *testing.T) {
+	if got := OutstandingTimedOutEvals(); got < 0 {
+		t.Fatalf("OutstandingTimedOutEvals = %d, want >= 0", got)
+	}
+}

@@ -1329,3 +1329,32 @@ func schemeWithGVK(t *testing.T, kind string) *runtime.Scheme {
 	s.AddKnownTypeWithName(gv.WithKind(kind+"List"), &unstructured.UnstructuredList{})
 	return s
 }
+
+// TestFetcherByteCapDefaults pins the default byte caps when the Fetcher leaves
+// the corresponding field at zero, and the expectedHexLength algorithm switch.
+func TestFetcherByteCapDefaults(t *testing.T) {
+	var f Fetcher // all caps zero → defaults
+	if f.maxPerEntryBytes() != defaultMaxPerEntryBytes {
+		t.Errorf("maxPerEntryBytes default = %d, want %d", f.maxPerEntryBytes(), defaultMaxPerEntryBytes)
+	}
+	if f.maxDecompressedBytes() != defaultMaxDecompressedBytes {
+		t.Errorf("maxDecompressedBytes default = %d, want %d", f.maxDecompressedBytes(), defaultMaxDecompressedBytes)
+	}
+	if f.maxArchiveBytes() != defaultMaxArchiveBytes {
+		t.Errorf("maxArchiveBytes default = %d, want %d", f.maxArchiveBytes(), defaultMaxArchiveBytes)
+	}
+	if f.maxExtractedBytes() != defaultMaxExtractedBytes {
+		t.Errorf("maxExtractedBytes default = %d, want %d", f.maxExtractedBytes(), defaultMaxExtractedBytes)
+	}
+	// Explicit overrides take the non-default branch.
+	f2 := Fetcher{MaxPerEntryBytes: 7, MaxDecompressedBytes: 9, MaxArchiveBytes: 11, MaxExtractedBytes: 13}
+	if f2.maxPerEntryBytes() != 7 || f2.maxDecompressedBytes() != 9 || f2.maxArchiveBytes() != 11 || f2.maxExtractedBytes() != 13 {
+		t.Error("explicit byte caps not honored")
+	}
+	if expectedHexLength("sha256") != 64 {
+		t.Error("sha256 hex length")
+	}
+	if expectedHexLength("sha512") != 0 || expectedHexLength("") != 0 {
+		t.Error("unknown algo should yield 0")
+	}
+}
