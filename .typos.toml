@@ -13,4 +13,7 @@ mis = "mis"
 pn = "pn"
 
 [files]
-extend-exclude = ["LICENSES/", "go.sum"]
+# docs/themes/metio is a separate (CC0) submodule with its own CI; CI's checkout
+# doesn't fetch submodules, so exclude it here too — otherwise a local run flags
+# the theme's content while CI never sees it.
+extend-exclude = ["LICENSES/", "go.sum", "docs/themes/"]
