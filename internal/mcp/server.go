@@ -75,6 +75,14 @@ type Config struct {
 	// same artifact backend the reconciler publishes to; when nil (or without a
 	// KubeClient) the diff tool is not registered.
 	Store storage.Backend
+
+	// ConfineImports restricts render_jsonnet / validate_jsonnet so a snippet's
+	// imports resolve only within LibraryPaths (no absolute, working-directory,
+	// or ".."-escaping reads). NewHTTPHandler sets it for the network transport,
+	// which evaluates caller-supplied source over an unauthenticated port; the
+	// stdio renderer leaves it false (a single-user local tool may import local
+	// files freely, the same as running go-jsonnet by hand).
+	ConfineImports bool
 }
 
 // NewServer builds the MCP server with the jaas tool catalog registered. It
@@ -110,6 +118,9 @@ func Run(ctx context.Context, cfg Config) error {
 // embedded in-operator deployment mounts this on its own listener; the same
 // server instance is reused across sessions.
 func NewHTTPHandler(cfg Config) http.Handler {
+	// The HTTP transport is network-reachable and unauthenticated, so a
+	// caller-supplied snippet's imports must not escape the library paths.
+	cfg.ConfineImports = true
 	server := NewServer(cfg)
 	return mcpsdk.NewStreamableHTTPHandler(
 		func(*http.Request) *mcpsdk.Server { return server },
