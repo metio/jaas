@@ -10,7 +10,7 @@ artifact of its own and no controller reconciles it — it serves purely as a
 supply-side source for snippets. The import alias is set on the snippet side
 via `LibraryRef.importPath` (defaulting to the library's `metadata.name`); the
 library itself carries no registration name. Task-oriented guidance lives in
-[Jsonnet libraries](/usage/jsonnet-libraries/).
+[Jsonnet libraries](/rendering/jsonnet-libraries/).
 
 ## Example
 
@@ -63,4 +63,4 @@ a library reconciler can populate it without a schema change.
 | `history` | []RevisionEntry | Unpopulated. |
 
 For how snippets reference libraries, see [/api/jsonnetsnippet/](/api/jsonnetsnippet/)
-(`spec.libraries`) and [Jsonnet libraries](/usage/jsonnet-libraries/).
+(`spec.libraries`) and [Jsonnet libraries](/rendering/jsonnet-libraries/).

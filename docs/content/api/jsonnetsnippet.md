@@ -8,7 +8,7 @@ tags: [api, snippets, operator, flux]
 operator watches these namespaced CRs, evaluates the Jsonnet they describe, and
 upserts a Flux `ExternalArtifact` whose `status.artifact.url` points at the
 rendered result. Task-oriented guidance lives in
-[Operator mode](/usage/operator-mode/) and [Snippet sources](/usage/snippet-sources/).
+[Operator mode](/operator/operator-mode/) and [Snippet sources](/operator/snippet-sources/).
 
 ## Example
 
@@ -56,7 +56,7 @@ CRs that set neither or both.
 | `sourceRef.name` | string | — | Name of the referenced source CR. Required when `sourceRef` is set. Minimum length 1. |
 | `sourceRef.namespace` | string | snippet's namespace | Namespace of the referenced source CR. Cross-namespace references are rejected by default; they are allowed only when the operator runs with `--no-cross-namespace-refs=false`. |
 | `sourceRef.path` | string | — (artifact root) | Subdirectory within the fetched tarball to treat as the source root. Empty means the archive root. |
-| `libraries` | []LibraryRef | — | `JsonnetLibrary` CRs importable from this snippet. Libraries not listed here are invisible to the snippet even when present in the cluster. See [Jsonnet libraries](/usage/jsonnet-libraries/). |
+| `libraries` | []LibraryRef | — | `JsonnetLibrary` CRs importable from this snippet. Libraries not listed here are invisible to the snippet even when present in the cluster. See [Jsonnet libraries](/rendering/jsonnet-libraries/). |
 | `libraries[*].apiVersion` | string | `jaas.metio.wtf/v1` | APIVersion of the library CR. |
 | `libraries[*].kind` | string | — | Kind of the library CR. Currently only `JsonnetLibrary` is accepted. Required. |
 | `libraries[*].name` | string | — | Name of the referenced `JsonnetLibrary` CR. Required. Minimum length 1. |
@@ -113,7 +113,7 @@ Every reason string is wire-stable — runbooks key off these values.
 | `ArtifactTooLarge` | False | Rendered content exceeds the operator's `--max-artifact-bytes` limit. |
 | `RBACDenied` | False | An apiserver call failed with Forbidden, or the source CR's kind is not registered. Non-transient — backoff is disabled. The message names the verb and resource the cluster operator must grant. |
 
-Each reason has a remediation page at `/runbooks/<reason-lowercased>/`. See [Operator mode](/usage/operator-mode/) for lifecycle details and [ExternalArtifact output contract](/api/externalartifact/) for the artifact contract.
+Each reason has a remediation page at `/runbooks/<reason-lowercased>/`. See [Operator mode](/operator/operator-mode/) for lifecycle details and [ExternalArtifact output contract](/api/externalartifact/) for the artifact contract.
 
 ## Triggering a reconcile
 

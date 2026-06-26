@@ -23,7 +23,7 @@ Three flags configure the exporter:
   Default `1.0` samples every trace.
 
 The full flag list with defaults is on the
-[configuration page](/installation/configuration/).
+[configuration page](/reference/configuration/).
 
 ### Viewing spans
 

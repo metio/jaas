@@ -59,12 +59,12 @@ For the `NoMatchError` variant:
 kubectl get crd | grep -E 'source.toolkit.fluxcd.io|jaas.metio.wtf'
 
 # If source-controller's CRDs are missing, install Flux:
-# https://fluxcd.io/flux/installation/
+# https://fluxcd.io/flux/get-started/
 ```
 
 ## Remediation
 
-Grant the missing verb to the tenant SA. The minimum verbs JaaS expects are documented in the [Tenancy and RBAC](https://jaas.projects.metio.wtf/usage/tenancy-and-rbac/#the-tenant-role) guide. Typical fix:
+Grant the missing verb to the tenant SA. The minimum verbs JaaS expects are documented in the [Tenancy and RBAC](https://jaas.projects.metio.wtf/security/tenancy-and-rbac/#the-tenant-role) guide. Typical fix:
 
 ```yaml
 apiVersion: rbac.authorization.k8s.io/v1

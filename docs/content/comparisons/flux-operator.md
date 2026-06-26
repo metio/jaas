@@ -48,7 +48,7 @@ without authoring a snippet by hand for every instance.
 
 The practical pattern — a `ResourceSet` that templates a `JsonnetSnippet` per
 input so JaaS renders per-cluster or per-tenant content — has a complete, working
-example on the [Flux Operator integration](/usage/flux-operator/) page.
+example on the [Flux Operator integration](/integrations/flux-operator/) page.
 
 Neither tool replaces the other: drop the Flux Operator if you only ever render
 one document per snippet, and drop JaaS if your objects need no Jsonnet

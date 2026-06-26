@@ -11,7 +11,7 @@ installed by Flux's source-controller. The full CRD schema is in the
 [Flux ExternalArtifact reference](https://fluxcd.io/flux/components/source/externalartifacts/);
 below is the subset JaaS writes and the invariants downstream consumers can rely on.
 
-For task-oriented context, see [Operator mode](/usage/operator-mode/).
+For task-oriented context, see [Operator mode](/operator/operator-mode/).
 
 ## What JaaS writes
 

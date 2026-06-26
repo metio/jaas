@@ -17,7 +17,7 @@ controller-runtime workqueue. The series are the [metrics](/observability/metric
 the operator exports.
 
 To author your *own* dashboards in grafonnet, see the
-[Grafana dashboards tutorial](/tutorials/grafana-dashboards/); this page covers
+[Grafana dashboards tutorial](/guides/grafana-dashboards/); this page covers
 consuming the ready-made one.
 
 ## 1. Point a Flux source at the image
@@ -99,7 +99,7 @@ after the snippet — `jaas-operator-dashboard`.
 To fan this dashboard out per cluster — one rendered instance per cluster, each
 scoped to its own Prometheus — template the snippet with a Flux Operator
 `ResourceSet`; see the
-[Flux Operator integration](/usage/flux-operator/) page.
+[Flux Operator integration](/integrations/flux-operator/) page.
 
 ## 3. Hand the artifact to the grafana-operator
 

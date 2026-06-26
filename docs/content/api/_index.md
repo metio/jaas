@@ -5,4 +5,4 @@ description: Field-by-field reference for the JaaS custom resources and the arti
 
 Field-by-field reference for the two custom resources in the `jaas.metio.wtf/v1`
 group and the Flux `ExternalArtifact` JaaS publishes. For task-oriented guidance,
-start from [Usage](/usage/).
+start from [Usage](/rendering/).

@@ -19,12 +19,12 @@ Over a local binary invocation, JaaS adds:
   the evaluated JSON, with Top Level Arguments supplied as query parameters and
   external variables configured on the service. Anything that speaks HTTP can
   request a render without installing the toolchain or the vendor tree. See the
-  [rendering endpoint](/usage/rendering-endpoint/) usage page.
+  [rendering endpoint](/rendering/rendering-endpoint/) usage page.
 - **An operator that turns a snippet into a revisioned Flux artifact.** With
   `--enable-flux-integration`, a `JsonnetSnippet` is evaluated continuously and
   published as a content-addressed `ExternalArtifact` that Flux consumers apply
   in-cluster — re-rendered automatically when its source changes. See
-  [operator mode](/usage/operator-mode/).
+  [operator mode](/operator/operator-mode/).
 - **Import resolution that matches `jsonnet -J vendor`.** JaaS resolves imports
   with the same semantics as the CLI's JPATH/vendor search, so the JSON a
   snippet produces under the service matches what the CLI produces locally.
@@ -35,7 +35,7 @@ Over a local binary invocation, JaaS adds:
 - **Read-scope sandboxing.** Snippet-name resolution goes through Go's
   `os.Root`, which rejects `..` traversal and symlinks that escape the
   configured snippet directory, so a crafted request cannot read arbitrary
-  files. The [evaluation and security](/usage/evaluation-and-security/) page
+  files. The [evaluation and security](/rendering/evaluation-and-security/) page
   details the caps and the boundaries.
 
 ## When the plain CLI is the right tool
@@ -52,6 +52,6 @@ The CLI is the better choice for work that is local and one-off:
 Because JaaS runs the same go-jsonnet core, these are not mutually exclusive:
 you can keep `jsonnet` and `jb` on your workstation and in CI, and run JaaS
 in-cluster for the server-side and GitOps paths, with both producing the same
-JSON for the same input. The [local rendering](/tutorials/local-rendering/)
+JSON for the same input. The [local rendering](/get-started/local-rendering/)
 tutorial shows JaaS used purely as a renderer, which keeps the local and
 in-cluster output aligned.
