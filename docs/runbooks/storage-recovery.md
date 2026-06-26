@@ -265,6 +265,6 @@ A force-drop should be rare — it means the backend was broken for the full wai
 
 ## Related pages
 
-- [Backup and disaster recovery](/installation/disaster-recovery/) — the full cluster-rebuild story: what to back up (your GitOps repository, not the store) and the restore order after total loss
+- [Backup and disaster recovery](/running/disaster-recovery/) — the full cluster-rebuild story: what to back up (your GitOps repository, not the store) and the restore order after total loss
 - [artifacttoolarge](/runbooks/artifacttoolarge/) — one snippet's output exceeds the cap (different symptom: snippet Ready=False, not "URL unreachable")
 - [sourcefetchfailed](/runbooks/sourcefetchfailed/) — the operator *consuming* an upstream artifact, not its own storage

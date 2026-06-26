@@ -16,18 +16,18 @@ returns JSON. It runs in one of two modes:
   that any Flux consumer deploys.
 
 The two modes are mutually exclusive in one chart release;
-[Installation](/installation/kubernetes/) covers choosing one.
+[Installation](/get-started/kubernetes/) covers choosing one.
 
 ## What teams build with it
 
 - **Grafana dashboards with grafana-operator.** Author dashboards in Jsonnet
   (grafonnet), let JaaS render them, and have the
   [grafana-operator](https://grafana.github.io/grafana-operator/) reconcile the
-  result into Grafana. See [Grafana dashboards](/tutorials/grafana-dashboards/).
+  result into Grafana. See [Grafana dashboards](/guides/grafana-dashboards/).
 - **Kubernetes manifests with stageset-controller.** Render manifests from
   Jsonnet and roll them out in ordered, gated stages with
   [stageset-controller](https://stageset.projects.metio.wtf/). See
-  [Deploying manifests with StageSet](/tutorials/deploying-manifests/).
+  [Deploying manifests with StageSet](/guides/deploying-manifests/).
 
 Both build on the same core: a snippet renders to an `ExternalArtifact`, and a
 downstream controller consumes it. JaaS only renders — what happens to the JSON is
@@ -35,14 +35,14 @@ the consumer's concern, documented on that consumer's own site.
 
 ## Where to start
 
-- [Quickstart](/tutorials/quickstart/) — from a Helm install to a published
-  artifact in a few steps.
-- [Tutorials](/tutorials/) — the two integrations above, plus running JaaS as a
-  cluster-free local renderer.
-- [Usage](/usage/) — one page per feature, for both the HTTP renderer and the
-  operator.
-- [Installation](/installation/) — Helm install, production hardening, and the
-  full configuration reference.
+- [Get started](/get-started/) — render locally with no cluster, or install JaaS
+  on Kubernetes and call its [Quickstart](/get-started/quickstart/) endpoint.
+- [Rendering Jsonnet](/rendering/) — the HTTP renderer: snippets, libraries,
+  external variables, and the limits around evaluation.
+- [Operator mode](/operator/) — evaluate `JsonnetSnippet` resources and publish
+  each result as a Flux `ExternalArtifact`.
+- [Guides](/guides/) — Grafana dashboards, and deploying rendered manifests with
+  StageSet.
 - [API reference](/api/) — every field of `JsonnetSnippet`, `JsonnetLibrary`, and
   the `ExternalArtifact` output contract.
 - [Runbooks](/runbooks/) — symptom, cause, and remediation for every

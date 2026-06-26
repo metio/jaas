@@ -25,7 +25,7 @@ ignoreFiles = ['README\.md$']
   term = ["HTML", "RSS", "ATOM"]
 
 [params]
-  mainSections = ["installation", "tutorials", "usage", "observability", "api", "comparisons", "runbooks", "contributing"]
+  mainSections = ["get-started", "guides", "rendering", "operator", "security", "integrations", "running", "observability", "api", "reference", "comparisons", "runbooks", "contributing"]
   author = "metio.wtf"
   github = "metio/jaas"
   # Header mark (rendered left of the title) plus the favicon link set; the image
@@ -49,182 +49,197 @@ ignoreFiles = ['README\.md$']
   # Cross-project JSON-LD link (emitted as schema.org mentions on the home page).
   relatedProjects = [{ name = "stageset-controller", url = "https://stageset.projects.metio.wtf/" }]
 
-# Desktop navigation. The theme renders a main-menu entry only when it has
-# children, so each section is a parent linking to its list page.
+# Navigation. The theme renders a main-menu entry with a child list only when it
+# has children. The menu is a reader's journey — most important first — and each
+# group is a content section under docs/content of the same name, so a page's URL
+# matches where it sits in the menu. Each group header links to its section
+# landing page.
 [menu]
+  # 1 ── Get started: the shortest paths to a first render.
   [[menu.main]]
-    identifier = "installation"
-    name = "Installation"
-    url = "/installation/"
+    identifier = "get-started"
+    name = "Get started"
+    url = "/get-started/"
     weight = 10
   [[menu.main]]
-    parent = "installation"
-    name = "Kubernetes"
-    url = "/installation/kubernetes/"
-    weight = 1
-  [[menu.main]]
-    parent = "installation"
-    name = "Production"
-    url = "/installation/production/"
-    weight = 2
-  [[menu.main]]
-    parent = "installation"
-    name = "Operations"
-    url = "/installation/operations/"
-    weight = 3
-  [[menu.main]]
-    parent = "installation"
-    name = "Backup and disaster recovery"
-    url = "/installation/disaster-recovery/"
-    weight = 4
-  [[menu.main]]
-    parent = "installation"
-    name = "Scale and capacity"
-    url = "/installation/scale-and-capacity/"
-    weight = 5
-  [[menu.main]]
-    parent = "installation"
-    name = "Configuration reference"
-    url = "/installation/configuration/"
-    weight = 6
-  [[menu.main]]
-    parent = "installation"
-    name = "Helm chart values"
-    url = "/installation/helm-values/"
-    weight = 7
-  [[menu.main]]
-    parent = "installation"
-    name = "Verifying releases"
-    url = "/installation/verifying-releases/"
-    weight = 8
-  [[menu.main]]
-    parent = "installation"
-    name = "Upgrading"
-    url = "/installation/upgrading/"
-    weight = 9
-
-  [[menu.main]]
-    identifier = "tutorials"
-    name = "Tutorials"
-    url = "/tutorials/"
-    weight = 15
-  [[menu.main]]
-    parent = "tutorials"
+    parent = "get-started"
     name = "Quickstart"
-    url = "/tutorials/quickstart/"
+    url = "/get-started/quickstart/"
     weight = 1
   [[menu.main]]
-    parent = "tutorials"
-    name = "Grafana dashboards"
-    url = "/tutorials/grafana-dashboards/"
+    parent = "get-started"
+    name = "Install on Kubernetes"
+    url = "/get-started/kubernetes/"
     weight = 2
   [[menu.main]]
-    parent = "tutorials"
-    name = "Deploying manifests with StageSet"
-    url = "/tutorials/deploying-manifests/"
-    weight = 3
-  [[menu.main]]
-    parent = "tutorials"
+    parent = "get-started"
     name = "Local rendering"
-    url = "/tutorials/local-rendering/"
-    weight = 4
+    url = "/get-started/local-rendering/"
+    weight = 3
 
+  # 2 ── Guides: end-to-end walkthroughs.
   [[menu.main]]
-    identifier = "usage"
-    name = "Usage"
-    url = "/usage/"
+    identifier = "guides"
+    name = "Guides"
+    url = "/guides/"
     weight = 20
   [[menu.main]]
-    parent = "usage"
-    name = "Rendering endpoint"
-    url = "/usage/rendering-endpoint/"
+    parent = "guides"
+    name = "Grafana dashboards"
+    url = "/guides/grafana-dashboards/"
     weight = 1
   [[menu.main]]
-    parent = "usage"
+    parent = "guides"
+    name = "Deploying manifests with StageSet"
+    url = "/guides/deploying-manifests/"
+    weight = 2
+
+  # 3 ── Rendering Jsonnet: the core evaluation service.
+  [[menu.main]]
+    identifier = "rendering"
+    name = "Rendering Jsonnet"
+    url = "/rendering/"
+    weight = 30
+  [[menu.main]]
+    parent = "rendering"
+    name = "Rendering endpoint"
+    url = "/rendering/rendering-endpoint/"
+    weight = 1
+  [[menu.main]]
+    parent = "rendering"
     name = "Snippets and libraries"
-    url = "/usage/snippets-and-libraries/"
+    url = "/rendering/snippets-and-libraries/"
     weight = 2
   [[menu.main]]
-    parent = "usage"
+    parent = "rendering"
     name = "External variables and TLAs"
-    url = "/usage/external-variables-and-tlas/"
+    url = "/rendering/external-variables-and-tlas/"
     weight = 3
   [[menu.main]]
-    parent = "usage"
-    name = "Evaluation and security"
-    url = "/usage/evaluation-and-security/"
+    parent = "rendering"
+    name = "Jsonnet libraries"
+    url = "/rendering/jsonnet-libraries/"
     weight = 4
   [[menu.main]]
-    parent = "usage"
-    name = "Operator mode"
-    url = "/usage/operator-mode/"
+    parent = "rendering"
+    name = "JOI images"
+    url = "/rendering/joi-images/"
     weight = 5
   [[menu.main]]
-    parent = "usage"
-    name = "Snippet sources"
-    url = "/usage/snippet-sources/"
+    parent = "rendering"
+    name = "Evaluation and security"
+    url = "/rendering/evaluation-and-security/"
     weight = 6
-  [[menu.main]]
-    parent = "usage"
-    name = "Creating source artifacts"
-    url = "/usage/creating-sources/"
-    weight = 7
-  [[menu.main]]
-    parent = "usage"
-    name = "Jsonnet libraries"
-    url = "/usage/jsonnet-libraries/"
-    weight = 8
-  [[menu.main]]
-    parent = "usage"
-    name = "JOI images"
-    url = "/usage/joi-images/"
-    weight = 9
-  [[menu.main]]
-    parent = "usage"
-    name = "Tenancy and RBAC"
-    url = "/usage/tenancy-and-rbac/"
-    weight = 10
-  [[menu.main]]
-    parent = "usage"
-    name = "Storage and HA"
-    url = "/usage/storage-and-ha/"
-    weight = 11
-  [[menu.main]]
-    parent = "usage"
-    name = "Admission webhook"
-    url = "/usage/admission-webhook/"
-    weight = 12
-  [[menu.main]]
-    parent = "usage"
-    name = "Network policy"
-    url = "/usage/network-policy/"
-    weight = 13
-  [[menu.main]]
-    parent = "usage"
-    name = "Service mesh"
-    url = "/usage/service-mesh/"
-    weight = 14
-  [[menu.main]]
-    parent = "usage"
-    name = "Flux Operator integration"
-    url = "/usage/flux-operator/"
-    weight = 15
-  [[menu.main]]
-    parent = "usage"
-    name = "Claude Code skill"
-    url = "/usage/claude-code/"
-    weight = 16
-  [[menu.main]]
-    parent = "usage"
-    name = "MCP server"
-    url = "/usage/mcp-server/"
-    weight = 17
 
+  # 4 ── Operator mode: publish renders as Flux artifacts.
+  [[menu.main]]
+    identifier = "operator"
+    name = "Operator mode"
+    url = "/operator/"
+    weight = 40
+  [[menu.main]]
+    parent = "operator"
+    name = "Operator mode"
+    url = "/operator/operator-mode/"
+    weight = 1
+  [[menu.main]]
+    parent = "operator"
+    name = "Snippet sources"
+    url = "/operator/snippet-sources/"
+    weight = 2
+  [[menu.main]]
+    parent = "operator"
+    name = "Creating source artifacts"
+    url = "/operator/creating-sources/"
+    weight = 3
+  [[menu.main]]
+    parent = "operator"
+    name = "Storage and HA"
+    url = "/operator/storage-and-ha/"
+    weight = 4
+
+  # 5 ── Security & multi-tenancy.
+  [[menu.main]]
+    identifier = "security"
+    name = "Security & multi-tenancy"
+    url = "/security/"
+    weight = 50
+  [[menu.main]]
+    parent = "security"
+    name = "Tenancy and RBAC"
+    url = "/security/tenancy-and-rbac/"
+    weight = 1
+  [[menu.main]]
+    parent = "security"
+    name = "Admission webhook"
+    url = "/security/admission-webhook/"
+    weight = 2
+  [[menu.main]]
+    parent = "security"
+    name = "Network policy"
+    url = "/security/network-policy/"
+    weight = 3
+  [[menu.main]]
+    parent = "security"
+    name = "Service mesh"
+    url = "/security/service-mesh/"
+    weight = 4
+
+  # 6 ── Integrations & tooling.
+  [[menu.main]]
+    identifier = "integrations"
+    name = "Integrations & tooling"
+    url = "/integrations/"
+    weight = 60
+  [[menu.main]]
+    parent = "integrations"
+    name = "Flux Operator integration"
+    url = "/integrations/flux-operator/"
+    weight = 1
+  [[menu.main]]
+    parent = "integrations"
+    name = "Claude Code skill"
+    url = "/integrations/claude-code/"
+    weight = 2
+  [[menu.main]]
+    parent = "integrations"
+    name = "MCP server"
+    url = "/integrations/mcp-server/"
+    weight = 3
+
+  # 7 ── Run in production: day-two operation.
+  [[menu.main]]
+    identifier = "running"
+    name = "Run in production"
+    url = "/running/"
+    weight = 70
+  [[menu.main]]
+    parent = "running"
+    name = "Production"
+    url = "/running/production/"
+    weight = 1
+  [[menu.main]]
+    parent = "running"
+    name = "Operations"
+    url = "/running/operations/"
+    weight = 2
+  [[menu.main]]
+    parent = "running"
+    name = "Scale and capacity"
+    url = "/running/scale-and-capacity/"
+    weight = 3
+  [[menu.main]]
+    parent = "running"
+    name = "Backup and disaster recovery"
+    url = "/running/disaster-recovery/"
+    weight = 4
+
+  # 8 ── Observability.
   [[menu.main]]
     identifier = "observability"
     name = "Observability"
     url = "/observability/"
-    weight = 25
+    weight = 80
   [[menu.main]]
     parent = "observability"
     name = "Logging"
@@ -256,11 +271,12 @@ ignoreFiles = ['README\.md$']
     url = "/observability/dashboard/"
     weight = 6
 
+  # 9 ── API reference.
   [[menu.main]]
     identifier = "api"
-    name = "API reference"
+    name = "API"
     url = "/api/"
-    weight = 40
+    weight = 90
   [[menu.main]]
     parent = "api"
     name = "JsonnetSnippet"
@@ -277,11 +293,39 @@ ignoreFiles = ['README\.md$']
     url = "/api/externalartifact/"
     weight = 3
 
+  # 10 ── Reference: install-time and release reference pages.
+  [[menu.main]]
+    identifier = "reference"
+    name = "Reference"
+    url = "/reference/"
+    weight = 100
+  [[menu.main]]
+    parent = "reference"
+    name = "Configuration reference"
+    url = "/reference/configuration/"
+    weight = 1
+  [[menu.main]]
+    parent = "reference"
+    name = "Helm chart values"
+    url = "/reference/helm-values/"
+    weight = 2
+  [[menu.main]]
+    parent = "reference"
+    name = "Verifying releases"
+    url = "/reference/verifying-releases/"
+    weight = 3
+  [[menu.main]]
+    parent = "reference"
+    name = "Upgrading"
+    url = "/reference/upgrading/"
+    weight = 4
+
+  # 11 ── Comparisons.
   [[menu.main]]
     identifier = "comparisons"
     name = "Comparisons"
     url = "/comparisons/"
-    weight = 50
+    weight = 110
   [[menu.main]]
     parent = "comparisons"
     name = "vs Tanka"
@@ -308,17 +352,19 @@ ignoreFiles = ['README\.md$']
     url = "/comparisons/flux-operator/"
     weight = 5
 
+  # 12 ── Runbooks (flat index page).
   [[menu.main]]
     identifier = "runbooks"
     name = "Runbooks"
     url = "/runbooks/"
-    weight = 60
+    weight = 120
 
+  # 13 ── Contributing.
   [[menu.main]]
     identifier = "contributing"
     name = "Contributing"
     url = "/contributing/"
-    weight = 80
+    weight = 130
   [[menu.main]]
     parent = "contributing"
     name = "Building and testing"

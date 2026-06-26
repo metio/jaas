@@ -16,7 +16,7 @@ to `0` disables the endpoint. The default deliberately avoids controller-runtime
 built-in `:8080`, which would collide with the Jsonnet HTTP port.
 
 The full flag list with defaults is on the
-[configuration page](/installation/configuration/).
+[configuration page](/reference/configuration/).
 
 ### Metrics reference
 
@@ -41,7 +41,7 @@ controller-runtime's registry so they ride the same `/metrics` endpoint:
 
 The eval gauges (`jaas_eval_in_flight`, `jaas_eval_max_concurrent`,
 `jaas_eval_outstanding_timed_out`) reflect the global concurrent-eval cap; see
-[evaluation and security](/usage/evaluation-and-security/) for how that cap works
+[evaluation and security](/rendering/evaluation-and-security/) for how that cap works
 and how to size `--max-concurrent-evals`.
 
 Alongside these, controller-runtime contributes its standard families for free —

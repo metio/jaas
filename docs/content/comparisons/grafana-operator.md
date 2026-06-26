@@ -54,6 +54,6 @@ Keep all `GrafanaDashboard`, datasource, and folder configuration on the
 grafana-operator side; JaaS contributes only the rendering step and the
 `ExternalArtifact` it publishes.
 
-The [Grafana dashboards](/tutorials/grafana-dashboards/) tutorial shows the JaaS
+The [Grafana dashboards](/guides/grafana-dashboards/) tutorial shows the JaaS
 side — authoring a grafonnet dashboard as a `JsonnetSnippet` and publishing the
 rendered JSON.

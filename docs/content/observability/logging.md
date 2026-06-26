@@ -25,7 +25,7 @@ emits human-readable key=value lines, handy when tailing logs at a terminal
 during local development.
 
 The full flag list with defaults is on the
-[configuration page](/installation/configuration/).
+[configuration page](/reference/configuration/).
 
 ### Reading logs
 

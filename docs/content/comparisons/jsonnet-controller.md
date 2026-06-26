@@ -29,7 +29,7 @@ that more than one consumer can reference, pin to a revision, or roll back to.
 That same rendering is also reachable over HTTP, so callers that are not Flux
 consumers — a CI step, another service — can request a render from the same
 engine that produces the in-cluster artifacts. See
-[operator mode](/usage/operator-mode/) for how a snippet becomes an artifact.
+[operator mode](/operator/operator-mode/) for how a snippet becomes an artifact.
 
 ## Where jsonnet-controller fits
 

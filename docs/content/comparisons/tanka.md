@@ -57,7 +57,7 @@ vendored tree; sibling and `../` relative imports resolve from the importing
 file. A `jb`-vendored tree (k8s-libsonnet, grafonnet, and the like) renders the
 same bytes through JaaS as it does under `tk show`. Migration is mostly about
 *where the files live*, not *rewriting Jsonnet*. See
-[Jsonnet libraries](/usage/jsonnet-libraries/) for how libraries reach a
+[Jsonnet libraries](/rendering/jsonnet-libraries/) for how libraries reach a
 snippet.
 
 One behaviour to plan for: Tanka walks the evaluated object and extracts every
@@ -102,7 +102,7 @@ The conversion in three moves:
 3. **Replace apply with GitOps.** `tk apply` goes away. A Flux `Kustomization`
    points its `sourceRef` at the snippet's `ExternalArtifact`; Flux applies it
    and reconciles it continuously. The
-   [Deploying manifests](/tutorials/deploying-manifests/) tutorial walks this
+   [Deploying manifests](/guides/deploying-manifests/) tutorial walks this
    end to end.
 
 ## What changes
