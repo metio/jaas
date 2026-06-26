@@ -169,10 +169,24 @@ func (im *InMemoryImporter) fileIn(alias, p string) (string, bool) {
 
 // record returns the canonical foundAt for a resolved location and remembers it
 // so transitive imports resolve relative to it.
+//
+// A library file's foundAt is "alias/pathWithin", which can equal a Self file's
+// path when the snippet has a subtree named like a library alias (e.g. Self
+// holds "grafonnet/x.libsonnet" and a library "grafonnet" exposes "x.libsonnet").
+// Both would then map to the same foundAt string, and since foundAt is both the
+// locs key and the import-cache's importedFrom, their transitive imports would
+// cross-wire — a relative import from one file would resolve against the other's
+// root, or hit the other's cached contents. To keep the two disjoint, a library
+// file shadowed by a Self path of the same name is tagged with a leading NUL,
+// which no Self file key can contain. Self keeps the clean foundAt; only the
+// shadowed library file is tagged, so every non-colliding foundAt is unchanged.
 func (im *InMemoryImporter) record(alias, pathWithin string) string {
 	foundAt := pathWithin
 	if alias != "" {
 		foundAt = alias + "/" + pathWithin
+		if _, shadowed := im.Self.Files[foundAt]; shadowed {
+			foundAt = "\x00" + foundAt
+		}
 	}
 	im.locs.Store(foundAt, location{alias: alias, pathWithin: pathWithin})
 	return foundAt
