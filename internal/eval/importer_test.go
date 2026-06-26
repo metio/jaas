@@ -6,6 +6,7 @@
 package eval
 
 import (
+	"context"
 	"strings"
 	"sync"
 	"testing"
@@ -202,5 +203,86 @@ func TestInMemoryImporter_PathCleansDotSegments(t *testing.T) {
 	}
 	if foundAt != "utils/colors.libsonnet" {
 		t.Errorf("foundAt = %q, want %q", foundAt, "utils/colors.libsonnet")
+	}
+}
+
+// A Self subtree named like a library alias must not cross-wire with that
+// library: each "<alias>/<file>" file (one in Self, one in the library) keeps
+// its own root for transitive relative imports, and its own import-cache entry.
+// Without the per-file foundAt disambiguation, the two share a foundAt, so the
+// library file's `import './b'` would hit the Self file's cached sibling.
+func TestInMemoryImporter_SelfShadowsLibraryAlias_NoCrossWire(t *testing.T) {
+	im := &InMemoryImporter{
+		Self: Library{Files: map[string]string{
+			"pkg/a.libsonnet": `import './b.libsonnet'`,
+			"pkg/b.libsonnet": `"self-b"`,
+		}},
+		Libraries: map[string]Library{
+			"pkg": {Files: map[string]string{
+				"a.libsonnet": `import './b.libsonnet'`,
+				"b.libsonnet": `"lib-b"`,
+			}},
+			"z": {Files: map[string]string{"main.libsonnet": `import 'pkg/a.libsonnet'`}},
+		},
+	}
+
+	// Entry imports the Self pkg/a (sibling), whose './b' is the Self b. This
+	// seeds the import cache with ("pkg/a.libsonnet", "./b.libsonnet") -> self-b.
+	_, selfA, err := im.Import("", "pkg/a.libsonnet")
+	if err != nil {
+		t.Fatalf("self pkg/a: %v", err)
+	}
+	if selfA != "pkg/a.libsonnet" {
+		t.Fatalf("self pkg/a foundAt = %q, want pkg/a.libsonnet (Self keeps the clean foundAt)", selfA)
+	}
+	if body, _, _ := im.Import(selfA, "./b.libsonnet"); !strings.Contains(body.String(), "self-b") {
+		t.Fatalf("self pkg/a's sibling b = %q, want self-b", body.String())
+	}
+
+	// Reaching the library pkg/a from another root (library z) must resolve its
+	// './b' to the LIBRARY b, not the Self b cached above.
+	_, zMain, err := im.Import("", "z")
+	if err != nil {
+		t.Fatalf("z: %v", err)
+	}
+	_, libA, err := im.Import(zMain, "pkg/a.libsonnet")
+	if err != nil {
+		t.Fatalf("library pkg/a: %v", err)
+	}
+	if libA == selfA {
+		t.Fatalf("library pkg/a foundAt %q collides with the Self pkg/a foundAt; transitive imports cross-wire", libA)
+	}
+	body, _, err := im.Import(libA, "./b.libsonnet")
+	if err != nil {
+		t.Fatalf("library pkg/a's sibling b: %v", err)
+	}
+	if !strings.Contains(body.String(), "lib-b") {
+		t.Fatalf("library pkg/a's sibling b = %q, want lib-b (must not hit the Self b cache)", body.String())
+	}
+}
+
+// The same shadowing, end-to-end through the VM: rendering must read each root's
+// own b.
+func TestEvaluateAnonymousSnippet_SelfShadowsLibraryAlias(t *testing.T) {
+	im := &InMemoryImporter{
+		Self: Library{Files: map[string]string{
+			"pkg/a.libsonnet": `import './b.libsonnet'`,
+			"pkg/b.libsonnet": `"self-b"`,
+		}},
+		Libraries: map[string]Library{
+			"pkg": {Files: map[string]string{
+				"a.libsonnet": `import './b.libsonnet'`,
+				"b.libsonnet": `"lib-b"`,
+			}},
+			"z": {Files: map[string]string{"main.libsonnet": `import 'pkg/a.libsonnet'`}},
+		},
+	}
+	src := `{ fromSelf: import 'pkg/a.libsonnet', fromLib: import 'z' }`
+	out, err := EvaluateAnonymousSnippet(context.Background(), "main.jsonnet", src, Options{Importer: im})
+	if err != nil {
+		t.Fatalf("evaluate: %v", err)
+	}
+	if !strings.Contains(out, `"self-b"`) || !strings.Contains(out, `"lib-b"`) {
+		t.Fatalf("output = %s, want both self-b and lib-b", out)
 	}
 }
