@@ -212,7 +212,7 @@ func TestTokenCache_ConcurrentTokenCallsForSameSA_SingleflightDedupesToOneMint(t
 	const n = 50
 	start := make(chan struct{})
 	done := make(chan string, n)
-	for i := 0; i < n; i++ {
+	for range n {
 		go func() {
 			<-start
 			tok, err := c.Token(context.Background(), "ns", "sa")
@@ -229,7 +229,7 @@ func TestTokenCache_ConcurrentTokenCallsForSameSA_SingleflightDedupesToOneMint(t
 	time.Sleep(20 * time.Millisecond)
 	close(gate)
 
-	for i := 0; i < n; i++ {
+	for i := range n {
 		got := <-done
 		if got != "t" {
 			t.Errorf("caller %d got %q, want t", i, got)
@@ -251,7 +251,7 @@ func TestTokenCache_ConcurrentDistinctSAsMintConcurrently(t *testing.T) {
 	c := newTokenCache(calls)
 	const n = 10
 	done := make(chan struct{}, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		sa := "sa-" + string(rune('a'+i))
 		go func() {
 			_, _ = c.Token(context.Background(), "ns", sa)
@@ -260,7 +260,7 @@ func TestTokenCache_ConcurrentDistinctSAsMintConcurrently(t *testing.T) {
 	}
 	time.Sleep(20 * time.Millisecond)
 	close(gate)
-	for i := 0; i < n; i++ {
+	for range n {
 		<-done
 	}
 	if got := calls.count(); got != n {

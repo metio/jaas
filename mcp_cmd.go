@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"os"
 	"time"
 
@@ -62,9 +63,7 @@ func runMCP(args, env []string, _, stderr io.Writer, sigs <-chan os.Signal) int 
 	// CLI --ext-var overlays env-derived JAAS_EXT_VAR_* on key conflicts,
 	// matching the main binary.
 	extVars := handler.ParseExtVars(env)
-	for k, v := range cliExtVars {
-		extVars[k] = v
-	}
+	maps.Copy(extVars, cliExtVars)
 
 	// Bound concurrent evaluations with the same default the HTTP path uses so
 	// a runaway snippet from a client can't pile up unbounded goroutines.

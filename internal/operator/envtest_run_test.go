@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -350,8 +351,7 @@ func runManagerInBackgroundWithBuilder(t *testing.T, restCfg *rest.Config, cfg C
 	done := make(chan error, 1)
 	build := func(restCfg *rest.Config, opts ctrl.Options, c Config) (runner, error) {
 		if c.SkipControllerNameValidation {
-			skip := true
-			opts.Controller = ctrlconfig.Controller{SkipNameValidation: &skip}
+			opts.Controller = ctrlconfig.Controller{SkipNameValidation: new(true)}
 		}
 		mgr, err := ctrl.NewManager(restCfg, opts)
 		if err != nil {
@@ -447,8 +447,7 @@ func runManagerInBackgroundWithReconcilerCapture(t *testing.T, restCfg *rest.Con
 	done := make(chan error, 1)
 	build := func(restCfg *rest.Config, opts ctrl.Options, c Config) (runner, error) {
 		if c.SkipControllerNameValidation {
-			skip := true
-			opts.Controller = ctrlconfig.Controller{SkipNameValidation: &skip}
+			opts.Controller = ctrlconfig.Controller{SkipNameValidation: new(true)}
 		}
 		mgr, err := ctrl.NewManager(restCfg, opts)
 		if err != nil {
@@ -554,7 +553,7 @@ func TestEnvtest_CRDWatch_LateInstallEngagesWatchLive(t *testing.T) {
 		// registers Watches(Bucket) against a stale-but-present CRD and
 		// the informer's LIST never reports synced, blocking
 		// WaitForCacheSync indefinitely.
-		for i := 0; i < 100; i++ {
+		for range 100 {
 			var got apiextv1.CustomResourceDefinition
 			if err := c.Get(context.Background(), client.ObjectKeyFromObject(bucket), &got); err != nil {
 				return
@@ -600,12 +599,7 @@ func TestEnvtest_CRDWatch_LateInstallEngagesWatchLive(t *testing.T) {
 }
 
 func contains(haystack []schema.GroupVersionKind, needle schema.GroupVersionKind) bool {
-	for _, g := range haystack {
-		if g == needle {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(haystack, needle)
 }
 
 // TestEnvtest_Watch_FluxSourceUpdate_IndirectViaLibrary proves that updating

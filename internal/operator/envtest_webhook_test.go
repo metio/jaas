@@ -38,22 +38,19 @@ func TestEnvtest_Webhook_AdmissionRejectsExtVarConflict(t *testing.T) {
 		t.Fatalf("resolve CRD dir: %v", err)
 	}
 
-	failurePolicy := admissionregv1.Fail
-	sideEffects := admissionregv1.SideEffectClassNone
-	scope := admissionregv1.NamespacedScope
 	webhookConfig := &admissionregv1.ValidatingWebhookConfiguration{
 		ObjectMeta: metav1.ObjectMeta{Name: "jaas-webhook-test"},
 		Webhooks: []admissionregv1.ValidatingWebhook{
 			{
 				Name:                    "vjsonnetsnippet.jaas.metio.wtf",
-				FailurePolicy:           &failurePolicy,
-				SideEffects:             &sideEffects,
+				FailurePolicy:           new(admissionregv1.Fail),
+				SideEffects:             new(admissionregv1.SideEffectClassNone),
 				AdmissionReviewVersions: []string{"v1"},
 				ClientConfig: admissionregv1.WebhookClientConfig{
 					Service: &admissionregv1.ServiceReference{
 						Name:      "jaas-webhook",
 						Namespace: "default",
-						Path:      stringPtr("/validate-jaas-metio-wtf-v1-jsonnetsnippet"),
+						Path:      new("/validate-jaas-metio-wtf-v1-jsonnetsnippet"),
 					},
 				},
 				Rules: []admissionregv1.RuleWithOperations{
@@ -66,7 +63,7 @@ func TestEnvtest_Webhook_AdmissionRejectsExtVarConflict(t *testing.T) {
 							APIGroups:   []string{"jaas.metio.wtf"},
 							APIVersions: []string{"v1"},
 							Resources:   []string{"jsonnetsnippets"},
-							Scope:       &scope,
+							Scope:       new(admissionregv1.NamespacedScope),
 						},
 					},
 				},
@@ -227,5 +224,3 @@ func waitForWebhookReady(t *testing.T, c client.Client) {
 	}
 	t.Fatal("webhook server did not become ready within 15s")
 }
-
-func stringPtr(s string) *string { return &s }

@@ -593,10 +593,8 @@ func validTarEntryPath(p string) error {
 	if strings.ContainsRune(p, 0) || strings.ContainsRune(p, '\\') {
 		return fmt.Errorf("storage: tar entry %q contains a NUL or backslash", p)
 	}
-	for _, part := range strings.Split(p, "/") {
-		if part == ".." {
-			return fmt.Errorf("storage: tar entry %q contains a traversal", p)
-		}
+	if slices.Contains(strings.Split(p, "/"), "..") {
+		return fmt.Errorf("storage: tar entry %q contains a traversal", p)
 	}
 	return nil
 }

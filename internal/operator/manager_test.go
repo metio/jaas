@@ -122,8 +122,7 @@ func TestRunWithBuilder_PassesSchemeAndContext(t *testing.T) {
 		seenCfg = cfg
 		return fake, nil
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	cfg := Config{

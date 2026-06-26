@@ -517,7 +517,7 @@ func TestVerifyDigest_EmptyExpectedAccepted(t *testing.T) {
 }
 
 func TestIsReady_TrueCondition(t *testing.T) {
-	obj := unstructuredWithConditions([]map[string]interface{}{
+	obj := unstructuredWithConditions([]map[string]any{
 		{"type": "Ready", "status": "True"},
 	})
 	if ok, _ := readyState(obj); !ok {
@@ -526,7 +526,7 @@ func TestIsReady_TrueCondition(t *testing.T) {
 }
 
 func TestIsReady_FalseCondition(t *testing.T) {
-	obj := unstructuredWithConditions([]map[string]interface{}{
+	obj := unstructuredWithConditions([]map[string]any{
 		{"type": "Ready", "status": "False"},
 	})
 	if ok, _ := readyState(obj); ok {
@@ -535,7 +535,7 @@ func TestIsReady_FalseCondition(t *testing.T) {
 }
 
 func TestIsReady_OtherConditionsOnly(t *testing.T) {
-	obj := unstructuredWithConditions([]map[string]interface{}{
+	obj := unstructuredWithConditions([]map[string]any{
 		{"type": "Reconciling", "status": "True"},
 	})
 	if ok, _ := readyState(obj); ok {
@@ -544,7 +544,7 @@ func TestIsReady_OtherConditionsOnly(t *testing.T) {
 }
 
 func TestIsReady_MissingConditionsSlice(t *testing.T) {
-	obj := &unstructured.Unstructured{Object: map[string]interface{}{}}
+	obj := &unstructured.Unstructured{Object: map[string]any{}}
 	if ok, _ := readyState(obj); ok {
 		t.Errorf("missing conditions misread as ready")
 	}
@@ -559,15 +559,15 @@ func TestReadyState_DiagnosticByShape(t *testing.T) {
 	}{
 		{
 			name:      "no conditions at all",
-			obj:       &unstructured.Unstructured{Object: map[string]interface{}{}},
+			obj:       &unstructured.Unstructured{Object: map[string]any{}},
 			wantReady: false,
 			wantWhy:   "status.conditions not yet populated",
 		},
 		{
 			name: "empty conditions slice",
 			obj: &unstructured.Unstructured{
-				Object: map[string]interface{}{
-					"status": map[string]interface{}{"conditions": []interface{}{}},
+				Object: map[string]any{
+					"status": map[string]any{"conditions": []any{}},
 				},
 			},
 			wantReady: false,
@@ -575,7 +575,7 @@ func TestReadyState_DiagnosticByShape(t *testing.T) {
 		},
 		{
 			name: "Ready=False with reason",
-			obj: unstructuredWithConditions([]map[string]interface{}{
+			obj: unstructuredWithConditions([]map[string]any{
 				{"type": "Ready", "status": "False", "reason": "BuildFailed"},
 			}),
 			wantReady: false,
@@ -583,7 +583,7 @@ func TestReadyState_DiagnosticByShape(t *testing.T) {
 		},
 		{
 			name: "Ready=False without reason",
-			obj: unstructuredWithConditions([]map[string]interface{}{
+			obj: unstructuredWithConditions([]map[string]any{
 				{"type": "Ready", "status": "False"},
 			}),
 			wantReady: false,
@@ -591,7 +591,7 @@ func TestReadyState_DiagnosticByShape(t *testing.T) {
 		},
 		{
 			name: "no Ready condition among others",
-			obj: unstructuredWithConditions([]map[string]interface{}{
+			obj: unstructuredWithConditions([]map[string]any{
 				{"type": "Reconciling", "status": "True"},
 			}),
 			wantReady: false,
@@ -599,7 +599,7 @@ func TestReadyState_DiagnosticByShape(t *testing.T) {
 		},
 		{
 			name: "Ready=True",
-			obj: unstructuredWithConditions([]map[string]interface{}{
+			obj: unstructuredWithConditions([]map[string]any{
 				{"type": "Ready", "status": "True"},
 			}),
 			wantReady: true,
@@ -621,11 +621,11 @@ func TestReadyState_DiagnosticByShape(t *testing.T) {
 
 func TestIsReady_NonMapEntryInConditionsIsIgnored(t *testing.T) {
 	obj := &unstructured.Unstructured{
-		Object: map[string]interface{}{
-			"status": map[string]interface{}{
-				"conditions": []interface{}{
+		Object: map[string]any{
+			"status": map[string]any{
+				"conditions": []any{
 					"not a map",
-					map[string]interface{}{"type": "Ready", "status": "True"},
+					map[string]any{"type": "Ready", "status": "True"},
 				},
 			},
 		},
@@ -637,9 +637,9 @@ func TestIsReady_NonMapEntryInConditionsIsIgnored(t *testing.T) {
 
 func TestReadArtifact_HappyPath(t *testing.T) {
 	obj := &unstructured.Unstructured{
-		Object: map[string]interface{}{
-			"status": map[string]interface{}{
-				"artifact": map[string]interface{}{
+		Object: map[string]any{
+			"status": map[string]any{
+				"artifact": map[string]any{
 					"url":      "http://x/y.tar.gz",
 					"revision": "rev1",
 					"digest":   "sha256:abc",
@@ -663,7 +663,7 @@ func TestReadArtifact_HappyPath(t *testing.T) {
 }
 
 func TestReadArtifact_MissingArtifact(t *testing.T) {
-	obj := &unstructured.Unstructured{Object: map[string]interface{}{}}
+	obj := &unstructured.Unstructured{Object: map[string]any{}}
 	if _, err := readArtifact(obj); !errors.Is(err, ErrArtifactMissing) {
 		t.Errorf("got %v, want ErrArtifactMissing", err)
 	}
@@ -671,9 +671,9 @@ func TestReadArtifact_MissingArtifact(t *testing.T) {
 
 func TestReadArtifact_MissingURL(t *testing.T) {
 	obj := &unstructured.Unstructured{
-		Object: map[string]interface{}{
-			"status": map[string]interface{}{
-				"artifact": map[string]interface{}{
+		Object: map[string]any{
+			"status": map[string]any{
+				"artifact": map[string]any{
 					"revision": "rev1",
 				},
 			},
@@ -687,8 +687,8 @@ func TestReadArtifact_MissingURL(t *testing.T) {
 func TestReadArtifact_BadShape(t *testing.T) {
 	// status.artifact is a string, not a map — NestedMap returns an error.
 	obj := &unstructured.Unstructured{
-		Object: map[string]interface{}{
-			"status": map[string]interface{}{
+		Object: map[string]any{
+			"status": map[string]any{
 				"artifact": "not a map",
 			},
 		},
@@ -810,8 +810,8 @@ func TestFetch_SourceNotReady_ReturnsErrSourceNotReady(t *testing.T) {
 	defer srv.Close()
 
 	src := newFluxSourceUnstructured(t, "GitRepository", "configs", "team-a", srv.URL, sha256Hex(tarball))
-	_ = unstructured.SetNestedSlice(src.Object, []interface{}{
-		map[string]interface{}{"type": "Ready", "status": "False"},
+	_ = unstructured.SetNestedSlice(src.Object, []any{
+		map[string]any{"type": "Ready", "status": "False"},
 	}, "status", "conditions")
 
 	c := fake.NewClientBuilder().WithScheme(schemeWithGVK(t, "GitRepository")).WithObjects(src).Build()
@@ -825,16 +825,16 @@ func TestFetch_SourceNotReady_ReturnsErrSourceNotReady(t *testing.T) {
 
 func TestFetch_ArtifactMissing_ReturnsErrArtifactMissing(t *testing.T) {
 	src := &unstructured.Unstructured{
-		Object: map[string]interface{}{
+		Object: map[string]any{
 			"apiVersion": defaultSourceAPIVersion,
 			"kind":       "GitRepository",
-			"metadata": map[string]interface{}{
+			"metadata": map[string]any{
 				"name":      "configs",
 				"namespace": "team-a",
 			},
-			"status": map[string]interface{}{
-				"conditions": []interface{}{
-					map[string]interface{}{"type": "Ready", "status": "True"},
+			"status": map[string]any{
+				"conditions": []any{
+					map[string]any{"type": "Ready", "status": "True"},
 				},
 			},
 		},
@@ -1124,12 +1124,12 @@ func hexSHA256(body []byte) string {
 // the imports list inside individual tests stays focused.
 func newSHAHasher() hash.Hash { return sha256.New() }
 
-func unstructuredWithConditions(conds []map[string]interface{}) *unstructured.Unstructured {
-	items := make([]interface{}, 0, len(conds))
+func unstructuredWithConditions(conds []map[string]any) *unstructured.Unstructured {
+	items := make([]any, 0, len(conds))
 	for _, c := range conds {
 		items = append(items, c)
 	}
-	obj := &unstructured.Unstructured{Object: map[string]interface{}{}}
+	obj := &unstructured.Unstructured{Object: map[string]any{}}
 	_ = unstructured.SetNestedSlice(obj.Object, items, "status", "conditions")
 	return obj
 }
@@ -1144,7 +1144,7 @@ func newFluxSourceUnstructured(t *testing.T, kind, name, namespace, url, digest 
 	})
 	src.SetName(name)
 	src.SetNamespace(namespace)
-	artifact := map[string]interface{}{
+	artifact := map[string]any{
 		"url":      url,
 		"revision": "rev1",
 	}
@@ -1152,8 +1152,8 @@ func newFluxSourceUnstructured(t *testing.T, kind, name, namespace, url, digest 
 		artifact["digest"] = digest
 	}
 	_ = unstructured.SetNestedMap(src.Object, artifact, "status", "artifact")
-	_ = unstructured.SetNestedSlice(src.Object, []interface{}{
-		map[string]interface{}{"type": "Ready", "status": "True"},
+	_ = unstructured.SetNestedSlice(src.Object, []any{
+		map[string]any{"type": "Ready", "status": "True"},
 	}, "status", "conditions")
 	return src
 }
@@ -1278,7 +1278,7 @@ func TestFetcher_AcquireBoundsInFlightDownloads(t *testing.T) {
 		Build()
 
 	done := make(chan error, total)
-	for i := 0; i < total; i++ {
+	for range total {
 		go func() {
 			_, err := f.Fetch(context.Background(), c,
 				&jaasv1.SourceRef{Kind: "GitRepository", Name: "configs", Namespace: "team-a"}, "team-a")
@@ -1289,7 +1289,7 @@ func TestFetcher_AcquireBoundsInFlightDownloads(t *testing.T) {
 	// Give the goroutines a moment to fan in. The peak in-flight
 	// count must be exactly `cap` — the extra goroutines are stuck
 	// in acquire().
-	for tries := 0; tries < 100; tries++ {
+	for range 100 {
 		mu.Lock()
 		got := inFlight
 		mu.Unlock()
@@ -1306,10 +1306,10 @@ func TestFetcher_AcquireBoundsInFlightDownloads(t *testing.T) {
 
 	// Drain the server one request at a time and watch the peak
 	// stay at cap.
-	for i := 0; i < total; i++ {
+	for range total {
 		gate <- struct{}{}
 	}
-	for i := 0; i < total; i++ {
+	for i := range total {
 		if err := <-done; err != nil {
 			t.Errorf("Fetch %d: %v", i, err)
 		}

@@ -56,17 +56,17 @@ func TestAllReasons_CoversEveryConstant(t *testing.T) {
 		t.Fatalf("read conditions.go: %v", err)
 	}
 	var declared []string
-	for _, line := range strings.Split(string(src), "\n") {
+	for line := range strings.SplitSeq(string(src), "\n") {
 		line = strings.TrimSpace(line)
 		if !strings.HasPrefix(line, "Reason") {
 			continue
 		}
 		// Match "ReasonName = \"...\"".
-		eq := strings.Index(line, "=")
-		if eq < 0 {
+		before, _, ok := strings.Cut(line, "=")
+		if !ok {
 			continue
 		}
-		declared = append(declared, strings.TrimSpace(line[:eq]))
+		declared = append(declared, strings.TrimSpace(before))
 	}
 	if len(declared) != len(AllReasons) {
 		t.Errorf("conditions.go declares %d Reason* constants but AllReasons has %d entries — keep them in sync.\n  declared: %v\n  AllReasons (len %d)", len(declared), len(AllReasons), declared, len(AllReasons))

@@ -315,7 +315,7 @@ func TestPrune_EmptyComponentRejected(t *testing.T) {
 func TestStore_ConcurrentPutsAreSafe(t *testing.T) {
 	s := newTestStore(t)
 	var wg sync.WaitGroup
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()

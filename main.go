@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"net"
 	"net/http"
 	"os"
@@ -223,9 +224,7 @@ func run(args, env []string, stdout, stderr io.Writer, sigs <-chan os.Signal) in
 	// CLI --ext-var overlays env-derived JAAS_EXT_VAR_* on key conflicts;
 	// the env mechanism predates the flag and is kept for the HTTP-only path.
 	extVars := handler.ParseExtVars(env)
-	for k, v := range cliExtVars {
-		extVars[k] = v
-	}
+	maps.Copy(extVars, cliExtVars)
 	slog.InfoContext(ctx, "External variables loaded",
 		slog.Int("count", len(extVars)),
 		slog.Int("from-cli", len(cliExtVars)))
@@ -633,10 +632,7 @@ func awaitGoroutines(ctx context.Context, timeout time.Duration, dones map[strin
 // throughput gain; the cap exists to bound worst-case goroutine
 // pile-up under a runaway snippet, not to clip steady-state throughput.
 func defaultMaxConcurrentEvals() int {
-	n := runtime.GOMAXPROCS(0) * 4
-	if n < 16 {
-		n = 16
-	}
+	n := max(runtime.GOMAXPROCS(0)*4, 16)
 	return n
 }
 
@@ -663,7 +659,7 @@ func parseWatchNamespaces(flagValue string, env []string) []string {
 		return nil
 	}
 	var out []string
-	for _, part := range strings.Split(raw, ",") {
+	for part := range strings.SplitSeq(raw, ",") {
 		if p := strings.TrimSpace(part); p != "" {
 			out = append(out, p)
 		}

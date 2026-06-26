@@ -110,10 +110,9 @@ func TestSnippetValidator_ValidateUpdateChecksNewObj(t *testing.T) {
 // finalizer-removal update is blocked and the snippet wedges in Terminating.
 func TestSnippetValidator_ValidateUpdateSkipsObjectsUnderDeletion(t *testing.T) {
 	v := &SnippetValidator{OperatorExtVars: map[string]string{"cluster": "x"}}
-	now := metav1.Now()
 	snip := &jaasv1.JsonnetSnippet{
 		ObjectMeta: metav1.ObjectMeta{
-			DeletionTimestamp: &now,
+			DeletionTimestamp: new(metav1.Now()),
 			Finalizers:        []string{FinalizerName},
 		},
 		Spec: jaasv1.JsonnetSnippetSpec{

@@ -298,8 +298,8 @@ func (p *Publisher) upsertExternalArtifact(ctx context.Context, c client.Client,
 // shape and the byte-for-byte tarball stable across re-publishes of
 // other revisions.
 func setSpec(ea *unstructured.Unstructured, snip *jaasv1.JsonnetSnippet) error {
-	return unstructured.SetNestedMap(ea.Object, map[string]interface{}{
-		"sourceRef": map[string]interface{}{
+	return unstructured.SetNestedMap(ea.Object, map[string]any{
+		"sourceRef": map[string]any{
 			"apiVersion": jaasv1.GroupVersion.String(),
 			"kind":       "JsonnetSnippet",
 			"name":       snip.Name,
@@ -309,7 +309,7 @@ func setSpec(ea *unstructured.Unstructured, snip *jaasv1.JsonnetSnippet) error {
 
 func (p *Publisher) writeStatus(ctx context.Context, c client.Client, ea *unstructured.Unstructured, revision string, res storage.Result) error {
 	now := p.now().UTC().Format(time.RFC3339)
-	artifact := map[string]interface{}{
+	artifact := map[string]any{
 		"url":            p.url(res.Path),
 		"path":           res.Path,
 		"revision":       revision,
@@ -361,9 +361,9 @@ func setReadyCondition(latest *unstructured.Unstructured, now string) {
 	// co-managing Flux controller stamps on the ExternalArtifact (Reconciling,
 	// Stalled, …); the artifact's conditions are a set keyed by type, and this
 	// owns only Ready.
-	conditions := make([]interface{}, 0, len(existing)+1)
+	conditions := make([]any, 0, len(existing)+1)
 	for _, c := range existing {
-		m, ok := c.(map[string]interface{})
+		m, ok := c.(map[string]any)
 		if !ok {
 			continue
 		}
@@ -377,7 +377,7 @@ func setReadyCondition(latest *unstructured.Unstructured, now string) {
 			}
 		}
 	}
-	ready := map[string]interface{}{
+	ready := map[string]any{
 		"type":               "Ready",
 		"status":             "True",
 		"reason":             "Succeeded",

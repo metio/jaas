@@ -91,7 +91,7 @@ func TestApplyTLAs_ConcurrentEvalsAreIsolated(t *testing.T) {
 	const workers = 100
 	var wg sync.WaitGroup
 	errs := make(chan error, workers)
-	for i := 0; i < workers; i++ {
+	for i := range workers {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()

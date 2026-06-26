@@ -22,6 +22,7 @@ ilo bash -c 'staticcheck ./...'                    # CI: staticcheck (checks=all
 ilo bash -c 'gofumpt -l .'                         # CI: strict formatting (empty output == clean)
 ilo bash -c 'gosec ./...'                          # CI: security scanner
 ilo bash -c 'arch-go'                              # CI: architecture rules (arch-go.yml)
+ilo bash -c 'modernize ./...'                      # CI: newer-Go idiom check (ignore zz_generated.deepcopy.go maps.Copy hits)
 ilo bash -c 'go test -count=1 -race -cover ./...'  # full suite with race detector
 ilo bash -c 'go test -count=1 -v -run TestName ./internal/handler/'  # single test
 ilo bash -c 'go test -bench=BenchmarkReconcile -benchmem -run=^$ ./internal/operator/'  # reconciler throughput baseline

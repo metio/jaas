@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -137,13 +138,7 @@ func TestReconcile_AddsFinalizerOnFirstReconcile(t *testing.T) {
 	runReconcile(t, r, types.NamespacedName{Name: snip.Name, Namespace: snip.Namespace})
 
 	got := refetch(t, c, types.NamespacedName{Name: snip.Name, Namespace: snip.Namespace})
-	found := false
-	for _, f := range got.Finalizers {
-		if f == FinalizerName {
-			found = true
-			break
-		}
-	}
+	found := slices.Contains(got.Finalizers, FinalizerName)
 	if !found {
 		t.Errorf("Finalizers = %v, want %q present", got.Finalizers, FinalizerName)
 	}
@@ -151,8 +146,7 @@ func TestReconcile_AddsFinalizerOnFirstReconcile(t *testing.T) {
 
 func TestReconcile_DeletionTimestampWithFinalizerRemovesIt(t *testing.T) {
 	snip := sampleSnippet()
-	now := metav1.NewTime(time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC))
-	snip.DeletionTimestamp = &now
+	snip.DeletionTimestamp = new(metav1.NewTime(time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)))
 	snip.Finalizers = []string{FinalizerName}
 	c := clientWithStatus(t, snip)
 	r := newReconciler(t, c)
@@ -173,8 +167,7 @@ func TestReconcile_Delete_WithoutEffectiveSA_SkipsTokenCacheForget(t *testing.T)
 	// the "effective SA empty" branch.
 	snip := sampleSnippet()
 	snip.Spec.ServiceAccountName = ""
-	now := metav1.NewTime(time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC))
-	snip.DeletionTimestamp = &now
+	snip.DeletionTimestamp = new(metav1.NewTime(time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)))
 	snip.Finalizers = []string{FinalizerName}
 	c := clientWithStatus(t, snip)
 	r := newReconciler(t, c)
@@ -188,8 +181,7 @@ func TestReconcile_DeletionTimestampWithoutOurFinalizerIsNoOp(t *testing.T) {
 	// Another controller's finalizer keeps the object alive; ours is absent.
 	// We must not error and must leave the foreign finalizer untouched.
 	snip := sampleSnippet()
-	now := metav1.NewTime(time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC))
-	snip.DeletionTimestamp = &now
+	snip.DeletionTimestamp = new(metav1.NewTime(time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)))
 	snip.Finalizers = []string{"some-other-controller/finalizer"}
 	c := clientWithStatus(t, snip)
 	r := newReconciler(t, c)
@@ -781,8 +773,7 @@ func TestReconcile_StatusUpdateErrorPropagates(t *testing.T) {
 
 func TestReconcile_DeleteUpdateErrorPropagates(t *testing.T) {
 	snip := sampleSnippet()
-	now := metav1.NewTime(time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC))
-	snip.DeletionTimestamp = &now
+	snip.DeletionTimestamp = new(metav1.NewTime(time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)))
 	snip.Finalizers = []string{FinalizerName}
 	want := errors.New("conflict on finalizer drop")
 	c := fake.NewClientBuilder().
@@ -1122,8 +1113,7 @@ func TestReconcile_DeletionWithPublisher_WithdrawSucceeds(t *testing.T) {
 func TestReconcile_DeletionWithdrawErrorRequeues(t *testing.T) {
 	snip := sampleSnippet()
 	snip.Finalizers = []string{FinalizerName}
-	now := metav1.NewTime(time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC))
-	snip.DeletionTimestamp = &now
+	snip.DeletionTimestamp = new(metav1.NewTime(time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)))
 
 	want := errors.New("delete denied")
 	c := fake.NewClientBuilder().
@@ -1167,8 +1157,7 @@ func TestReconcileDelete_ErrorPathStillForgetsCycleVerdict(t *testing.T) {
 	snip := sampleSnippet()
 	snip.UID = types.UID("uid-delete-err")
 	snip.Finalizers = []string{FinalizerName}
-	now := metav1.NewTime(time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC))
-	snip.DeletionTimestamp = &now
+	snip.DeletionTimestamp = new(metav1.NewTime(time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)))
 
 	c := fake.NewClientBuilder().
 		WithScheme(publisherScheme(t)).
@@ -2213,8 +2202,7 @@ func TestReconcile_CycleDetectionTransientErrorWritesStatusAndRequeues(t *testin
 
 func TestReconcile_TenantClientErrorOnDeletePropagates(t *testing.T) {
 	snip := sampleSnippet()
-	now := metav1.NewTime(time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC))
-	snip.DeletionTimestamp = &now
+	snip.DeletionTimestamp = new(metav1.NewTime(time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)))
 	snip.Finalizers = []string{FinalizerName}
 	c := clientWithStatus(t, snip)
 	r := newReconciler(t, c)
@@ -2762,7 +2750,7 @@ func TestReconcile_Events_DedupOnRepeatedSameReason(t *testing.T) {
 
 	// Finalizer attach (no events expected — failReady runs in spec
 	// branch only). Three more reconciles all hit ServiceAccountMissing.
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		if _, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: key}); err != nil {
 			t.Fatalf("reconcile %d: %v", i, err)
 		}
@@ -2823,8 +2811,7 @@ func TestIsLastSnippetUsingSA(t *testing.T) {
 			Spec:       jaasv1.JsonnetSnippetSpec{ServiceAccountName: sa},
 		}
 		if deleting {
-			now := metav1.Now()
-			s.DeletionTimestamp = &now
+			s.DeletionTimestamp = new(metav1.Now())
 			s.Finalizers = []string{"keep"} // fake client rejects a deleting object without a finalizer
 		}
 		return s

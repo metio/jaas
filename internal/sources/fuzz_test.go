@@ -8,6 +8,7 @@ package sources
 import (
 	"encoding/hex"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -82,13 +83,7 @@ func FuzzParseDigest(f *testing.F) {
 
 		// Acceptance invariants — these are what
 		// verifyExpectedDigest's switch relies on.
-		supported := false
-		for _, s := range supportedDigestAlgorithms {
-			if s == algo+":" {
-				supported = true
-				break
-			}
-		}
+		supported := slices.Contains(supportedDigestAlgorithms, algo+":")
 		if !supported {
 			t.Errorf("parseDigest accepted unsupported algo %q for %q", algo, declared)
 		}
@@ -199,7 +194,7 @@ func FuzzNormaliseEntry(f *testing.F) {
 		if strings.HasPrefix(out, "/") {
 			t.Errorf("accepted absolute path %q for (%q, %q)", out, rawName, prefix)
 		}
-		for _, part := range strings.Split(out, "/") {
+		for part := range strings.SplitSeq(out, "/") {
 			if part == ".." {
 				t.Errorf("accepted .. segment in %q for (%q, %q)", out, rawName, prefix)
 			}

@@ -8,6 +8,8 @@ package operator
 import (
 	"context"
 	"fmt"
+	"slices"
+	"strings"
 	"sync"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -279,8 +281,8 @@ func reconstructCyclePath(parent map[types.NamespacedName]types.NamespacedName, 
 	}
 	out := make([]types.NamespacedName, 0, len(stack)+2)
 	out = append(out, start)
-	for i := len(stack) - 1; i >= 0; i-- {
-		out = append(out, stack[i])
+	for _, s := range slices.Backward(stack) {
+		out = append(out, s)
 	}
 	out = append(out, start)
 	return out
@@ -293,9 +295,10 @@ func formatCyclePath(path []types.NamespacedName) string {
 	if len(path) == 0 {
 		return ""
 	}
-	out := path[0].String()
+	var out strings.Builder
+	out.WriteString(path[0].String())
 	for _, p := range path[1:] {
-		out += " → " + p.String()
+		out.WriteString(" → " + p.String())
 	}
-	return out
+	return out.String()
 }

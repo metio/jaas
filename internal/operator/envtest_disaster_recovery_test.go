@@ -147,7 +147,7 @@ func bumpReconcileAnnotation(t *testing.T, c client.Client, key types.Namespaced
 func externalArtifactReady(ea *unstructured.Unstructured) bool {
 	conds, _, _ := unstructured.NestedSlice(ea.Object, "status", "conditions")
 	for _, c := range conds {
-		m, ok := c.(map[string]interface{})
+		m, ok := c.(map[string]any)
 		if !ok {
 			continue
 		}

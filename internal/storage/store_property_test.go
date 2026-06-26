@@ -36,7 +36,7 @@ func genFileEntries() *rapid.Generator[[]FileEntry] {
 	// the rejection path (which has its own unit tests).
 	pathGen := rapid.StringMatching(`[a-z0-9._\-]{1,12}(/[a-z0-9._\-]{1,12}){0,3}`).
 		Filter(func(s string) bool {
-			for _, seg := range strings.Split(s, "/") {
+			for seg := range strings.SplitSeq(s, "/") {
 				if seg == "." || seg == ".." {
 					return false
 				}

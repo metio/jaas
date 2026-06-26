@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"slices"
 	"strings"
 	"sync"
@@ -785,10 +786,7 @@ func sha256ContentHash(rendered string) string {
 // up to (history-1) most-recent entries from prior status.History,
 // dedup'd. Always at least 1 (the new rev). history<=0 falls back to 1.
 func buildKeepShortRevs(newRev string, prior []jaasv1.RevisionEntry, history int32) []string {
-	limit := int(history)
-	if limit < 1 {
-		limit = 1
-	}
+	limit := max(int(history), 1)
 	seen := map[string]struct{}{}
 	out := make([]string, 0, limit)
 
@@ -952,7 +950,7 @@ func (r *SnippetReconciler) cycleVerdict(ctx context.Context, snip *jaasv1.Jsonn
 		r.logger().DebugContext(ctx, "Snippet has empty UID; cycleCache cannot engage",
 			slog.String("namespace", snip.Namespace), slog.String("name", snip.Name))
 	}
-	for attempt := 0; attempt < maxCycleVerdictRetries; attempt++ {
+	for range maxCycleVerdictRetries {
 		v, epoch, ok := r.CycleCache.Lookup(snip.UID, snip.Generation)
 		if ok {
 			return v.hasCycle, v.path, nil
@@ -1447,12 +1445,8 @@ func mergeExtVars(opLevel, snipLevel map[string]string) map[string]string {
 		return nil
 	}
 	out := make(map[string]string, len(opLevel)+len(snipLevel))
-	for k, v := range opLevel {
-		out[k] = v
-	}
-	for k, v := range snipLevel {
-		out[k] = v
-	}
+	maps.Copy(out, opLevel)
+	maps.Copy(out, snipLevel)
 	return out
 }
 
@@ -1476,8 +1470,7 @@ func (r *SnippetReconciler) failReady(ctx context.Context, snip *jaasv1.JsonnetS
 	// prev as already-equal and suppresses the event.
 	var prev *metav1.Condition
 	if cur := apimeta.FindStatusCondition(snip.Status.Conditions, jaasv1.ConditionReady); cur != nil {
-		snapshot := *cur
-		prev = &snapshot
+		prev = new(*cur)
 	}
 	decorated := r.decorateMessage(reason, message)
 	helper, err := fluxpatch.NewHelper(snip, r.Client)
@@ -1581,7 +1574,6 @@ func (r *SnippetReconciler) markSynced(ctx context.Context, snip *jaasv1.Jsonnet
 	msg := fmt.Sprintf("Rendered %d bytes from %d files", len(rendered), sourceFileCount)
 	history := snip.Spec.History
 	now := r.now()
-	syncTime := metav1.NewTime(now)
 	key := types.NamespacedName{Name: snip.Name, Namespace: snip.Namespace}
 
 	// Staleness gate: a re-read confirms the spec we rendered is still
@@ -1633,7 +1625,7 @@ func (r *SnippetReconciler) markSynced(ctx context.Context, snip *jaasv1.Jsonnet
 		latest.Status.ArtifactURL = artifactURL
 	}
 	latest.Status.ObservedGeneration = latest.Generation
-	latest.Status.LastSyncTime = &syncTime
+	latest.Status.LastSyncTime = new(metav1.NewTime(now))
 	// Record that this reconcile handled the current
 	// reconcile.fluxcd.io/requestedAt token so `flux reconcile` can detect
 	// completion. The ReconcileRequestedPredicate fired on this token, so the
@@ -1709,10 +1701,7 @@ func (r *SnippetReconciler) now() time.Time {
 // in that case the existing head stays at its original timestamp
 // rather than rewriting it on every reconcile.
 func updateRevisionHistory(prior []jaasv1.RevisionEntry, revision string, historyMax int32, now time.Time) []jaasv1.RevisionEntry {
-	limit := int(historyMax)
-	if limit < 1 {
-		limit = 1
-	}
+	limit := max(int(historyMax), 1)
 	if len(prior) > 0 && prior[0].Revision == revision {
 		// Same head — leave the original timestamp in place, just
 		// truncate in case the limit shrank.

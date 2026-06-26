@@ -306,10 +306,10 @@ func TestReconstructCyclePath_BrokenParentChain(t *testing.T) {
 // A non-map entry in status.conditions is skipped rather than crashing the
 // rebuild, and the Ready condition is still appended.
 func TestSetReadyCondition_SkipsMalformedConditionEntry(t *testing.T) {
-	ea := &unstructured.Unstructured{Object: map[string]interface{}{}}
-	if err := unstructured.SetNestedSlice(ea.Object, []interface{}{
+	ea := &unstructured.Unstructured{Object: map[string]any{}}
+	if err := unstructured.SetNestedSlice(ea.Object, []any{
 		"not-a-map",
-		map[string]interface{}{"type": "Stalled", "status": "False"},
+		map[string]any{"type": "Stalled", "status": "False"},
 	}, "status", "conditions"); err != nil {
 		t.Fatal(err)
 	}
@@ -319,7 +319,7 @@ func TestSetReadyCondition_SkipsMalformedConditionEntry(t *testing.T) {
 	conds, _, _ := unstructured.NestedSlice(ea.Object, "status", "conditions")
 	var sawReady, sawStalled bool
 	for _, c := range conds {
-		m, ok := c.(map[string]interface{})
+		m, ok := c.(map[string]any)
 		if !ok {
 			t.Errorf("malformed entry survived the rebuild: %v", c)
 			continue
@@ -342,9 +342,9 @@ func TestSetReadyCondition_SkipsMalformedConditionEntry(t *testing.T) {
 // A fresh artifact with a Ready=False existing condition takes the supplied
 // now as its lastTransitionTime (the True-preservation branch is bypassed).
 func TestSetReadyCondition_NotPreviouslyTrueUsesNow(t *testing.T) {
-	ea := &unstructured.Unstructured{Object: map[string]interface{}{}}
-	if err := unstructured.SetNestedSlice(ea.Object, []interface{}{
-		map[string]interface{}{"type": "Ready", "status": "False", "lastTransitionTime": "2020-01-01T00:00:00Z"},
+	ea := &unstructured.Unstructured{Object: map[string]any{}}
+	if err := unstructured.SetNestedSlice(ea.Object, []any{
+		map[string]any{"type": "Ready", "status": "False", "lastTransitionTime": "2020-01-01T00:00:00Z"},
 	}, "status", "conditions"); err != nil {
 		t.Fatal(err)
 	}
@@ -355,7 +355,7 @@ func TestSetReadyCondition_NotPreviouslyTrueUsesNow(t *testing.T) {
 	conds, _, _ := unstructured.NestedSlice(ea.Object, "status", "conditions")
 	var ltt string
 	for _, c := range conds {
-		m, _ := c.(map[string]interface{})
+		m, _ := c.(map[string]any)
 		if m["type"] == "Ready" {
 			ltt, _ = m["lastTransitionTime"].(string)
 		}

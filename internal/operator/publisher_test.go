@@ -128,14 +128,14 @@ func TestPublish_RenderedMode_WritesArtifactAndStatus(t *testing.T) {
 
 // readyConditionOf returns the Ready condition map from an EA's
 // status.conditions, or nil if absent.
-func readyConditionOf(t *testing.T, ea *unstructured.Unstructured) map[string]interface{} {
+func readyConditionOf(t *testing.T, ea *unstructured.Unstructured) map[string]any {
 	t.Helper()
 	conds, _, err := unstructured.NestedSlice(ea.Object, "status", "conditions")
 	if err != nil {
 		t.Fatalf("status.conditions malformed: %v", err)
 	}
 	for _, c := range conds {
-		m, ok := c.(map[string]interface{})
+		m, ok := c.(map[string]any)
 		if !ok {
 			continue
 		}
@@ -214,10 +214,10 @@ func TestPublish_ReadyConditionPreservesLastTransitionTime(t *testing.T) {
 // keeps any non-Ready condition a co-managing controller put on the artifact —
 // the conditions are a set keyed by type, and the publisher owns only Ready.
 func TestSetReadyCondition_PreservesForeignConditions(t *testing.T) {
-	ea := &unstructured.Unstructured{Object: map[string]interface{}{}}
-	if err := unstructured.SetNestedSlice(ea.Object, []interface{}{
-		map[string]interface{}{"type": "Stalled", "status": "False", "reason": "Healthy"},
-		map[string]interface{}{"type": "Ready", "status": "True", "lastTransitionTime": "2020-01-01T00:00:00Z"},
+	ea := &unstructured.Unstructured{Object: map[string]any{}}
+	if err := unstructured.SetNestedSlice(ea.Object, []any{
+		map[string]any{"type": "Stalled", "status": "False", "reason": "Healthy"},
+		map[string]any{"type": "Ready", "status": "True", "lastTransitionTime": "2020-01-01T00:00:00Z"},
 	}, "status", "conditions"); err != nil {
 		t.Fatal(err)
 	}
@@ -228,7 +228,7 @@ func TestSetReadyCondition_PreservesForeignConditions(t *testing.T) {
 	var sawStalled, sawReady bool
 	var readyLTT string
 	for _, c := range conds {
-		m, _ := c.(map[string]interface{})
+		m, _ := c.(map[string]any)
 		switch m["type"] {
 		case "Stalled":
 			sawStalled = true

@@ -83,7 +83,7 @@ func TestNormaliseEntry_AcceptedOutputIsSafe(t *testing.T) {
 		if strings.HasPrefix(out, "/") {
 			t.Fatalf("accepted output %q starts with '/' (raw=%q prefix=%q)", out, raw, prefix)
 		}
-		for _, seg := range strings.Split(out, "/") {
+		for seg := range strings.SplitSeq(out, "/") {
 			if seg == ".." {
 				t.Fatalf("accepted output %q contains a '..' segment (raw=%q prefix=%q)", out, raw, prefix)
 			}

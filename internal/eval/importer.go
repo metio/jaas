@@ -121,7 +121,7 @@ func (im *InMemoryImporter) resolve(importedFrom, importedPath string) (string, 
 		}
 	}
 
-	if i := strings.IndexByte(importedPath, '/'); i < 0 {
+	if before, after, ok := strings.Cut(importedPath, "/"); !ok {
 		// 2. Bare name: a registered library's default entry.
 		if lib, ok := im.Libraries[importedPath]; ok {
 			body, ok := lib.Files[defaultLibraryEntryFile]
@@ -132,8 +132,8 @@ func (im *InMemoryImporter) resolve(importedFrom, importedPath string) (string, 
 		}
 	} else {
 		// 3. Explicit alias/file: authoritative when the head is a registered alias.
-		alias := importedPath[:i]
-		fileWithin := path.Clean(importedPath[i+1:])
+		alias := before
+		fileWithin := path.Clean(after)
 		if lib, ok := im.Libraries[alias]; ok {
 			body, ok := lib.Files[fileWithin]
 			if !ok {

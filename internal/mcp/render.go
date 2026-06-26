@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"strings"
 
 	"github.com/google/go-jsonnet"
@@ -117,12 +118,8 @@ func (cfg Config) mergedExtVars(callExtVars map[string]string) map[string]string
 		return cfg.ExtVars
 	}
 	merged := make(map[string]string, len(cfg.ExtVars)+len(callExtVars))
-	for k, v := range cfg.ExtVars {
-		merged[k] = v
-	}
-	for k, v := range callExtVars {
-		merged[k] = v
-	}
+	maps.Copy(merged, cfg.ExtVars)
+	maps.Copy(merged, callExtVars)
 	return merged
 }
 

@@ -48,10 +48,9 @@ func (m clientsetTokenMinter) Mint(ctx context.Context, namespace, serviceAccoun
 	if m.kc == nil {
 		return "", time.Time{}, errors.New("tokenMinter: nil Kubernetes clientset")
 	}
-	secs := int64(ttl.Seconds())
 	out, err := m.kc.CoreV1().ServiceAccounts(namespace).CreateToken(ctx, serviceAccount,
 		&authnv1.TokenRequest{
-			Spec: authnv1.TokenRequestSpec{ExpirationSeconds: &secs},
+			Spec: authnv1.TokenRequestSpec{ExpirationSeconds: new(int64(ttl.Seconds()))},
 		}, metav1.CreateOptions{})
 	if err != nil {
 		return "", time.Time{}, err
@@ -122,7 +121,7 @@ func (c *tokenCache) Token(ctx context.Context, namespace, serviceAccount string
 		return tok, nil
 	}
 
-	res, err, _ := c.flight.Do(key, func() (interface{}, error) {
+	res, err, _ := c.flight.Do(key, func() (any, error) {
 		// A double-check inside the singleflight closes the window where
 		// a previous Do completed and populated the cache while this
 		// caller was waiting for the lock.

@@ -7,6 +7,7 @@ package operator
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -97,13 +98,7 @@ func TestEnvtest_Tracing_HappyReconcileEmitsFullTree(t *testing.T) {
 	}
 	got := spanNames(sr)
 	for _, want := range wantAll {
-		found := false
-		for _, name := range got {
-			if name == want {
-				found = true
-				break
-			}
-		}
+		found := slices.Contains(got, want)
 		if !found {
 			t.Errorf("span %q never emitted; got=%v", want, got)
 		}
