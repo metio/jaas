@@ -350,8 +350,7 @@ func runManagerInBackgroundWithBuilder(t *testing.T, restCfg *rest.Config, cfg C
 	done := make(chan error, 1)
 	build := func(restCfg *rest.Config, opts ctrl.Options, c Config) (runner, error) {
 		if c.SkipControllerNameValidation {
-			skip := true
-			opts.Controller = ctrlconfig.Controller{SkipNameValidation: &skip}
+			opts.Controller = ctrlconfig.Controller{SkipNameValidation: new(true)}
 		}
 		mgr, err := ctrl.NewManager(restCfg, opts)
 		if err != nil {
@@ -447,8 +446,7 @@ func runManagerInBackgroundWithReconcilerCapture(t *testing.T, restCfg *rest.Con
 	done := make(chan error, 1)
 	build := func(restCfg *rest.Config, opts ctrl.Options, c Config) (runner, error) {
 		if c.SkipControllerNameValidation {
-			skip := true
-			opts.Controller = ctrlconfig.Controller{SkipNameValidation: &skip}
+			opts.Controller = ctrlconfig.Controller{SkipNameValidation: new(true)}
 		}
 		mgr, err := ctrl.NewManager(restCfg, opts)
 		if err != nil {

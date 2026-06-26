@@ -48,10 +48,9 @@ func (m clientsetTokenMinter) Mint(ctx context.Context, namespace, serviceAccoun
 	if m.kc == nil {
 		return "", time.Time{}, errors.New("tokenMinter: nil Kubernetes clientset")
 	}
-	secs := int64(ttl.Seconds())
 	out, err := m.kc.CoreV1().ServiceAccounts(namespace).CreateToken(ctx, serviceAccount,
 		&authnv1.TokenRequest{
-			Spec: authnv1.TokenRequestSpec{ExpirationSeconds: &secs},
+			Spec: authnv1.TokenRequestSpec{ExpirationSeconds: new(int64(ttl.Seconds()))},
 		}, metav1.CreateOptions{})
 	if err != nil {
 		return "", time.Time{}, err

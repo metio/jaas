@@ -114,8 +114,7 @@ func TestMutate_PatchError(t *testing.T) {
 
 func TestGetSnippet_RendersLastSyncTime(t *testing.T) {
 	snip := newSnippet("team-a", "dash", false, metav1.ConditionTrue, "Synced", "ok")
-	now := metav1.Now()
-	snip.Status.LastSyncTime = &now
+	snip.Status.LastSyncTime = new(metav1.Now())
 	cfg := Config{KubeClient: fakeClient(t, snip), RunbookBaseURL: testRunbookBase}
 	_, out, err := cfg.getSnippetHandler(context.Background(), nil, getSnippetInput{Namespace: "team-a", Name: "dash"})
 	if err != nil {
