@@ -73,7 +73,7 @@ ENV KUBEBUILDER_ASSETS=/usr/local/kubebuilder/assets
 # renovate: datasource=github-releases depName=wjdp/htmltest
 ARG HTMLTEST_VERSION=0.17.0
 # renovate: datasource=github-releases depName=biomejs/biome extractVersion=^@biomejs/biome@(?<version>.+)$
-ARG BIOME_VERSION=2.5.0
+ARG BIOME_VERSION=2.5.1
 RUN ARCH="$(dpkg --print-architecture)" \
     && case "$ARCH" in amd64) HT=amd64; BIO=x64 ;; arm64) HT=arm64; BIO=arm64 ;; *) HT="$ARCH"; BIO="$ARCH" ;; esac \
     && curl -fsSL "https://github.com/wjdp/htmltest/releases/download/v${HTMLTEST_VERSION}/htmltest_${HTMLTEST_VERSION}_linux_${HT}.tar.gz" \
