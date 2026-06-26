@@ -242,8 +242,18 @@ Build/preview locally with ilo argument files — but the repo's `.ilo.rc` auto-
 
 ```shell
 ilo --no-rc @dev/website   # one-shot build into docs/public/
-ilo --no-rc @dev/serve     # live server on :1313
+ilo --no-rc @dev/serve     # live server on :1212
 ```
+
+`@dev/serve` sets `HUGO_RESOURCEDIR=/tmp/hugo-resources-dev` and
+`HUGO_PUBLISHDIR=/tmp/hugo-public-dev` so the live server's fingerprint/SRI asset
+cache and rendered output stay inside the (ephemeral) container and never share
+`docs/resources/_gen` or `docs/public` with the prod `@dev/website` build —
+sharing either across the two base URLs serves the other's prod-URL'd, hashed CSS
+and breaks the page via cross-origin subresource-integrity blocks. It also passes
+`--baseURL / --appendPort=false` so asset and link URLs are root-relative
+(`/css/…`), which stays same-origin from any browser host (the container's
+`localhost` is usually not the host the browser uses), so SRI passes.
 
 Two website linters are pre-staged in the Go `dev/Containerfile` (alongside markdownlint), so they run in the default `ilo bash` shell — no `--no-rc`. Build the site first, then:
 

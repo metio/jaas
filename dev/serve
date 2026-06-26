@@ -1,6 +1,6 @@
 shell
 --pull
 --no-interactive
---publish=1313:1313
+--publish=1212:1212
 ghcr.io/gohugoio/hugo:v0.163.2
-hugo server --bind 0.0.0.0 --minify --printI18nWarnings --printPathWarnings --printUnusedTemplates --source docs
+env HUGO_RESOURCEDIR=/tmp/hugo-resources-dev HUGO_PUBLISHDIR=/tmp/hugo-public-dev hugo server --bind 0.0.0.0 --port 1212 --baseURL / --appendPort=false --minify --printI18nWarnings --printPathWarnings --printUnusedTemplates --source docs
