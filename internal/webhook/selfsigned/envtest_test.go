@@ -41,16 +41,14 @@ func TestEnvtest_SelfSignedFlow_PatchesVWCEndToEnd(t *testing.T) {
 	}
 	vwcs := clientset.AdmissionregistrationV1().ValidatingWebhookConfigurations()
 
-	failurePolicy := admissionv1.Fail
-	sideEffects := admissionv1.SideEffectClassNone
 	vwc := &admissionv1.ValidatingWebhookConfiguration{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-selfsigned"},
 		Webhooks: []admissionv1.ValidatingWebhook{
 			{
 				Name:                    "vtest.example.com",
 				AdmissionReviewVersions: []string{"v1"},
-				FailurePolicy:           &failurePolicy,
-				SideEffects:             &sideEffects,
+				FailurePolicy:           new(admissionv1.Fail),
+				SideEffects:             new(admissionv1.SideEffectClassNone),
 				ClientConfig: admissionv1.WebhookClientConfig{
 					Service: &admissionv1.ServiceReference{
 						Name:      "jaas-webhook",
@@ -153,16 +151,14 @@ func TestEnvtest_SelfSignedFlow_RotateRePatchesVWC(t *testing.T) {
 	}
 	vwcs := clientset.AdmissionregistrationV1().ValidatingWebhookConfigurations()
 
-	failurePolicy := admissionv1.Fail
-	sideEffects := admissionv1.SideEffectClassNone
 	vwc := &admissionv1.ValidatingWebhookConfiguration{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-rotate"},
 		Webhooks: []admissionv1.ValidatingWebhook{
 			{
 				Name:                    "vrotate.example.com",
 				AdmissionReviewVersions: []string{"v1"},
-				FailurePolicy:           &failurePolicy,
-				SideEffects:             &sideEffects,
+				FailurePolicy:           new(admissionv1.Fail),
+				SideEffects:             new(admissionv1.SideEffectClassNone),
 				ClientConfig: admissionv1.WebhookClientConfig{
 					Service: &admissionv1.ServiceReference{Name: "x", Namespace: "default"},
 				},

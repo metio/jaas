@@ -1476,8 +1476,7 @@ func (r *SnippetReconciler) failReady(ctx context.Context, snip *jaasv1.JsonnetS
 	// prev as already-equal and suppresses the event.
 	var prev *metav1.Condition
 	if cur := apimeta.FindStatusCondition(snip.Status.Conditions, jaasv1.ConditionReady); cur != nil {
-		snapshot := *cur
-		prev = &snapshot
+		prev = new(*cur)
 	}
 	decorated := r.decorateMessage(reason, message)
 	helper, err := fluxpatch.NewHelper(snip, r.Client)
@@ -1581,7 +1580,6 @@ func (r *SnippetReconciler) markSynced(ctx context.Context, snip *jaasv1.Jsonnet
 	msg := fmt.Sprintf("Rendered %d bytes from %d files", len(rendered), sourceFileCount)
 	history := snip.Spec.History
 	now := r.now()
-	syncTime := metav1.NewTime(now)
 	key := types.NamespacedName{Name: snip.Name, Namespace: snip.Namespace}
 
 	// Staleness gate: a re-read confirms the spec we rendered is still
@@ -1633,7 +1631,7 @@ func (r *SnippetReconciler) markSynced(ctx context.Context, snip *jaasv1.Jsonnet
 		latest.Status.ArtifactURL = artifactURL
 	}
 	latest.Status.ObservedGeneration = latest.Generation
-	latest.Status.LastSyncTime = &syncTime
+	latest.Status.LastSyncTime = new(metav1.NewTime(now))
 	// Record that this reconcile handled the current
 	// reconcile.fluxcd.io/requestedAt token so `flux reconcile` can detect
 	// completion. The ReconcileRequestedPredicate fired on this token, so the

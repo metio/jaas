@@ -57,8 +57,7 @@ func (r *readinessSignal) Start(ctx context.Context) error {
 
 var defaultBuilder builder = func(restCfg *rest.Config, opts ctrl.Options, cfg Config) (runner, error) {
 	if cfg.SkipControllerNameValidation {
-		skip := true
-		opts.Controller = ctrlconfig.Controller{SkipNameValidation: &skip}
+		opts.Controller = ctrlconfig.Controller{SkipNameValidation: new(true)}
 	}
 	if cfg.EnableWebhook {
 		port := cfg.WebhookPort
