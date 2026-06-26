@@ -48,8 +48,7 @@ func TestS3Backend_SweepIsNoOp(t *testing.T) {
 // after stall/interval no-progress ticks it must fire onStall. Deterministic
 // — no real upload or sockets involved.
 func TestWatchUploadStall_TripsAfterNoProgress(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	tick := make(chan time.Time)
 	tripped := make(chan struct{})
 	var progress atomic.Int64 // never advances
@@ -59,7 +58,7 @@ func TestWatchUploadStall_TripsAfterNoProgress(t *testing.T) {
 		watchUploadStall(ctx, progress.Load, func() { close(tripped) }, 4*time.Second, time.Second, tick)
 	}()
 	// stall=4s, interval=1s → trips on the 4th no-progress tick.
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		tick <- time.Time{}
 	}
 	select {
@@ -83,7 +82,7 @@ func TestWatchUploadStall_DoesNotTripWhileProgressing(t *testing.T) {
 		defer close(done)
 		watchUploadStall(ctx, progress.Load, func() { tripped.Store(true) }, 4*time.Second, time.Second, tick)
 	}()
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		progress.Add(1) // happens-before the tick send → watcher observes it
 		tick <- time.Time{}
 	}
@@ -862,10 +861,10 @@ func decodeAWSChunked(in []byte) []byte {
 		}
 		header := string(in[:nl])
 		in = in[nl+2:]
-		semi := strings.IndexByte(header, ';')
+		before, _, ok := strings.Cut(header, ";")
 		hexLen := header
-		if semi >= 0 {
-			hexLen = header[:semi]
+		if ok {
+			hexLen = before
 		}
 		var n int
 		for _, b := range []byte(hexLen) {

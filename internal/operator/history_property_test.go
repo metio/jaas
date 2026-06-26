@@ -81,10 +81,7 @@ func TestUpdateRevisionHistory_Property(t *testing.T) {
 		out := updateRevisionHistory(prior, revision, historyMax, now)
 
 		// Invariant 1: length cap.
-		cap := int(historyMax)
-		if cap < 1 {
-			cap = 1
-		}
+		cap := max(int(historyMax), 1)
 		if len(out) > cap {
 			t.Errorf("len(out)=%d exceeds cap %d (historyMax=%d)", len(out), cap, historyMax)
 		}
@@ -96,14 +93,11 @@ func TestUpdateRevisionHistory_Property(t *testing.T) {
 		if sameHead {
 			// Invariant 2 + 4: output is prior truncated to cap;
 			// the head's timestamp is preserved.
-			wantLen := len(prior)
-			if wantLen > cap {
-				wantLen = cap
-			}
+			wantLen := min(len(prior), cap)
 			if len(out) != wantLen {
 				t.Errorf("same-head: len(out)=%d, want %d", len(out), wantLen)
 			}
-			for i := 0; i < len(out); i++ {
+			for i := range out {
 				if out[i].Revision != prior[i].Revision {
 					t.Errorf("same-head out[%d].Revision = %q, want %q",
 						i, out[i].Revision, prior[i].Revision)
@@ -178,10 +172,7 @@ func TestBuildKeepShortRevs_Property(t *testing.T) {
 		out := buildKeepShortRevs(newRev, prior, history)
 
 		// Invariant 1: length cap.
-		cap := int(history)
-		if cap < 1 {
-			cap = 1
-		}
+		cap := max(int(history), 1)
 		if len(out) > cap {
 			t.Errorf("len(out)=%d exceeds cap %d (history=%d)", len(out), cap, history)
 		}

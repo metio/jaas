@@ -11,6 +11,7 @@ import (
 	"encoding/pem"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -68,13 +69,7 @@ func TestGenerate_DefaultsServiceName(t *testing.T) {
 	}
 	cert := parseCert(t, b.CertPEM)
 	wantDNS := "jaas-webhook.jaas-system.svc"
-	found := false
-	for _, n := range cert.DNSNames {
-		if n == wantDNS {
-			found = true
-			break
-		}
-	}
+	found := slices.Contains(cert.DNSNames, wantDNS)
 	if !found {
 		t.Errorf("DNS SANs %v missing default %q", cert.DNSNames, wantDNS)
 	}
@@ -91,13 +86,7 @@ func TestGenerate_DNSNamesIncludeClusterLocal(t *testing.T) {
 		"jaas-webhook.jaas-system.svc.cluster.local",
 	}
 	for _, want := range wantBoth {
-		found := false
-		for _, got := range cert.DNSNames {
-			if got == want {
-				found = true
-				break
-			}
-		}
+		found := slices.Contains(cert.DNSNames, want)
 		if !found {
 			t.Errorf("DNS SAN %q missing from %v", want, cert.DNSNames)
 		}

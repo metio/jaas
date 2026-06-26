@@ -148,7 +148,7 @@ func TestParseExtVars_ReturnsNonNilOnEmpty(t *testing.T) {
 
 func TestParseExtVars_ManyEntries(t *testing.T) {
 	environ := make([]string, 0, 1000)
-	for i := 0; i < 500; i++ {
+	for i := range 500 {
 		environ = append(environ, fmt.Sprintf("JAAS_EXT_VAR_k%d=v%d", i, i))
 		environ = append(environ, fmt.Sprintf("OTHER_%d=ignored", i))
 	}
@@ -156,7 +156,7 @@ func TestParseExtVars_ManyEntries(t *testing.T) {
 	if len(got) != 500 {
 		t.Fatalf("len(got) = %d, want 500", len(got))
 	}
-	for i := 0; i < 500; i++ {
+	for i := range 500 {
 		key := fmt.Sprintf("k%d", i)
 		want := fmt.Sprintf("v%d", i)
 		if got[key] != want {
@@ -852,7 +852,7 @@ func TestJsonnetHandler_ExtVarsStableAcrossMultipleRequests(t *testing.T) {
 		ExtVars:            map[string]string{"v": "fixed"},
 	})
 
-	for i := 0; i < 25; i++ {
+	for i := range 25 {
 		rr := callExtVarSnippet(t, h, "echo")
 		if rr.Code != http.StatusOK {
 			t.Fatalf("call %d: status = %d, want 200", i, rr.Code)
@@ -871,14 +871,14 @@ func TestJsonnetHandler_ExtVarsManyKeysAllExposed(t *testing.T) {
 
 	const N = 50
 	vars := make(map[string]string, N)
-	for i := 0; i < N; i++ {
+	for i := range N {
 		vars[fmt.Sprintf("k%d", i)] = fmt.Sprintf("v%d", i)
 	}
 
 	// Build a snippet that emits {k0: extVar("k0"), k1: extVar("k1"), …}
 	var b strings.Builder
 	b.WriteString("{ ")
-	for i := 0; i < N; i++ {
+	for i := range N {
 		if i > 0 {
 			b.WriteString(", ")
 		}
@@ -1064,10 +1064,8 @@ func TestJsonnetHandler_ConcurrentRequestsAreRaceFree(t *testing.T) {
 
 	var wg sync.WaitGroup
 	const workers = 100
-	for i := 0; i < workers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range workers {
+		wg.Go(func() {
 			rr := callExtVarSnippet(t, h, "echo")
 			if rr.Code != http.StatusOK {
 				t.Errorf("status = %d, want 200", rr.Code)
@@ -1076,7 +1074,7 @@ func TestJsonnetHandler_ConcurrentRequestsAreRaceFree(t *testing.T) {
 			if !strings.Contains(rr.Body.String(), `"shared"`) {
 				t.Errorf("body = %q, want \"shared\"", rr.Body.String())
 			}
-		}()
+		})
 	}
 	wg.Wait()
 }
@@ -1115,10 +1113,8 @@ func TestJsonnetHandler_LibraryImport_RaceFreeUnderLoad(t *testing.T) {
 
 	var wg sync.WaitGroup
 	const workers = 100
-	for i := 0; i < workers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range workers {
+		wg.Go(func() {
 			rr := callExtVarSnippet(t, h, "use")
 			if rr.Code != http.StatusOK {
 				t.Errorf("status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
@@ -1127,7 +1123,7 @@ func TestJsonnetHandler_LibraryImport_RaceFreeUnderLoad(t *testing.T) {
 			if !strings.Contains(rr.Body.String(), "race-free") {
 				t.Errorf("body = %q, want 'race-free'", rr.Body.String())
 			}
-		}()
+		})
 	}
 	wg.Wait()
 }
@@ -1638,10 +1634,8 @@ func TestJsonnetHandler_LibraryImport_HighConcurrencyStress(t *testing.T) {
 
 	var wg sync.WaitGroup
 	const workers = 500
-	for i := 0; i < workers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range workers {
+		wg.Go(func() {
 			rr := callExtVarSnippet(t, h, "use")
 			if rr.Code != http.StatusOK {
 				t.Errorf("status = %d, want 200", rr.Code)
@@ -1650,7 +1644,7 @@ func TestJsonnetHandler_LibraryImport_HighConcurrencyStress(t *testing.T) {
 			if !strings.Contains(rr.Body.String(), "stress-ok") {
 				t.Errorf("body = %q, want 'stress-ok'", rr.Body.String())
 			}
-		}()
+		})
 	}
 	wg.Wait()
 }
@@ -1677,7 +1671,7 @@ func TestJsonnetHandler_LibraryImport_ConcurrentMixedSnippets(t *testing.T) {
 
 	var wg sync.WaitGroup
 	for snippet, want := range cases {
-		for i := 0; i < 30; i++ {
+		for range 30 {
 			wg.Add(1)
 			go func(snippet, want string) {
 				defer wg.Done()
@@ -1711,7 +1705,7 @@ func TestJsonnetHandler_LibraryImport_ConcurrentWithExtVarsAndTLAs(t *testing.T)
 
 	var wg sync.WaitGroup
 	const workers = 50
-	for i := 0; i < workers; i++ {
+	for i := range workers {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
@@ -1920,7 +1914,7 @@ func TestJsonnetHandler_Logger_PerHandlerIsolation(t *testing.T) {
 func TestJsonnetHandler_Logger_StableAcrossMultipleRequests(t *testing.T) {
 	cap := newRecordCapture()
 	h := JsonnetHandler(Config{Logger: slog.New(cap)})
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		req := httptest.NewRequest(http.MethodPost, "/jsonnet/x", nil)
 		rr := httptest.NewRecorder()
 		h(rr, req)
@@ -2266,13 +2260,11 @@ func TestJsonnetHandler_Logger_ConcurrentRequestsAllCaptured(t *testing.T) {
 
 	var wg sync.WaitGroup
 	const workers = 100
-	for i := 0; i < workers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range workers {
+		wg.Go(func() {
 			rr := httptest.NewRecorder()
 			h(rr, httptest.NewRequest(http.MethodPost, "/jsonnet/x", nil))
-		}()
+		})
 	}
 	wg.Wait()
 

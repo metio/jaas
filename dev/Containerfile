@@ -48,6 +48,9 @@ RUN go install github.com/securego/gosec/v2/cmd/gosec@latest
 RUN go install github.com/arch-go/arch-go@latest
 RUN go install github.com/rhysd/actionlint/cmd/actionlint@latest
 RUN go install golang.org/x/vuln/cmd/govulncheck@latest
+# modernize: flags code that can adopt newer-Go idioms (the CI lint gate). It
+# also reports the generated zz_generated.deepcopy.go (maps.Copy); ignore those.
+RUN go install golang.org/x/tools/gopls/internal/analysis/modernize/cmd/modernize@latest
 
 # envtest assets for the controller tests. controller-gen is NOT installed here:
 # it's a go.mod `tool` directive, run via `go tool controller-gen` (one pinned

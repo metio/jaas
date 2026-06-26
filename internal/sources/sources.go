@@ -576,7 +576,7 @@ func readyState(obj *unstructured.Unstructured) (bool, string) {
 		return false, "status.conditions empty"
 	}
 	for _, c := range conds {
-		m, ok := c.(map[string]interface{})
+		m, ok := c.(map[string]any)
 		if !ok {
 			continue
 		}
@@ -903,7 +903,7 @@ func normaliseEntry(rawName, pathPrefix string) (string, bool) {
 		return "", false
 	}
 	cleaned := path.Clean(rawName)
-	for _, part := range strings.Split(cleaned, "/") {
+	for part := range strings.SplitSeq(cleaned, "/") {
 		if part == ".." {
 			return "", false
 		}

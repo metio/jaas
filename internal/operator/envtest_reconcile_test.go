@@ -53,7 +53,7 @@ func directReconciler(t *testing.T, c client.Client, withPublisher bool) *Snippe
 // manager's watch-driven reconcile loop.
 func driveToReady(t *testing.T, r *SnippetReconciler, c client.Client, key types.NamespacedName, wantStatus metav1.ConditionStatus, wantReason string, maxRounds int) {
 	t.Helper()
-	for i := 0; i < maxRounds; i++ {
+	for range maxRounds {
 		// Reconcile may return an error on TRANSIENT classifications
 		// (source-not-ready, network blip) — controller-runtime would
 		// engage backoff and retry. The status is still written
@@ -256,7 +256,7 @@ func TestEnvtest_Reconcile_BulkDelete_AllFinalizersFire(t *testing.T) {
 
 	const n = 5
 	keys := make([]types.NamespacedName, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		snip := &jaasv1.JsonnetSnippet{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "bulk-" + strconv.Itoa(i),

@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -137,13 +138,7 @@ func TestReconcile_AddsFinalizerOnFirstReconcile(t *testing.T) {
 	runReconcile(t, r, types.NamespacedName{Name: snip.Name, Namespace: snip.Namespace})
 
 	got := refetch(t, c, types.NamespacedName{Name: snip.Name, Namespace: snip.Namespace})
-	found := false
-	for _, f := range got.Finalizers {
-		if f == FinalizerName {
-			found = true
-			break
-		}
-	}
+	found := slices.Contains(got.Finalizers, FinalizerName)
 	if !found {
 		t.Errorf("Finalizers = %v, want %q present", got.Finalizers, FinalizerName)
 	}
@@ -2755,7 +2750,7 @@ func TestReconcile_Events_DedupOnRepeatedSameReason(t *testing.T) {
 
 	// Finalizer attach (no events expected — failReady runs in spec
 	// branch only). Three more reconciles all hit ServiceAccountMissing.
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		if _, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: key}); err != nil {
 			t.Fatalf("reconcile %d: %v", i, err)
 		}

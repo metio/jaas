@@ -71,12 +71,12 @@ func FuzzParseExtVars(f *testing.F) {
 		// and ParseExtVars surfaces as a failure.
 		want := map[string]string{}
 		for _, env := range environ {
-			eq := strings.IndexByte(env, '=')
-			if eq < 0 {
+			before, after, ok := strings.Cut(env, "=")
+			if !ok {
 				continue
 			}
-			key := env[:eq]
-			value := env[eq+1:]
+			key := before
+			value := after
 			if !strings.HasPrefix(key, extVarPrefix) {
 				continue
 			}

@@ -12,7 +12,7 @@ import (
 
 func TestRateLimiter_NilReceiverAlwaysAllows(t *testing.T) {
 	var l *RateLimiter
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		if ok, _ := l.Reserve("any"); !ok {
 			t.Errorf("nil limiter denied iter %d", i)
 		}
@@ -21,7 +21,7 @@ func TestRateLimiter_NilReceiverAlwaysAllows(t *testing.T) {
 
 func TestRateLimiter_AllowsUpToBurst(t *testing.T) {
 	l := NewRateLimiter(1.0, 3)
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		if ok, _ := l.Reserve("k"); !ok {
 			t.Errorf("Reserve %d denied within burst", i)
 		}
@@ -64,7 +64,7 @@ func TestRateLimiter_RejectionDoesNotDrainFutureTokens(t *testing.T) {
 
 func TestRateLimiter_ZeroOrNegativeRateFallsBackToPermissive(t *testing.T) {
 	l := NewRateLimiter(0, 1)
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		if ok, _ := l.Reserve("k"); !ok {
 			t.Errorf("permissive limiter denied iter %d", i)
 		}
@@ -73,7 +73,7 @@ func TestRateLimiter_ZeroOrNegativeRateFallsBackToPermissive(t *testing.T) {
 
 func TestRateLimiter_ZeroBurstFallsBackToPermissive(t *testing.T) {
 	l := NewRateLimiter(1.0, 0)
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		if ok, _ := l.Reserve("k"); !ok {
 			t.Errorf("permissive limiter denied iter %d", i)
 		}

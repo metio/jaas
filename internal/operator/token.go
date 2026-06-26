@@ -121,7 +121,7 @@ func (c *tokenCache) Token(ctx context.Context, namespace, serviceAccount string
 		return tok, nil
 	}
 
-	res, err, _ := c.flight.Do(key, func() (interface{}, error) {
+	res, err, _ := c.flight.Do(key, func() (any, error) {
 		// A double-check inside the singleflight closes the window where
 		// a previous Do completed and populated the cache while this
 		// caller was waiting for the lock.

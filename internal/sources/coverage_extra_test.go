@@ -151,7 +151,7 @@ func TestReadArtifactDigest_NonStringReturnsErrDigestInvalid(t *testing.T) {
 // --- readyState -----------------------------------------------------------
 
 func TestReadyState_NoConditionsSlice(t *testing.T) {
-	obj := &unstructured.Unstructured{Object: map[string]interface{}{}}
+	obj := &unstructured.Unstructured{Object: map[string]any{}}
 	ok, why := readyState(obj)
 	if ok || why == "" {
 		t.Fatalf("absent conditions = (%v, %q), want (false, reason)", ok, why)
@@ -166,7 +166,7 @@ func TestReadyState_EmptyConditionsSlice(t *testing.T) {
 }
 
 func TestReadyState_ReadyTrue(t *testing.T) {
-	ok, why := readyState(unstructuredWithConditions([]map[string]interface{}{
+	ok, why := readyState(unstructuredWithConditions([]map[string]any{
 		{"type": "Ready", "status": "True"},
 	}))
 	if !ok || why != "" {
@@ -175,7 +175,7 @@ func TestReadyState_ReadyTrue(t *testing.T) {
 }
 
 func TestReadyState_ReadyFalseWithReason(t *testing.T) {
-	ok, why := readyState(unstructuredWithConditions([]map[string]interface{}{
+	ok, why := readyState(unstructuredWithConditions([]map[string]any{
 		{"type": "Ready", "status": "False", "reason": "Fetching"},
 	}))
 	if ok || !strings.Contains(why, "Fetching") {
@@ -184,7 +184,7 @@ func TestReadyState_ReadyFalseWithReason(t *testing.T) {
 }
 
 func TestReadyState_ReadyFalseWithoutReason(t *testing.T) {
-	ok, why := readyState(unstructuredWithConditions([]map[string]interface{}{
+	ok, why := readyState(unstructuredWithConditions([]map[string]any{
 		{"type": "Ready", "status": "False"},
 	}))
 	if ok || !strings.Contains(why, "Ready=False") {
@@ -193,10 +193,10 @@ func TestReadyState_ReadyFalseWithoutReason(t *testing.T) {
 }
 
 func TestReadyState_NonMapEntrySkipped(t *testing.T) {
-	obj := &unstructured.Unstructured{Object: map[string]interface{}{}}
-	_ = unstructured.SetNestedSlice(obj.Object, []interface{}{
+	obj := &unstructured.Unstructured{Object: map[string]any{}}
+	_ = unstructured.SetNestedSlice(obj.Object, []any{
 		"not-a-map",
-		map[string]interface{}{"type": "Ready", "status": "True"},
+		map[string]any{"type": "Ready", "status": "True"},
 	}, "status", "conditions")
 	ok, _ := readyState(obj)
 	if !ok {
@@ -205,7 +205,7 @@ func TestReadyState_NonMapEntrySkipped(t *testing.T) {
 }
 
 func TestReadyState_NoReadyEntryAmongOthers(t *testing.T) {
-	ok, why := readyState(unstructuredWithConditions([]map[string]interface{}{
+	ok, why := readyState(unstructuredWithConditions([]map[string]any{
 		{"type": "Stalled", "status": "True"},
 	}))
 	if ok || !strings.Contains(why, "no Ready") {

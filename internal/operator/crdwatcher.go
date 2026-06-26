@@ -39,7 +39,7 @@ var (
 // returns 2× that, etc.
 func crdWatchBackoff(attempt int) time.Duration {
 	d := crdWatchInitialDelay
-	for i := 0; i < attempt; i++ {
+	for range attempt {
 		d *= 2
 	}
 	return d
@@ -179,7 +179,7 @@ func (w *crdWatcher) Start(ctx context.Context) error {
 		attempts[gvk] = 0
 		stateMu.Unlock()
 	}
-	check := func(obj interface{}) {
+	check := func(obj any) {
 		gvk, ok := w.matchedCRD(obj)
 		if !ok {
 			return
@@ -197,8 +197,8 @@ func (w *crdWatcher) Start(ctx context.Context) error {
 		attempt(gvk)
 	}
 	if _, err := informer.AddEventHandler(toolscache.ResourceEventHandlerFuncs{
-		AddFunc:    func(obj interface{}) { check(obj) },
-		UpdateFunc: func(_, obj interface{}) { check(obj) },
+		AddFunc:    func(obj any) { check(obj) },
+		UpdateFunc: func(_, obj any) { check(obj) },
 	}); err != nil {
 		return fmt.Errorf("crd watcher: add event handler: %w", err)
 	}
@@ -245,7 +245,7 @@ func (w *crdWatcher) degradeOnSyncFailure(ctx context.Context, logger *slog.Logg
 // whose name matches one of w.kinds AND whose status reports
 // Established=True. Pure function exported via the receiver so unit tests
 // can drive it directly without standing up a cache.
-func (w *crdWatcher) matchedCRD(obj interface{}) (schema.GroupVersionKind, bool) {
+func (w *crdWatcher) matchedCRD(obj any) (schema.GroupVersionKind, bool) {
 	crd, ok := obj.(*apiextv1.CustomResourceDefinition)
 	if !ok {
 		return schema.GroupVersionKind{}, false

@@ -8,6 +8,7 @@ package operator
 import (
 	"context"
 	"errors"
+	"slices"
 	"sort"
 	"testing"
 
@@ -468,10 +469,8 @@ func TestFluxSourceKinds_IncludesExternalArtifact(t *testing.T) {
 	// when an upstream snippet republishes. The cycle detector
 	// (detectSourceRefCycle) prevents the publish → watch → reconcile →
 	// publish loop a cyclic sourceRef chain would otherwise create.
-	for _, k := range FluxSourceKinds {
-		if k == "ExternalArtifact" {
-			return
-		}
+	if slices.Contains(FluxSourceKinds, "ExternalArtifact") {
+		return
 	}
 	t.Errorf("FluxSourceKinds should include ExternalArtifact")
 }

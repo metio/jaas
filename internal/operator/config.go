@@ -252,15 +252,15 @@ func ParseExtVars(pairs []string) (map[string]string, error) {
 	}
 	out := make(map[string]string, len(pairs))
 	for _, p := range pairs {
-		i := strings.IndexByte(p, '=')
-		if i < 0 {
+		before, after, ok := strings.Cut(p, "=")
+		if !ok {
 			return nil, fmt.Errorf("ext-var %q: missing '='", p)
 		}
-		k := p[:i]
+		k := before
 		if k == "" {
 			return nil, fmt.Errorf("ext-var %q: empty key", p)
 		}
-		out[k] = p[i+1:]
+		out[k] = after
 	}
 	return out, nil
 }

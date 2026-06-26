@@ -33,7 +33,7 @@ func resetEvalSemaphore(t *testing.T) {
 
 func TestReserveEvalSlot_DisabledCapAlwaysAcquires(t *testing.T) {
 	resetEvalSemaphore(t)
-	for i := 0; i < 8; i++ {
+	for i := range 8 {
 		release, ok := reserveEvalSlot()
 		if !ok {
 			t.Fatalf("iter %d: cap=0 should never reject", i)
@@ -92,10 +92,8 @@ func TestReserveEvalSlot_ConcurrentNeverExceedsCap(t *testing.T) {
 	var accepted atomic.Int64
 	var wg sync.WaitGroup
 	start := make(chan struct{})
-	for i := 0; i < burst; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range burst {
+		wg.Go(func() {
 			<-start
 			release, ok := reserveEvalSlot()
 			if !ok {
@@ -110,7 +108,7 @@ func TestReserveEvalSlot_ConcurrentNeverExceedsCap(t *testing.T) {
 				}
 			}
 			release()
-		}()
+		})
 	}
 	close(start)
 	wg.Wait()
@@ -253,7 +251,7 @@ func TestSetMaxConcurrentEvals_NegativeIsTreatedAsZero(t *testing.T) {
 		t.Errorf("MaxConcurrentEvals after Set(-5) = %d, want 0", got)
 	}
 	// And with cap=0, the gate is disabled.
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		if _, ok := reserveEvalSlot(); !ok {
 			t.Fatalf("iter %d: negative cap must disable the gate", i)
 		}

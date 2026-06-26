@@ -517,7 +517,7 @@ func (b *S3Backend) HTTPHandler() http.Handler {
 		// 404s), but a normalizing S3-compatible gateway could otherwise resolve
 		// it and read outside the configured prefix — and every other
 		// key-constructing path in this package runs the same guard.
-		for _, seg := range strings.Split(key, "/") {
+		for seg := range strings.SplitSeq(key, "/") {
 			if seg == "" || seg == "." || seg == ".." {
 				http.NotFound(w, r)
 				return

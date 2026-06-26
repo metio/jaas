@@ -36,7 +36,7 @@ func TestHealthState_MarkStarted(t *testing.T) {
 
 func TestHealthState_MarkStartedIsIdempotent(t *testing.T) {
 	s := NewHealthState()
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		s.MarkStarted()
 	}
 	if !s.Started() {
@@ -100,7 +100,7 @@ func TestHealthState_DrainingLatchBlocksSetReadyTrue(t *testing.T) {
 
 func TestHealthState_ReadyIsCycleable(t *testing.T) {
 	s := NewHealthState()
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		s.SetReady(true)
 		if !s.Ready() {
 			t.Fatalf("iter %d: Ready() = false after SetReady(true)", i)
@@ -117,7 +117,7 @@ func TestHealthState_ConcurrentWritersAndReaders(t *testing.T) {
 
 	var wg sync.WaitGroup
 	const goroutines = 100
-	for i := 0; i < goroutines; i++ {
+	for i := range goroutines {
 		wg.Add(3)
 		go func() {
 			defer wg.Done()
@@ -147,17 +147,15 @@ func TestHealthState_ManyConcurrentReads(t *testing.T) {
 
 	var wg sync.WaitGroup
 	const readers = 1000
-	for i := 0; i < readers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range readers {
+		wg.Go(func() {
 			if !s.Started() {
 				t.Error("Started() = false in concurrent read")
 			}
 			if !s.Ready() {
 				t.Error("Ready() = false in concurrent read")
 			}
-		}()
+		})
 	}
 	wg.Wait()
 }
@@ -173,7 +171,7 @@ func TestLivenessHandler_GETReturns200WithJSONBody(t *testing.T) {
 
 func TestLivenessHandler_AlwaysReturns200(t *testing.T) {
 	h := LivenessHandler()
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		rr := callProbe(t, h, http.MethodGet)
 		if rr.Code != http.StatusOK {
 			t.Errorf("call %d: status = %d, want 200", i, rr.Code)
