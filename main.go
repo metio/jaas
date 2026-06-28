@@ -587,7 +587,7 @@ func run(args, env []string, stdout, stderr io.Writer, sigs <-chan os.Signal) in
 	// deferred opStore.Close() must not run while a sweep walk is in
 	// flight, or it would pull the *os.Root out from under it.
 	cancel()
-	if !awaitGoroutines(ctx, 30*time.Second, map[string]<-chan struct{}{
+	if !awaitGoroutines(ctx, operatorAwaitTimeout, map[string]<-chan struct{}{
 		"operator":             operatorDone,
 		"storage sweep":        sweepDone,
 		"webhook cert renewer": webhookRenewerDone,
@@ -598,6 +598,13 @@ func run(args, env []string, stdout, stderr io.Writer, sigs <-chan os.Signal) in
 	slog.InfoContext(ctx, "JaaS service has shut down")
 	return exitCode
 }
+
+// operatorAwaitTimeout bounds how long shutdown waits for the operator and
+// background goroutines to stop. Derived from operator.GracefulShutdownTimeout
+// so it is always strictly larger: the manager's own drain window completes
+// (closing operatorDone) before this deadline, so a correct-but-slow shutdown
+// never trips the "did not stop" path and reports exit code 1.
+const operatorAwaitTimeout = operator.GracefulShutdownTimeout + 5*time.Second
 
 // awaitGoroutines waits for every named done-channel to close, bounded by a
 // single timeout shared across the set: they are all signalled by the same
