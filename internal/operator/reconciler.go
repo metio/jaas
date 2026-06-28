@@ -647,10 +647,16 @@ func (r *SnippetReconciler) reconcileSpec(ctx context.Context, logger *slog.Logg
 		// failure. If the error class is transient (source-controller
 		// hasn't caught up yet, a 5xx blip, etc.), also return an
 		// error so controller-runtime's exponential backoff retries
-		// faster than waiting for the next watch tick. Non-transient
-		// stays steady-state — the next genuine watch event re-runs.
-		if _, err := r.failReady(ctx, snip, reason, msg); err != nil {
-			return ctrl.Result{}, err
+		// faster than waiting for the next watch tick. A non-transient
+		// failure keeps failReady's bounded RequeueAfter so a cause that
+		// heals out-of-band with no watch event the snippet sees — an
+		// RBAC grant on the source-CR read, a missing source CRD being
+		// installed — self-recovers on the timer instead of waiting for
+		// the next resync. Every other permanent path returns failReady's
+		// Result the same way.
+		res, ferr := r.failReady(ctx, snip, reason, msg)
+		if ferr != nil {
+			return ctrl.Result{}, ferr
 		}
 		if transient {
 			// Wrapping the original Fetcher error preserves the
@@ -661,7 +667,7 @@ func (r *SnippetReconciler) reconcileSpec(ctx context.Context, logger *slog.Logg
 			// chain.
 			return ctrl.Result{}, fmt.Errorf("%w", transientErr)
 		}
-		return ctrl.Result{}, nil
+		return res, nil
 	}
 
 	entry := snip.Spec.EntryFile
@@ -1402,15 +1408,16 @@ func classifyFetchError(err error) (reason, msg string, transient bool) {
 // success, ("", reason, msg, nil) on a classifiable Jsonnet failure, or
 // ("", "", "", err) only on truly transient errors (none today).
 func (r *SnippetReconciler) evaluate(ctx context.Context, snip *jaasv1.JsonnetSnippet, selfFiles map[string]string, mainSource string, libs map[string]eval.Library) (string, string, string, error) {
-	imp := &eval.InMemoryImporter{
-		Self:      eval.Library{Files: selfFiles},
-		Libraries: libs,
-	}
-	merged := mergeExtVars(r.ExtVars, snip.Spec.ExternalVariables)
 	entryLabel := snip.Spec.EntryFile
 	if entryLabel == "" {
 		entryLabel = EntryFileName
 	}
+	imp := &eval.InMemoryImporter{
+		Self:      eval.Library{Files: selfFiles},
+		EntryPath: entryLabel,
+		Libraries: libs,
+	}
+	merged := mergeExtVars(r.ExtVars, snip.Spec.ExternalVariables)
 	rendered, err := eval.EvaluateAnonymousSnippet(ctx, snip.Namespace+"/"+snip.Name+"/"+entryLabel, mainSource, eval.Options{
 		ExtVars:  merged,
 		TLAs:     snip.Spec.TLAs,
@@ -1595,6 +1602,14 @@ func (r *SnippetReconciler) markSynced(ctx context.Context, snip *jaasv1.Jsonnet
 	}
 	var latest jaasv1.JsonnetSnippet
 	if err := reader.Get(ctx, key, &latest); err != nil {
+		if apierrors.IsNotFound(err) {
+			// The snippet was deleted during the publish window. The
+			// deletion reconcile is already enqueued and handles withdrawal;
+			// propagating NotFound here would log a spurious error and burn
+			// an error-backoff requeue. publishConsistencyGate special-cases
+			// this the same way.
+			return ctrl.Result{}, nil
+		}
 		return ctrl.Result{}, err
 	}
 	if latest.Generation != judgedGen {
@@ -1605,8 +1620,15 @@ func (r *SnippetReconciler) markSynced(ctx context.Context, snip *jaasv1.Jsonnet
 	// snip: emitConditionEvent's dedup compares prev against the condition we
 	// write onto latest, so reading prev from a lagging cache could emit a
 	// duplicate Synced event (or suppress a real transition). failReady reads
-	// prev from its fresh object for the same reason.
-	prev := apimeta.FindStatusCondition(latest.Status.Conditions, jaasv1.ConditionReady)
+	// prev from its fresh object for the same reason. FindStatusCondition
+	// returns a pointer INTO latest.Status.Conditions, and fluxconditions.Set
+	// below overwrites that same element in place — so snapshot by value first,
+	// or every Ready=False -> Synced recovery reads prev as already-Synced and
+	// suppresses the recovery event.
+	var prev *metav1.Condition
+	if cur := apimeta.FindStatusCondition(latest.Status.Conditions, jaasv1.ConditionReady); cur != nil {
+		prev = new(*cur)
+	}
 
 	// Patch the status onto the freshly-read object via the Flux patch.Helper.
 	// The Ready condition is patched through the helper's internal re-Get +
