@@ -17,7 +17,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -199,7 +198,7 @@ func runWithBuilder(ctx context.Context, cfg Config, restCfg *rest.Config, build
 		return fmt.Errorf("register jaas v1 scheme: %w", err)
 	}
 
-	opts := ctrl.Options{Scheme: scheme, GracefulShutdownTimeout: ptr.To(GracefulShutdownTimeout)}
+	opts := ctrl.Options{Scheme: scheme, GracefulShutdownTimeout: new(GracefulShutdownTimeout)}
 	if cfg.MetricsBindAddress != "" {
 		opts.Metrics = metricsserver.Options{BindAddress: cfg.MetricsBindAddress}
 	}
