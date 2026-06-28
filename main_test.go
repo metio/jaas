@@ -27,9 +27,20 @@ import (
 	"time"
 
 	"github.com/metio/jaas/internal/handler"
+	"github.com/metio/jaas/internal/operator"
 	"github.com/metio/jaas/internal/storage"
 	"k8s.io/client-go/rest"
 )
+
+// The shutdown await window must outlast the manager's own graceful-shutdown
+// window, or a correct-but-slow drain races the deadline and reports a clean
+// shutdown as a hang (exit code 1).
+func TestOperatorAwaitTimeoutExceedsManagerGraceful(t *testing.T) {
+	if operatorAwaitTimeout <= operator.GracefulShutdownTimeout {
+		t.Errorf("operatorAwaitTimeout (%s) must exceed operator.GracefulShutdownTimeout (%s)",
+			operatorAwaitTimeout, operator.GracefulShutdownTimeout)
+	}
+}
 
 func discardLogger() *slog.Logger {
 	return slog.New(slog.NewJSONHandler(io.Discard, nil))

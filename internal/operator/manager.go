@@ -10,12 +10,14 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -26,6 +28,14 @@ import (
 	jaasv1 "github.com/metio/jaas/api/v1"
 	"github.com/metio/jaas/internal/sources"
 )
+
+// GracefulShutdownTimeout bounds how long the manager waits for in-flight
+// runnables (reconcilers, the cache, the webhook server) to drain after its
+// context is cancelled before Start returns. main.go awaits the operator
+// goroutine for strictly longer than this, so a correct-but-slow shutdown
+// always closes the done channel before the await deadline — otherwise the two
+// windows could race and report a clean shutdown as a hang (exit code 1).
+const GracefulShutdownTimeout = 25 * time.Second
 
 // builder is the seam between Run and controller-runtime's actual manager
 // constructor. Tests substitute a fake builder so they can exercise Run's
@@ -189,7 +199,7 @@ func runWithBuilder(ctx context.Context, cfg Config, restCfg *rest.Config, build
 		return fmt.Errorf("register jaas v1 scheme: %w", err)
 	}
 
-	opts := ctrl.Options{Scheme: scheme}
+	opts := ctrl.Options{Scheme: scheme, GracefulShutdownTimeout: ptr.To(GracefulShutdownTimeout)}
 	if cfg.MetricsBindAddress != "" {
 		opts.Metrics = metricsserver.Options{BindAddress: cfg.MetricsBindAddress}
 	}
