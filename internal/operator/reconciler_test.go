@@ -636,6 +636,31 @@ func TestReconcile_LibrarySourceRef_FailsLibrarySourceUnresolved(t *testing.T) {
 		metav1.ConditionFalse, ReasonSourceRefNotYetSupported)
 }
 
+// A transiently-unready library source must write Ready=False/SourceNotReady
+// before backing off, so describe shows why the snippet is stuck rather than a
+// stale Ready=True — mirroring the snippet's own sourceRef transient path. The
+// reconcile still returns an error so controller-runtime requeues with backoff.
+func TestReconcile_LibrarySourceTransient_WritesSourceNotReadyStatus(t *testing.T) {
+	lib := &jaasv1.JsonnetLibrary{
+		ObjectMeta: metav1.ObjectMeta{Name: "utils", Namespace: "team-a"},
+		Spec: jaasv1.JsonnetLibrarySpec{
+			SnippetSource: jaasv1.SnippetSource{
+				SourceRef: &jaasv1.SourceRef{Kind: "GitRepository", Name: "x", Namespace: "team-a"},
+			},
+		},
+	}
+	snip := sampleSnippet()
+	snip.Finalizers = []string{FinalizerName}
+	snip.Spec.Libraries = []jaasv1.LibraryRef{{Kind: "JsonnetLibrary", Name: "utils"}}
+	c := clientWithStatus(t, snip, lib)
+	r := newReconciler(t, c)
+	r.Fetcher = &stubFetcher{err: sources.ErrSourceNotReady}
+
+	key := types.NamespacedName{Name: snip.Name, Namespace: snip.Namespace}
+	runReconcileTransient(t, r, key) // returns the error to engage backoff
+	assertReady(t, refetch(t, c, key), metav1.ConditionFalse, ReasonSourceNotReady)
+}
+
 func TestReconcile_EmptyLibraryFilesAndNoSourceRef_FailsInvalidSpec(t *testing.T) {
 	lib := &jaasv1.JsonnetLibrary{
 		ObjectMeta: metav1.ObjectMeta{Name: "broken", Namespace: "team-a"},
