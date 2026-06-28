@@ -696,7 +696,18 @@ func (r *SnippetReconciler) reconcileSpec(ctx context.Context, logger *slog.Logg
 
 	libs, reason, msg, err := r.tracedResolveLibraries(ctx, tenant, snip)
 	if err != nil {
-		// Transient: surface the error so the manager requeues with backoff.
+		// Write the failure status before backing off, so kubectl describe
+		// shows why the snippet is stuck (a referenced library's source isn't
+		// ready) instead of a stale Ready=True from the last good render —
+		// mirroring the snippet's own sourceRef transient path. The wrapped
+		// error names the library, and classifyFetchError maps it to a
+		// transient reason. failReady's Result is discarded: the returned
+		// error drives controller-runtime's backoff, which is the faster
+		// retry a transient failure wants.
+		lreason, lmsg, _ := classifyFetchError(err)
+		if _, ferr := r.failReady(ctx, snip, lreason, lmsg); ferr != nil {
+			return ctrl.Result{}, ferr
+		}
 		logger.ErrorContext(ctx, "Library resolution errored", slog.Any("error", err))
 		return ctrl.Result{}, err
 	}
