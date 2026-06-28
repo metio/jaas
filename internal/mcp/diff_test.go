@@ -286,6 +286,23 @@ func TestDiffRevisionsHandler(t *testing.T) {
 			t.Fatalf("error should mention 'same revision', got %+v", res.Content)
 		}
 	})
+
+	t.Run("same revision in mixed sha256-prefixed forms is a tool error", func(t *testing.T) {
+		store := newStore(t)
+		putRevision(t, store, ns, name, r2, map[string]string{"main.json": "y"})
+		cfg := Config{KubeClient: fakeClient(t, snippetWithHistory(ns, name, r2, r1)), Store: store}
+
+		// From carries the full "sha256:" form, To the stripped form — both
+		// resolve to the same stored revision, so this must be rejected too.
+		res, _, _ := cfg.diffRevisionsHandler(context.Background(), nil,
+			diffRevisionsInput{Namespace: ns, Name: name, From: r2, To: strings.TrimPrefix(r2, "sha256:")})
+		if res == nil || !res.IsError {
+			t.Fatalf("expected a tool error for the same revision in two forms, got %+v", res)
+		}
+		if !strings.Contains(res.Content[0].(*mcpsdk.TextContent).Text, "same revision") {
+			t.Fatalf("error should mention 'same revision', got %+v", res.Content)
+		}
+	})
 }
 
 func TestDiffTool_RegisteredOnlyWithStore(t *testing.T) {

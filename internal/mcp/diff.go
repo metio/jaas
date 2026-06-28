@@ -71,8 +71,10 @@ func (cfg Config) diffRevisionsHandler(ctx context.Context, _ *mcpsdk.CallToolRe
 	// an all-"unchanged" result that an agent can't distinguish from "two
 	// different revisions that rendered byte-identically." Fail fast with a clear
 	// message instead — this also fires when status.history holds duplicate
-	// heads and both sides default to the same revision.
-	if from == to {
+	// heads and both sides default to the same revision. Compare with the
+	// "sha256:" prefix stripped (as readRevision does before Open) so the same
+	// revision passed in two forms (e.g. "sha256:abc" vs "abc") is still caught.
+	if strings.TrimPrefix(from, "sha256:") == strings.TrimPrefix(to, "sha256:") {
 		return errorResult(fmt.Sprintf("from and to are the same revision %s; nothing to diff", from)), diffRevisionsOutput{}, nil
 	}
 
