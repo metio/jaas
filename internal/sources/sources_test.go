@@ -1163,6 +1163,20 @@ func newFluxSourceUnstructured(t *testing.T, kind, name, namespace, url, digest 
 // rejected before the second dial. Without it, a source CR whose
 // initial URL passes urlguard could 302 to cloud-metadata or an
 // in-cluster service and the follow would dial it.
+func TestNew_TransportHasNoProxy(t *testing.T) {
+	// A configured HTTP(S)_PROXY must not redirect the dial through a proxy:
+	// that would make the Control hook validate the proxy IP instead of the
+	// resolved artifact host, defeating the dial-time rebinding defence.
+	f := New()
+	tr, ok := f.HTTPClient.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("Transport = %T, want *http.Transport", f.HTTPClient.Transport)
+	}
+	if tr.Proxy != nil {
+		t.Error("New(): transport.Proxy must be nil so dialing isn't routed through a proxy")
+	}
+}
+
 func TestNew_InstallsCheckRedirect_ValidatesEveryHop(t *testing.T) {
 	f := New()
 	if f.HTTPClient == nil || f.HTTPClient.CheckRedirect == nil {
