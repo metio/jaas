@@ -55,6 +55,15 @@ type InMemoryImporter struct {
 	// equivalent of a jb project root on the search path.
 	Self Library
 
+	// EntryPath is the Self-relative path of the entry file go-jsonnet
+	// evaluates (e.g. "dashboards/main.jsonnet"). The entry's own imports
+	// arrive with an importedFrom that was never returned by this importer —
+	// so it has no recorded location — and must resolve relative to the
+	// entry's directory, exactly as `jsonnet -J vendor <entryPath>` does.
+	// Empty (entry at the Self root) makes relative resolution start at ".",
+	// matching a root-level entry.
+	EntryPath string
+
 	// Libraries maps alias → Library.
 	Libraries map[string]Library
 
@@ -193,14 +202,16 @@ func (im *InMemoryImporter) record(alias, pathWithin string) string {
 }
 
 // locationOf maps an importedFrom (a previously returned foundAt) back to its
-// root + path. An unrecorded value — the top-level entry's diagnostic label —
-// is treated as the snippet root, so the entry's imports resolve against Self
-// and the vendor search.
+// root + path. An unrecorded value — the top-level entry's diagnostic label,
+// which go-jsonnet hands back verbatim and which record() never stores — is
+// treated as the entry file's own location, so the entry's relative imports
+// resolve against the entry's directory within Self (and fall through to the
+// vendor search), matching `jsonnet -J vendor <EntryPath>`.
 func (im *InMemoryImporter) locationOf(importedFrom string) location {
 	if v, ok := im.locs.Load(importedFrom); ok {
 		return v.(location)
 	}
-	return location{}
+	return location{pathWithin: im.EntryPath}
 }
 
 func (im *InMemoryImporter) sortedAliases() []string {

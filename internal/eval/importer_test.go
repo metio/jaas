@@ -284,3 +284,52 @@ func TestEvaluateAnonymousSnippet_SelfShadowsLibraryAlias(t *testing.T) {
 		t.Fatalf("output = %s, want both self-b and lib-b", out)
 	}
 }
+
+// A sibling import from an entry living in a subdirectory must resolve against
+// the entry's own directory — `jsonnet -J vendor dashboards/main.jsonnet`
+// resolves `import 'config.libsonnet'` to dashboards/config.libsonnet, never the
+// Self root. EntryPath supplies the entry's location, since its importedFrom is
+// never returned by the importer and so has no recorded location.
+func TestInMemoryImporter_SubdirEntrySiblingResolvesAgainstEntryDir(t *testing.T) {
+	im := &InMemoryImporter{
+		Self: Library{Files: map[string]string{
+			"dashboards/main.jsonnet":     `import 'config.libsonnet'`,
+			"dashboards/config.libsonnet": `{ which: "subdir" }`,
+			"config.libsonnet":            `{ which: "root-decoy" }`,
+		}},
+		EntryPath: "dashboards/main.jsonnet",
+	}
+	// go-jsonnet hands the entry's diagnostic label back as importedFrom for
+	// the entry's own imports; it has no recorded location.
+	contents, foundAt, err := im.Import("ns/name/dashboards/main.jsonnet", "config.libsonnet")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if foundAt != "dashboards/config.libsonnet" {
+		t.Errorf("foundAt = %q, want %q", foundAt, "dashboards/config.libsonnet")
+	}
+	if !strings.Contains(contents.String(), "subdir") {
+		t.Errorf("contents = %q, want the subdir sibling, not the root decoy", contents.String())
+	}
+}
+
+// End-to-end: a subdir entry whose sibling import has a same-named decoy at the
+// Self root must render the subdir sibling, not silently return the decoy.
+func TestEvaluateAnonymousSnippet_SubdirEntrySiblingNotShadowedByRootDecoy(t *testing.T) {
+	im := &InMemoryImporter{
+		Self: Library{Files: map[string]string{
+			"dashboards/main.jsonnet":     `import 'config.libsonnet'`,
+			"dashboards/config.libsonnet": `{ which: "subdir" }`,
+			"config.libsonnet":            `{ which: "root-decoy" }`,
+		}},
+		EntryPath: "dashboards/main.jsonnet",
+	}
+	out, err := EvaluateAnonymousSnippet(context.Background(), "ns/name/dashboards/main.jsonnet",
+		im.Self.Files["dashboards/main.jsonnet"], Options{Importer: im})
+	if err != nil {
+		t.Fatalf("evaluate: %v", err)
+	}
+	if !strings.Contains(out, "subdir") || strings.Contains(out, "root-decoy") {
+		t.Fatalf("output = %s, want the subdir sibling, not the root decoy", out)
+	}
+}

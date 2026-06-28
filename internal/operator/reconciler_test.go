@@ -2302,6 +2302,28 @@ func TestMarkSynced_StaleGenerationAbortsBeforeWrite(t *testing.T) {
 	}
 }
 
+// If the snippet is deleted during the publish window, markSynced's staleness
+// re-read returns NotFound. That must resolve cleanly (no error, no requeue) —
+// the deletion reconcile is already enqueued and handles withdrawal. Propagating
+// the error would log spuriously and burn an error-backoff requeue, mirroring
+// publishConsistencyGate's NotFound handling.
+func TestMarkSynced_DeletedDuringPublishReturnsNoError(t *testing.T) {
+	snip := sampleSnippet()
+	snip.Finalizers = []string{FinalizerName}
+	// An empty client → the staleness re-Get returns NotFound.
+	c := clientWithStatus(t)
+	r := newReconciler(t, c)
+
+	res, err := r.markSynced(context.Background(), snip,
+		`{"ok":true}`, "sha256:abc123", "http://artifact/", 2, snip.Generation)
+	if err != nil {
+		t.Fatalf("markSynced on a deleted snippet must not error: %v", err)
+	}
+	if res != (ctrl.Result{}) {
+		t.Errorf("Result = %+v, want empty (deletion reconcile handles withdrawal)", res)
+	}
+}
+
 // TestMarkSynced_StalenessGateUsesAPIReader pins that the staleness re-read
 // consults the uncached APIReader, not the cache-lagging client. The cached
 // client carries the judged generation (a cached read would proceed and write),
@@ -2514,6 +2536,53 @@ func TestReconcile_Events_EmitNormalOnSynced(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("no Normal/Synced event emitted; got %v", got)
+	}
+}
+
+// A Ready=False -> Synced recovery must emit a Normal/Synced event. markSynced
+// reads prev via FindStatusCondition, which points INTO the conditions slice
+// that fluxconditions.Set then overwrites in place; without a by-value snapshot
+// prev reads as already-Synced and emitConditionEvent suppresses the recovery
+// event. The first-sync case (nil prev) does not exercise this — only a real
+// False->True transition does.
+func TestReconcile_Events_EmitNormalOnRecoveryToSynced(t *testing.T) {
+	snip := sampleSnippet()
+	snip.Spec.ServiceAccountName = "" // first reconcile fails: ServiceAccountMissing
+	snip.Finalizers = []string{FinalizerName}
+	c := clientWithStatus(t, snip)
+	r := newReconciler(t, c)
+	rec := events.NewFakeRecorder(16)
+	r.EventRecorder = rec
+
+	key := types.NamespacedName{Name: snip.Name, Namespace: snip.Namespace}
+	if _, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: key}); err != nil {
+		t.Fatalf("first reconcile: %v", err)
+	}
+	assertReady(t, refetch(t, c, key), metav1.ConditionFalse, ReasonServiceAccountMissing)
+	_ = drainEvents(rec) // discard the Warning/ServiceAccountMissing event
+
+	// Fix the cause out-of-band, mirroring an RBAC grant in the smoke.
+	fixed := refetch(t, c, key)
+	fixed.Spec.ServiceAccountName = "tenant"
+	if err := c.Update(context.Background(), fixed); err != nil {
+		t.Fatalf("apply fix: %v", err)
+	}
+
+	if _, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: key}); err != nil {
+		t.Fatalf("recovery reconcile: %v", err)
+	}
+	assertReady(t, refetch(t, c, key), metav1.ConditionTrue, ReasonSynced)
+
+	got := drainEvents(rec)
+	var found bool
+	for _, ev := range got {
+		if strings.HasPrefix(ev, "Normal "+ReasonSynced+" ") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("no Normal/Synced event on Ready=False->Synced recovery; got %v", got)
 	}
 }
 
@@ -3220,6 +3289,39 @@ func TestReconcile_FailReady_RecoversOnNextReconcileAfterFix(t *testing.T) {
 		t.Fatalf("recovery reconcile: %v", err)
 	}
 	assertReady(t, refetch(t, c, key), metav1.ConditionTrue, ReasonSynced)
+}
+
+// A Forbidden on the source-CR read is non-transient (ReasonRBACDenied) yet
+// heals out-of-band with no watch event the snippet sees — granting the tenant
+// SA the verb changes a RoleBinding, not the referenced source CR. So the
+// non-transient source-resolution branch must keep failReady's bounded
+// RequeueAfter (1m), like every other permanent path, rather than returning a
+// bare ctrl.Result{}; otherwise the snippet stays Ready=False/RBACDenied until
+// the next resync instead of self-recovering on the timer.
+func TestReconcile_SourceFetchRBACDenied_KeepsBoundedRequeue(t *testing.T) {
+	snip := sampleSnippet()
+	snip.Finalizers = []string{FinalizerName}
+	snip.Spec.Files = nil
+	snip.Spec.SourceRef = &jaasv1.SourceRef{
+		Kind: "GitRepository", Name: "configs", Namespace: snip.Namespace,
+	}
+	c := clientWithStatus(t, snip)
+	r := newReconciler(t, c)
+	r.Fetcher = &stubFetcher{err: apierrors.NewForbidden(
+		schema.GroupResource{Group: "source.toolkit.fluxcd.io", Resource: "gitrepositories"},
+		"configs", errors.New("RBAC: forbidden"),
+	)}
+
+	key := types.NamespacedName{Name: snip.Name, Namespace: snip.Namespace}
+	res, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: key})
+	if err != nil {
+		t.Fatalf("non-transient RBAC denial must not return an error (no backoff): %v", err)
+	}
+	if res.RequeueAfter != permanentRetryInterval {
+		t.Errorf("RequeueAfter = %v, want %v (RBAC-denied source read must self-heal on the timer)",
+			res.RequeueAfter, permanentRetryInterval)
+	}
+	assertReady(t, refetch(t, c, key), metav1.ConditionFalse, ReasonRBACDenied)
 }
 
 // --- OCI library alias shadowing --------------------------------------------
