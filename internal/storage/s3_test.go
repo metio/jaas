@@ -465,6 +465,27 @@ func TestS3_PutWithPrefix(t *testing.T) {
 	}
 }
 
+// With a non-empty prefix the advertised Result.Path must stay prefix-FREE:
+// the Publisher turns it into status.artifact.url, and the HTTPHandler re-adds
+// the prefix server-side. A prefixed Result.Path would double-prefix and 404.
+func TestS3_PutWithPrefix_ResultPathIsPrefixFreeAndRoundTrips(t *testing.T) {
+	b, _, _ := newTestS3Backend(t, "tenants/jaas")
+	res, err := b.Put(context.Background(), "ns", "snip", "rev1", []FileEntry{{Path: "x", Content: []byte("y")}})
+	if err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	if res.Path != "ns/snip/rev1.tar.gz" {
+		t.Fatalf("Result.Path = %q, want prefix-free %q", res.Path, "ns/snip/rev1.tar.gz")
+	}
+	// A fetch of the advertised path (prefix-free) must resolve through the
+	// handler, which prepends the prefix once to reach the stored object.
+	rec := httptest.NewRecorder()
+	b.HTTPHandler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/"+res.Path, nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /%s through handler = %d, want 200 (double-prefix 404 regression)", res.Path, rec.Code)
+	}
+}
+
 func TestS3_PutRejectsTraversal(t *testing.T) {
 	b, _, _ := newTestS3Backend(t, "")
 	if _, err := b.Put(context.Background(), "..", "snip", "rev", nil); err == nil {

@@ -307,7 +307,12 @@ func (b *S3Backend) Put(ctx context.Context, namespace, name, revision string, e
 		return Result{}, fmt.Errorf("storage/s3: put %q: %w", key, putErr)
 	}
 	return Result{
-		Path:         key,
+		// Result.Path is the namespace-relative, prefix-FREE path the
+		// Publisher advertises in status.artifact.url. The HTTPHandler
+		// (and Open/Prune/Delete via objectKey) re-applies b.prefix
+		// server-side, so leaking the prefix here would double-prefix the
+		// fetch URL and 404. Matches the local Store's root-relative Path.
+		Path:         path.Join(namespace, name, revision+".tar.gz"),
 		SizeBytes:    counter.count(),
 		DigestSHA256: hex.EncodeToString(hasher.Sum(nil)),
 	}, nil
