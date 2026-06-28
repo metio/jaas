@@ -314,10 +314,7 @@ func run(args, env []string, stdout, stderr io.Writer, sigs <-chan os.Signal) in
 					fmt.Fprintln(stderr, "Invalid --webhook-validating-config-name: required when --webhook-cert-mode=self-signed")
 					return 1
 				}
-				ns := *f.WebhookServiceNamespace
-				if ns == "" {
-					ns = *f.LeaderElectionNamespace
-				}
+				ns := resolveSelfSignedNamespace(*f.WebhookServiceNamespace, *f.LeaderElectionNamespace, env)
 				done, err := provisionSelfSignedWebhookCert(ctx, opRestCfg, selfsignedConfig{
 					Namespace:   ns,
 					ServiceName: *f.WebhookServiceName,
@@ -665,6 +662,42 @@ func parseWatchNamespaces(flagValue string, env []string) []string {
 		}
 	}
 	return out
+}
+
+// serviceAccountNamespaceFile is the projected service-account namespace path
+// the kubelet mounts into every pod. A package var so tests can point it at a
+// fixture.
+var serviceAccountNamespaceFile = "/var/run/secrets/kubernetes.io/serviceaccount/namespace"
+
+// resolveSelfSignedNamespace picks the namespace the self-signed webhook cert
+// and ValidatingWebhookConfiguration live in. It prefers --webhook-service-namespace,
+// then --leader-election-namespace, then the in-cluster downward-API fallback
+// (POD_NAMESPACE env, then the projected service-account namespace file) —
+// matching the --webhook-service-namespace help text. controller-runtime's own
+// downward-API discovery for an empty --leader-election-namespace is internal to
+// the manager and never reaches this cert-provisioning path, so the fallback is
+// resolved here explicitly. Returns "" only when every source is empty, which
+// the caller reports as a hard error.
+func resolveSelfSignedNamespace(svcNs, leNs string, env []string) string {
+	if svcNs != "" {
+		return svcNs
+	}
+	if leNs != "" {
+		return leNs
+	}
+	for _, e := range env {
+		if k, v, ok := strings.Cut(e, "="); ok && k == "POD_NAMESPACE" {
+			if ns := strings.TrimSpace(v); ns != "" {
+				return ns
+			}
+		}
+	}
+	if b, err := os.ReadFile(serviceAccountNamespaceFile); err == nil {
+		if ns := strings.TrimSpace(string(b)); ns != "" {
+			return ns
+		}
+	}
+	return ""
 }
 
 // loadKubeconfig resolves a *rest.Config for the operator. An explicit

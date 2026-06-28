@@ -694,6 +694,40 @@ func TestLoadOCILibraries_EmptyResultIsEmptyMap(t *testing.T) {
 	}
 }
 
+func TestResolveSelfSignedNamespace(t *testing.T) {
+	saDir := t.TempDir()
+	saFile := filepath.Join(saDir, "namespace")
+	if err := os.WriteFile(saFile, []byte("  sa-file-ns\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	missingFile := filepath.Join(t.TempDir(), "nope")
+
+	tests := []struct {
+		name        string
+		svcNs, leNs string
+		env         []string
+		saPath      string
+		want        string
+	}{
+		{name: "explicit service namespace wins", svcNs: "svc", leNs: "le", env: []string{"POD_NAMESPACE=pod"}, saPath: saFile, want: "svc"},
+		{name: "leader-election namespace next", leNs: "le", env: []string{"POD_NAMESPACE=pod"}, saPath: saFile, want: "le"},
+		{name: "POD_NAMESPACE downward-API env", env: []string{"OTHER=x", "POD_NAMESPACE=pod"}, saPath: saFile, want: "pod"},
+		{name: "service-account namespace file fallback", saPath: saFile, want: "sa-file-ns"},
+		{name: "all empty yields empty", saPath: missingFile, want: ""},
+		{name: "blank POD_NAMESPACE falls through to file", env: []string{"POD_NAMESPACE="}, saPath: saFile, want: "sa-file-ns"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			orig := serviceAccountNamespaceFile
+			serviceAccountNamespaceFile = tc.saPath
+			defer func() { serviceAccountNamespaceFile = orig }()
+			if got := resolveSelfSignedNamespace(tc.svcNs, tc.leNs, tc.env); got != tc.want {
+				t.Errorf("resolveSelfSignedNamespace = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestProvisionSelfSignedWebhookCert_EmptyNamespaceErrors(t *testing.T) {
 	_, err := provisionSelfSignedWebhookCert(context.Background(), &rest.Config{}, selfsignedConfig{
 		Namespace: "",
