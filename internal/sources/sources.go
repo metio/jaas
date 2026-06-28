@@ -234,6 +234,13 @@ func New() *Fetcher {
 	// advertised addresses) and IPv6 resolve exactly as they do for any other
 	// client; TLS still verifies against the original hostname.
 	transport := http.DefaultTransport.(*http.Transport).Clone()
+	// Clear the inherited ProxyFromEnvironment. A configured HTTP(S)_PROXY
+	// would make the standard library dial the proxy's address, so the
+	// Control hook below would validate the proxy IP instead of the resolved
+	// artifact host — silently defeating the dial-time rebinding defence. The
+	// operator fetches in-cluster source-controller artifacts directly, so no
+	// proxy is needed.
+	transport.Proxy = nil
 	transport.DialContext = (&net.Dialer{
 		Timeout:   30 * time.Second,
 		KeepAlive: 30 * time.Second,
