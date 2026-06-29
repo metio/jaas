@@ -12,7 +12,7 @@ require (
 	github.com/fluxcd/pkg/runtime v0.110.0
 	github.com/go-logr/logr v1.4.3
 	github.com/google/go-jsonnet v0.22.0
-	github.com/minio/minio-go/v7 v7.2.0
+	github.com/minio/minio-go/v7 v7.2.1
 	github.com/modelcontextprotocol/go-sdk v1.6.1
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2
 	github.com/prometheus/client_golang v1.23.2
