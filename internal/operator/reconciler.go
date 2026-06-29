@@ -54,6 +54,7 @@ import (
 	"github.com/metio/jaas/internal/eval"
 	"github.com/metio/jaas/internal/observability"
 	"github.com/metio/jaas/internal/sources"
+	"github.com/metio/jaas/internal/storage"
 	"github.com/metio/jaas/internal/urlguard"
 )
 
@@ -487,28 +488,29 @@ func (r *SnippetReconciler) forceDropFinalizer(ctx context.Context, logger *slog
 // snippet's status.history records, as a comma-separated list, so the
 // WithdrawForced message points an operator at concrete files to remove
 // rather than a placeholder. Returns "" when no history is recorded —
-// the caller falls back to the generic "<rev>" form. The path shape
-// matches storage.Backend.Put: <namespace>/<name>/<shortRev>.tar.gz.
+// the caller falls back to the generic "<rev>" form. The filename shape
+// matches storage.Backend.Put via storage.RevisionFilename, so the hint
+// names the file an operator would actually find on disk / in the bucket.
 func knownRevisionPaths(prefix string, history []jaasv1.RevisionEntry) string {
-	revs := shortRevs(history)
+	revs := historyRevisions(history)
 	if len(revs) == 0 {
 		return ""
 	}
 	paths := make([]string, 0, len(revs))
-	for _, short := range revs {
-		paths = append(paths, prefix+"/"+short+".tar.gz")
+	for _, rev := range revs {
+		paths = append(paths, prefix+"/"+storage.RevisionFilename(rev))
 	}
 	return strings.Join(paths, ", ")
 }
 
-// shortRevs maps a revision-history slice to its short revision strings
-// (the "sha256:" prefix stripped), dropping empty entries. The short form
-// is what storage keys tarballs by and what Prune's keep-set matches.
-func shortRevs(history []jaasv1.RevisionEntry) []string {
+// historyRevisions maps a revision-history slice to its full "<algo>:<hex>"
+// revision strings, dropping empty entries. This is the form the storage
+// layer addresses tarballs by and what Prune's keep-set matches.
+func historyRevisions(history []jaasv1.RevisionEntry) []string {
 	out := make([]string, 0, len(history))
 	for _, h := range history {
-		if short := strings.TrimPrefix(h.Revision, "sha256:"); short != "" {
-			out = append(out, short)
+		if h.Revision != "" {
+			out = append(out, h.Revision)
 		}
 	}
 	return out
@@ -545,7 +547,7 @@ func (r *SnippetReconciler) reconcileSpec(ctx context.Context, logger *slog.Logg
 		// revisions that existed at suspend time) because a suspended snippet
 		// produces no new revisions to expire.
 		if r.Publisher != nil && len(snip.Status.History) > 0 {
-			keep := shortRevs(snip.Status.History)
+			keep := historyRevisions(snip.Status.History)
 			if err := r.Publisher.PruneStored(ctx, snip.Namespace, snip.Name, keep); err != nil {
 				logger.WarnContext(ctx, "Suspended snippet GC prune failed", slog.Any("error", err))
 			}
@@ -759,16 +761,16 @@ func (r *SnippetReconciler) reconcileSpec(ctx context.Context, logger *slog.Logg
 	// Build the keep-set the Publisher's Prune will retain: the
 	// rendered content's revision (computed eagerly here so we can
 	// merge it with prior history) plus the most-recent (history-1)
-	// entries from Status.History. shortRev strips the "sha256:" prefix
-	// to match what the Backend wants on disk. Derive it from the gate's
+	// entries from Status.History, as full "<algo>:<hex>" revisions — the
+	// form the Backend addresses tarballs by. Derive it from the gate's
 	// fresh read (latest), not the lagging cache (snip), so the pruned-on-
 	// disk set agrees with the history markSynced writes from the same
 	// fresh apiserver state — otherwise a kept revision's tarball could be
 	// pruned out from under a downstream consumer.
 	renderedRev := sha256ContentHash(rendered)
-	keepShortRevs := buildKeepShortRevs(renderedRev, latest.Status.History, latest.Spec.History)
+	keepRevisions := buildKeepRevisions(renderedRev, latest.Status.History, latest.Spec.History)
 
-	pr, err := r.tracedPublish(ctx, tenant, snip, rendered, files, keepShortRevs)
+	pr, err := r.tracedPublish(ctx, tenant, snip, rendered, files, keepRevisions)
 	if err != nil {
 		// ErrArtifactTooLarge is a snippet-author problem, not a
 		// transient operator issue — flip Ready=False with a stable
@@ -798,25 +800,25 @@ func sha256ContentHash(rendered string) string {
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
-// buildKeepShortRevs assembles the short-revision keep-set that pairs
-// with the publish about to happen. Order: new revision first, then
-// up to (history-1) most-recent entries from prior status.History,
-// dedup'd. Always at least 1 (the new rev). history<=0 falls back to 1.
-func buildKeepShortRevs(newRev string, prior []jaasv1.RevisionEntry, history int32) []string {
+// buildKeepRevisions assembles the keep-set that pairs with the publish
+// about to happen, as full "<algo>:<hex>" revisions. Order: new revision
+// first, then up to (history-1) most-recent entries from prior
+// status.History, dedup'd. Always at least 1 (the new rev). history<=0
+// falls back to 1.
+func buildKeepRevisions(newRev string, prior []jaasv1.RevisionEntry, history int32) []string {
 	limit := max(int(history), 1)
 	seen := map[string]struct{}{}
 	out := make([]string, 0, limit)
 
 	add := func(rev string) bool {
-		short := strings.TrimPrefix(rev, "sha256:")
-		if short == "" {
+		if rev == "" {
 			return false
 		}
-		if _, dup := seen[short]; dup {
+		if _, dup := seen[rev]; dup {
 			return false
 		}
-		seen[short] = struct{}{}
-		out = append(out, short)
+		seen[rev] = struct{}{}
+		out = append(out, rev)
 		return len(out) >= limit
 	}
 	if add(newRev) {
@@ -901,19 +903,19 @@ func (r *SnippetReconciler) tracedEvaluate(ctx context.Context, snip *jaasv1.Jso
 
 // tracedPublish wraps the publish phase. jaas.publish.revision lets a
 // trace cross-reference with the resulting ExternalArtifact. The
-// keepShortRevs parameter is forwarded verbatim to the Publisher's
+// keepRevisions parameter is forwarded verbatim to the Publisher's
 // Prune step. sourceFiles carries the resolved snippet source (inline
 // spec.files or sourceRef-fetched content) so source-mode publishes
 // the actual file map rather than only inline files.
-func (r *SnippetReconciler) tracedPublish(ctx context.Context, tenant client.Client, snip *jaasv1.JsonnetSnippet, rendered string, sourceFiles map[string]string, keepShortRevs []string) (PublishResult, error) {
+func (r *SnippetReconciler) tracedPublish(ctx context.Context, tenant client.Client, snip *jaasv1.JsonnetSnippet, rendered string, sourceFiles map[string]string, keepRevisions []string) (PublishResult, error) {
 	ctx, span := observability.Tracer().Start(ctx, "snippet.publish",
 		trace.WithAttributes(
 			attribute.Int("jaas.eval.renderedBytes", len(rendered)),
 			attribute.Bool("jaas.publish.enabled", r.Publisher != nil),
-			attribute.Int("jaas.publish.retainCount", len(keepShortRevs)),
+			attribute.Int("jaas.publish.retainCount", len(keepRevisions)),
 		))
 	defer span.End()
-	pr, err := r.publish(ctx, tenant, snip, rendered, sourceFiles, keepShortRevs)
+	pr, err := r.publish(ctx, tenant, snip, rendered, sourceFiles, keepRevisions)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "publish failed")
@@ -928,10 +930,10 @@ func (r *SnippetReconciler) tracedPublish(ctx context.Context, tenant client.Cli
 // publisher (tests or a not-yet-wired operator), the reconciler derives the
 // revision locally so Status.Revision still moves forward.
 //
-// keepShortRevs is the sha256-short keep-set (no "sha256:" prefix) the
+// keepRevisions is the sha256-short keep-set (no "sha256:" prefix) the
 // Publisher's Prune retains. Built from Status.History the caller is
 // about to write — see prependHistory.
-func (r *SnippetReconciler) publish(ctx context.Context, tenant client.Client, snip *jaasv1.JsonnetSnippet, rendered string, sourceFiles map[string]string, keepShortRevs []string) (PublishResult, error) {
+func (r *SnippetReconciler) publish(ctx context.Context, tenant client.Client, snip *jaasv1.JsonnetSnippet, rendered string, sourceFiles map[string]string, keepRevisions []string) (PublishResult, error) {
 	if r.Publisher == nil {
 		// No publisher wired (tests, eval-only mode) — derive a revision
 		// locally so status.revision still moves forward, but leave URL
@@ -939,7 +941,7 @@ func (r *SnippetReconciler) publish(ctx context.Context, tenant client.Client, s
 		sum := sha256.Sum256([]byte(rendered))
 		return PublishResult{Revision: "sha256:" + hex.EncodeToString(sum[:])}, nil
 	}
-	return r.Publisher.Publish(ctx, tenant, snip, rendered, sourceFiles, keepShortRevs)
+	return r.Publisher.Publish(ctx, tenant, snip, rendered, sourceFiles, keepRevisions)
 }
 
 // cycleVerdict consults the CycleCache before walking the dependency graph.

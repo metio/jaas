@@ -167,7 +167,7 @@ func (b *S3Backend) Sweep(_ context.Context, _ time.Duration) (int, error) {
 // objectKey resolves the canonical key for an artifact. Mirrors the
 // filesystem layout: <prefix>/<namespace>/<name>/<revision>.tar.gz.
 func (b *S3Backend) objectKey(namespace, name, revision string) string {
-	key := path.Join(namespace, name, revision+".tar.gz")
+	key := path.Join(namespace, name, RevisionFilename(revision))
 	if b.prefix == "" {
 		return key
 	}
@@ -312,7 +312,7 @@ func (b *S3Backend) Put(ctx context.Context, namespace, name, revision string, e
 		// (and Open/Prune/Delete via objectKey) re-applies b.prefix
 		// server-side, so leaking the prefix here would double-prefix the
 		// fetch URL and 404. Matches the local Store's root-relative Path.
-		Path:         path.Join(namespace, name, revision+".tar.gz"),
+		Path:         path.Join(namespace, name, RevisionFilename(revision)),
 		SizeBytes:    counter.count(),
 		DigestSHA256: hex.EncodeToString(hasher.Sum(nil)),
 	}, nil

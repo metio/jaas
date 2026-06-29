@@ -71,10 +71,10 @@ func (cfg Config) diffRevisionsHandler(ctx context.Context, _ *mcpsdk.CallToolRe
 	// an all-"unchanged" result that an agent can't distinguish from "two
 	// different revisions that rendered byte-identically." Fail fast with a clear
 	// message instead — this also fires when status.history holds duplicate
-	// heads and both sides default to the same revision. Compare with the
-	// "sha256:" prefix stripped (as readRevision does before Open) so the same
-	// revision passed in two forms (e.g. "sha256:abc" vs "abc") is still caught.
-	if strings.TrimPrefix(from, "sha256:") == strings.TrimPrefix(to, "sha256:") {
+	// heads and both sides default to the same revision. Both sides are full
+	// "<algo>:<hex>" revisions (defaults from history, caller inputs validated
+	// by ValidDigest), so a plain comparison is exact.
+	if from == to {
 		return errorResult(fmt.Sprintf("from and to are the same revision %s; nothing to diff", from)), diffRevisionsOutput{}, nil
 	}
 
@@ -113,28 +113,33 @@ func (cfg Config) diffRevisionsHandler(ctx context.Context, _ *mcpsdk.CallToolRe
 // side must not be told to "pass explicit from/to".
 func resolveRevisions(snip *jaasv1.JsonnetSnippet, from, to string) (string, string, error) {
 	hist := snip.Status.History
+	// A caller-supplied revision becomes part of a storage object name / path,
+	// so validate its shape; defaulted values come from the snippet's own
+	// verified status.history and need no check.
 	if to == "" {
 		if len(hist) < 1 {
 			return "", "", fmt.Errorf("no retained revisions to diff for %s/%s; publish a revision first, or raise spec.history", snip.Namespace, snip.Name)
 		}
 		to = hist[0].Revision
+	} else if err := storage.ValidDigest(to); err != nil {
+		return "", "", fmt.Errorf("invalid to revision: %w", err)
 	}
 	if from == "" {
 		if len(hist) < 2 {
 			return "", "", fmt.Errorf("need two retained revisions to default 'from', but %s/%s has %d; pass an explicit from, or raise spec.history", snip.Namespace, snip.Name, len(hist))
 		}
 		from = hist[1].Revision
+	} else if err := storage.ValidDigest(from); err != nil {
+		return "", "", fmt.Errorf("invalid from revision: %w", err)
 	}
 	return from, to, nil
 }
 
 func (cfg Config) readRevision(ctx context.Context, namespace, name, revision string) (map[string]string, error) {
-	// The artifact is stored under the short revision: the Publisher strips the
-	// "sha256:" prefix before Store.Put, and Open keys on "<shortrev>.tar.gz".
-	// But status.history (where from/to default) records the full "sha256:<hex>"
-	// form, so strip the prefix here or Open never finds the object — on either
-	// backend.
-	rc, err := cfg.Store.Open(ctx, namespace, name, strings.TrimPrefix(revision, "sha256:"))
+	// The storage layer addresses tarballs by the full "<algo>:<hex>" revision
+	// (storage.RevisionFilename maps the ':' to a path-safe '-'), the same form
+	// status.history records — so the revision flows through to Open unchanged.
+	rc, err := cfg.Store.Open(ctx, namespace, name, revision)
 	if err != nil {
 		return nil, err
 	}

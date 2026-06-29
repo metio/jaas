@@ -2875,7 +2875,7 @@ func TestKnownRevisionPaths_RendersStoragePathsFromHistory(t *testing.T) {
 		{Revision: "sha256:aaa"},
 		{Revision: "sha256:bbb"},
 	})
-	want := "team-a/demo/aaa.tar.gz, team-a/demo/bbb.tar.gz"
+	want := "team-a/demo/sha256-aaa.tar.gz, team-a/demo/sha256-bbb.tar.gz"
 	if got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
@@ -2942,23 +2942,23 @@ func TestIsLastSnippetUsingSA(t *testing.T) {
 	})
 }
 
-func TestBuildKeepShortRevs_OnlyNewWhenHistoryOne(t *testing.T) {
-	got := buildKeepShortRevs("sha256:new", []jaasv1.RevisionEntry{
+func TestBuildKeepRevisions_OnlyNewWhenHistoryOne(t *testing.T) {
+	got := buildKeepRevisions("sha256:new", []jaasv1.RevisionEntry{
 		{Revision: "sha256:old1"},
 		{Revision: "sha256:old2"},
 	}, 1)
-	if len(got) != 1 || got[0] != "new" {
-		t.Errorf("got %v, want [new]", got)
+	if len(got) != 1 || got[0] != "sha256:new" {
+		t.Errorf("got %v, want [sha256:new]", got)
 	}
 }
 
-func TestBuildKeepShortRevs_PrependsNewAndCarriesHistory(t *testing.T) {
-	got := buildKeepShortRevs("sha256:new", []jaasv1.RevisionEntry{
+func TestBuildKeepRevisions_PrependsNewAndCarriesHistory(t *testing.T) {
+	got := buildKeepRevisions("sha256:new", []jaasv1.RevisionEntry{
 		{Revision: "sha256:old1"},
 		{Revision: "sha256:old2"},
 		{Revision: "sha256:old3"},
 	}, 3)
-	want := []string{"new", "old1", "old2"}
+	want := []string{"sha256:new", "sha256:old1", "sha256:old2"}
 	if len(got) != len(want) {
 		t.Fatalf("got %v, want %v", got, want)
 	}
@@ -2969,20 +2969,20 @@ func TestBuildKeepShortRevs_PrependsNewAndCarriesHistory(t *testing.T) {
 	}
 }
 
-func TestBuildKeepShortRevs_DedupsNewIfAlreadyInHistory(t *testing.T) {
-	got := buildKeepShortRevs("sha256:repub", []jaasv1.RevisionEntry{
+func TestBuildKeepRevisions_DedupsNewIfAlreadyInHistory(t *testing.T) {
+	got := buildKeepRevisions("sha256:repub", []jaasv1.RevisionEntry{
 		{Revision: "sha256:repub"},
 		{Revision: "sha256:old"},
 	}, 5)
-	if len(got) != 2 || got[0] != "repub" || got[1] != "old" {
-		t.Errorf("got %v, want [repub old]", got)
+	if len(got) != 2 || got[0] != "sha256:repub" || got[1] != "sha256:old" {
+		t.Errorf("got %v, want [sha256:repub sha256:old]", got)
 	}
 }
 
-func TestBuildKeepShortRevs_HistoryZeroClampsToOne(t *testing.T) {
-	got := buildKeepShortRevs("sha256:x", nil, 0)
-	if len(got) != 1 || got[0] != "x" {
-		t.Errorf("got %v, want [x]", got)
+func TestBuildKeepRevisions_HistoryZeroClampsToOne(t *testing.T) {
+	got := buildKeepRevisions("sha256:x", nil, 0)
+	if len(got) != 1 || got[0] != "sha256:x" {
+		t.Errorf("got %v, want [sha256:x]", got)
 	}
 }
 

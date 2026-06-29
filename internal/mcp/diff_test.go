@@ -93,8 +93,7 @@ func putRevision(t *testing.T, store storage.Backend, namespace, name, revision 
 	for p, c := range files {
 		entries = append(entries, storage.FileEntry{Path: p, Content: []byte(c)})
 	}
-	shortRev := strings.TrimPrefix(revision, "sha256:")
-	if _, err := store.Put(context.Background(), namespace, name, shortRev, entries); err != nil {
+	if _, err := store.Put(context.Background(), namespace, name, revision, entries); err != nil {
 		t.Fatalf("put %s: %v", revision, err)
 	}
 }
@@ -146,14 +145,15 @@ func TestResolveRevisions(t *testing.T) {
 		wantFrom, wantTo string
 		wantErr          bool
 	}{
-		{name: "both explicit needs no history", from: "x", to: "y", wantFrom: "x", wantTo: "y"},
+		{name: "both explicit needs no history", from: "sha256:aaaa", to: "sha256:bbbb", wantFrom: "sha256:aaaa", wantTo: "sha256:bbbb"},
 		{name: "both default from two-entry history", history: []string{r1, r2}, wantFrom: r2, wantTo: r1},
 		// The bug: an explicit from + one retained revision must default `to`,
 		// not error telling the caller to "pass explicit from/to".
-		{name: "explicit from, default to, one entry", history: []string{r1}, from: "x", wantFrom: "x", wantTo: r1},
-		{name: "explicit to, default from, two entries", history: []string{r1, r2}, to: "y", wantFrom: r2, wantTo: "y"},
-		{name: "default to with no history errors", history: nil, from: "x", wantErr: true},
-		{name: "default from with one entry errors", history: []string{r1}, to: "y", wantErr: true},
+		{name: "explicit from, default to, one entry", history: []string{r1}, from: "sha256:aaaa", wantFrom: "sha256:aaaa", wantTo: r1},
+		{name: "explicit to, default from, two entries", history: []string{r1, r2}, to: "sha256:bbbb", wantFrom: r2, wantTo: "sha256:bbbb"},
+		{name: "default to with no history errors", history: nil, from: "sha256:aaaa", wantErr: true},
+		{name: "default from with one entry errors", history: []string{r1}, to: "sha256:bbbb", wantErr: true},
+		{name: "malformed explicit from is rejected", history: []string{r1, r2}, from: "not-a-digest", wantErr: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -287,20 +287,21 @@ func TestDiffRevisionsHandler(t *testing.T) {
 		}
 	})
 
-	t.Run("same revision in mixed sha256-prefixed forms is a tool error", func(t *testing.T) {
+	t.Run("a prefix-less revision is rejected as malformed", func(t *testing.T) {
 		store := newStore(t)
 		putRevision(t, store, ns, name, r2, map[string]string{"main.json": "y"})
 		cfg := Config{KubeClient: fakeClient(t, snippetWithHistory(ns, name, r2, r1)), Store: store}
 
-		// From carries the full "sha256:" form, To the stripped form — both
-		// resolve to the same stored revision, so this must be rejected too.
+		// Revisions are addressed by their full "<algo>:<hex>" digest; a stripped
+		// form is not a second spelling of the same revision but an invalid one,
+		// so it must be rejected up front rather than silently miss the object.
 		res, _, _ := cfg.diffRevisionsHandler(context.Background(), nil,
 			diffRevisionsInput{Namespace: ns, Name: name, From: r2, To: strings.TrimPrefix(r2, "sha256:")})
 		if res == nil || !res.IsError {
-			t.Fatalf("expected a tool error for the same revision in two forms, got %+v", res)
+			t.Fatalf("expected a tool error for a prefix-less revision, got %+v", res)
 		}
-		if !strings.Contains(res.Content[0].(*mcpsdk.TextContent).Text, "same revision") {
-			t.Fatalf("error should mention 'same revision', got %+v", res.Content)
+		if !strings.Contains(res.Content[0].(*mcpsdk.TextContent).Text, "must be of the form") {
+			t.Fatalf("error should reject the malformed revision, got %+v", res.Content)
 		}
 	})
 }

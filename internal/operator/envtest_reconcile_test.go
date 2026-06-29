@@ -465,7 +465,7 @@ func TestEnvtest_PodRestart_LocalStorageRecovery(t *testing.T) {
 	// The new store must now contain the same tarball — same digest,
 	// since inputs are deterministic and the tar.gz format is
 	// reproducible across backends.
-	relPath := filepath.Join(store2Dir, ns, "recover", beforeRev+".tar.gz")
+	relPath := filepath.Join(store2Dir, ns, "recover", storage.RevisionFilename(beforeSnip.Status.Revision))
 	if _, err := os.Stat(relPath); err != nil {
 		t.Errorf("tarball missing from store-2 after restart-and-reconcile: %v", err)
 	}

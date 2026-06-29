@@ -408,34 +408,34 @@ func TestForceDropFinalizer_WithHistoryNamesPaths(t *testing.T) {
 	r.forceDropFinalizer(context.Background(), discardLogger(), snip, 0, "perma-down", errors.New("boom"))
 }
 
-// --- shortRevs / knownRevisionPaths edge cases ------------------------------
+// --- historyRevisions / knownRevisionPaths edge cases -----------------------
 
-// shortRevs strips the sha256: prefix and drops entries that are empty after
-// stripping.
-func TestShortRevs_StripsPrefixAndDropsEmpty(t *testing.T) {
-	got := shortRevs([]jaasv1.RevisionEntry{
+// historyRevisions keeps the full "<algo>:<hex>" revisions and drops empties.
+func TestHistoryRevisions_DropsEmpty(t *testing.T) {
+	got := historyRevisions([]jaasv1.RevisionEntry{
 		{Revision: "sha256:aaa"},
-		{Revision: "sha256:"}, // empty after strip → dropped
-		{Revision: "bbb"},     // no prefix → kept as-is
+		{Revision: ""}, // empty → dropped
+		{Revision: "sha256:bbb"},
 	})
-	want := []string{"aaa", "bbb"}
+	want := []string{"sha256:aaa", "sha256:bbb"}
 	if len(got) != len(want) {
 		t.Fatalf("got %v, want %v", got, want)
 	}
 	for i := range want {
 		if got[i] != want[i] {
-			t.Errorf("shortRevs[%d] = %q, want %q", i, got[i], want[i])
+			t.Errorf("historyRevisions[%d] = %q, want %q", i, got[i], want[i])
 		}
 	}
 }
 
-// knownRevisionPaths joins each short revision into a storage path.
+// knownRevisionPaths joins each revision into a storage path, mapping the
+// digest's ':' to the path-safe '-' that storage.RevisionFilename uses.
 func TestKnownRevisionPaths_JoinsMultiple(t *testing.T) {
 	got := knownRevisionPaths("ns/demo", []jaasv1.RevisionEntry{
 		{Revision: "sha256:one"},
 		{Revision: "sha256:two"},
 	})
-	if !strings.Contains(got, "ns/demo/one.tar.gz") || !strings.Contains(got, "ns/demo/two.tar.gz") {
+	if !strings.Contains(got, "ns/demo/sha256-one.tar.gz") || !strings.Contains(got, "ns/demo/sha256-two.tar.gz") {
 		t.Errorf("paths = %q, want both revisions", got)
 	}
 }

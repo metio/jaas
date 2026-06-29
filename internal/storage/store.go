@@ -153,7 +153,7 @@ func (s *Store) Put(_ context.Context, namespace, name, revision string, entries
 		return Result{}, fmt.Errorf("storage: mkdir %q: %w", dir, err)
 	}
 
-	finalRel := filepath.Join(dir, revision+".tar.gz")
+	finalRel := filepath.Join(dir, RevisionFilename(revision))
 	tmpRel := finalRel + ".tmp"
 
 	digest, size, err := s.writeTarGz(tmpRel, entries)
@@ -187,7 +187,7 @@ func (s *Store) Open(_ context.Context, namespace, name, revision string) (io.Re
 		return nil, err
 	}
 	// fs.FS uses forward-slash, root-relative paths regardless of OS.
-	rel := path.Join(namespace, name, revision+".tar.gz")
+	rel := path.Join(namespace, name, RevisionFilename(revision))
 	f, err := s.fs.FS().Open(rel)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -362,7 +362,7 @@ func buildPruneKeepSet(keepRevisions []string) (map[string]struct{}, error) {
 		if err := validNoTraversal(rev); err != nil {
 			return nil, err
 		}
-		keepSet[rev+".tar.gz"] = struct{}{}
+		keepSet[RevisionFilename(rev)] = struct{}{}
 	}
 	return keepSet, nil
 }
@@ -426,20 +426,19 @@ func (s *Store) clock() time.Time {
 // Production callers leave the default of time.Now.
 func (s *Store) SetNow(fn func() time.Time) { s.now = fn }
 
-// looksLikeOurArtifactFilename reports whether name matches the
-// `<hex>.tar.gz` or `<hex>.tar.gz.tmp` filename shape this package
-// writes. Used as a defence-in-depth filter in Prune / Sweep so
-// non-operator files dropped in the same directory by another process
-// (debug bundles, sidecar caches with non-hex names) survive cleanup.
+// looksLikeOurArtifactFilename reports whether name matches a filename shape
+// this package writes — `<algo>-<hex>.tar.gz` (the production shape, where
+// RevisionFilename mapped the digest's ':' to '-') or a bare `<hex>.tar.gz`,
+// with an optional `.tmp` suffix. Used as a defence-in-depth filter in Prune /
+// Sweep so non-operator files dropped in the same directory by another process
+// (debug bundles, sidecar caches with foreign names) survive cleanup.
 //
-// The hex-only revision constraint is tighter than the 64-character
-// sha256 length check would be — many tests use shorter hex stubs
-// like "abc123" — but every conceivable foreign-file pattern (with
-// non-hex characters, leading dots, or no .tar.gz extension) is still
-// rejected. Production callers (Publisher) always pass full sha256
-// hex, so they always match.
+// The shape constraint is tighter than a length check — many tests use short
+// hex stubs like "abc123" — but every conceivable foreign-file pattern (with
+// unexpected characters, leading dots, or no .tar.gz extension) is still
+// rejected.
 func looksLikeOurArtifactFilename(name string) bool {
-	rev := name
+	var rev string
 	switch {
 	case strings.HasSuffix(name, ".tar.gz.tmp"):
 		rev = strings.TrimSuffix(name, ".tar.gz.tmp")
@@ -451,10 +450,35 @@ func looksLikeOurArtifactFilename(name string) bool {
 	if rev == "" {
 		return false
 	}
-	for i := 0; i < len(rev); i++ {
-		c := rev[i]
-		isHex := (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
-		if !isHex {
+	// Production: "<algo>-<hex>" (algo lowercase-alnum, hex after the first '-').
+	// Bare: "<hex>" (no '-'). A hex run never contains '-', so the Cut cleanly
+	// separates the two shapes.
+	if algo, hexPart, ok := strings.Cut(rev, "-"); ok {
+		return isLowerAlnum(algo) && isHex(hexPart)
+	}
+	return isHex(rev)
+}
+
+func isHex(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+			return false
+		}
+	}
+	return true
+}
+
+func isLowerAlnum(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'z')) {
 			return false
 		}
 	}

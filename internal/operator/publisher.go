@@ -112,9 +112,9 @@ type PublishResult struct {
 // Fetcher extracted from the upstream tarball. Used only in Output=source
 // mode; ignored otherwise.
 //
-// keepRevisions lists the sha256 shortRevs (no "sha256:" prefix) to retain in
-// storage after this publish; always include the just-published revision. An
-// empty slice keeps only the just-published revision.
+// keepRevisions lists the full "<algo>:<hex>" revisions to retain in storage
+// after this publish; always include the just-published revision. An empty
+// slice keeps only the just-published revision.
 func (p *Publisher) Publish(ctx context.Context, c client.Client, snip *jaasv1.JsonnetSnippet, rendered string, sourceFiles map[string]string, keepRevisions []string) (PublishResult, error) {
 	if p.Store == nil || c == nil {
 		return PublishResult{}, errors.New("publisher: store and client are required")
@@ -137,9 +137,7 @@ func (p *Publisher) Publish(ctx context.Context, c client.Client, snip *jaasv1.J
 			return PublishResult{}, fmt.Errorf("%w: %d > %d", ErrArtifactTooLarge, total, p.MaxArtifactBytes)
 		}
 	}
-	shortRev := strings.TrimPrefix(revision, "sha256:")
-
-	res, err := p.Store.Put(ctx, snip.Namespace, snip.Name, shortRev, entries)
+	res, err := p.Store.Put(ctx, snip.Namespace, snip.Name, revision, entries)
 	if err != nil {
 		return PublishResult{}, fmt.Errorf("publisher: store put: %w", err)
 	}
@@ -155,11 +153,11 @@ func (p *Publisher) Publish(ctx context.Context, c client.Client, snip *jaasv1.J
 	}
 
 	if len(keepRevisions) == 0 {
-		keepRevisions = []string{shortRev}
-	} else if !slices.Contains(keepRevisions, shortRev) {
+		keepRevisions = []string{revision}
+	} else if !slices.Contains(keepRevisions, revision) {
 		// Defensive: caller may forget to include the just-published
 		// rev. Without it, Prune would wipe what we just wrote.
-		keepRevisions = append([]string{shortRev}, keepRevisions...)
+		keepRevisions = append([]string{revision}, keepRevisions...)
 	}
 	if err := p.Store.Prune(ctx, snip.Namespace, snip.Name, keepRevisions, p.GCGrace); err != nil {
 		return PublishResult{}, fmt.Errorf("publisher: store prune: %w", err)
@@ -173,7 +171,7 @@ func (p *Publisher) Publish(ctx context.Context, c client.Client, snip *jaasv1.J
 // every watch tick + interval, so calling PruneStored there keeps
 // grace-expired evicted revisions from leaking when the snippet stays
 // suspended for the operator's lifetime. keepRevisions follows the same
-// shape Publish wants — short SHA-256 hex strings, no "sha256:" prefix.
+// shape Publish wants — full "<algo>:<hex>" revisions.
 func (p *Publisher) PruneStored(ctx context.Context, namespace, name string, keepRevisions []string) error {
 	if p.Store == nil {
 		return errors.New("publisher: store is required")

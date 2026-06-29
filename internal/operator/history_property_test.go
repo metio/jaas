@@ -6,7 +6,6 @@
 package operator
 
 import (
-	"strings"
 	"testing"
 	"time"
 
@@ -132,7 +131,7 @@ func TestUpdateRevisionHistory_Property(t *testing.T) {
 	})
 }
 
-// TestBuildKeepShortRevs_Property pins the invariants of the
+// TestBuildKeepRevisions_Property pins the invariants of the
 // keep-set assembler:
 //
 //  1. Length cap: at most max(1, history) entries.
@@ -142,23 +141,21 @@ func TestUpdateRevisionHistory_Property(t *testing.T) {
 //     short-circuits to "no-op" on empty), but downstream code
 //     keys off len(out) >= 1 — so the function must guarantee it.
 //
-//  3. New revision at head: output[0] is shortForm(newRev). The
+//  3. New revision at head: output[0] is newRev verbatim. The
 //     reconciler always calls this with the just-published rev as
 //     newRev so it must occupy slot 0.
 //
-//  4. No "sha256:" prefix on any element: short-form throughout.
-//
-//  5. Dedup: every element is unique. A buggy assembler that
+//  4. Dedup: every element is unique. A buggy assembler that
 //     emitted duplicates would waste Backend.Prune cap budget and
 //     could prune revisions the operator meant to keep.
 //
-//  6. Suffix membership: every element after the head appears in
-//     prior as the short-form of one of its Revisions. We don't
-//     order-check the suffix beyond "appears in prior" because
-//     prior may already contain the newRev as a later entry,
-//     which the dedup step skips — the surviving order is
-//     unambiguous but tedious to spell out.
-func TestBuildKeepShortRevs_Property(t *testing.T) {
+//  5. Suffix membership: every element after the head appears in
+//     prior as one of its Revisions. We don't order-check the
+//     suffix beyond "appears in prior" because prior may already
+//     contain the newRev as a later entry, which the dedup step
+//     skips — the surviving order is unambiguous but tedious to
+//     spell out.
+func TestBuildKeepRevisions_Property(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		// Mix prior entries that share a revision with newRev with
 		// ones that don't, so the dedup case fires.
@@ -169,7 +166,7 @@ func TestBuildKeepShortRevs_Property(t *testing.T) {
 		prior := rapid.SliceOfN(genRevisionEntry(), 0, 6).Draw(t, "prior")
 		history := rapid.Int32Range(-3, 8).Draw(t, "history")
 
-		out := buildKeepShortRevs(newRev, prior, history)
+		out := buildKeepRevisions(newRev, prior, history)
 
 		// Invariant 1: length cap.
 		cap := max(int(history), 1)
@@ -177,12 +174,9 @@ func TestBuildKeepShortRevs_Property(t *testing.T) {
 			t.Errorf("len(out)=%d exceeds cap %d (history=%d)", len(out), cap, history)
 		}
 
-		// Invariant 2: non-empty (newRev is the always-include head,
-		// and the generator's regex always produces a non-empty
-		// short-form after trimming "sha256:").
-		shortNew := strings.TrimPrefix(newRev, "sha256:")
-		if shortNew == "" {
-			// Generator can't produce this, but pin the contract.
+		// Invariant 2: non-empty (newRev is the always-include head, and the
+		// generators always produce a non-empty revision).
+		if newRev == "" {
 			t.Skip("empty newRev — unrepresentable by the generator")
 		}
 		if len(out) == 0 {
@@ -190,34 +184,33 @@ func TestBuildKeepShortRevs_Property(t *testing.T) {
 			return
 		}
 
-		// Invariant 3: newRev at head, short-form.
-		if out[0] != shortNew {
-			t.Errorf("out[0]=%q, want short-form of newRev %q (=%q)", out[0], newRev, shortNew)
+		// Invariant 3: newRev at head, verbatim (full revisions are retained
+		// as-is; the storage layer does the path-safe transform).
+		if out[0] != newRev {
+			t.Errorf("out[0]=%q, want newRev %q", out[0], newRev)
 		}
 
-		// Invariant 4 + 5: no prefix, dedup.
+		// Invariant 4: dedup, verbatim revisions.
 		seen := map[string]struct{}{}
-		priorShorts := map[string]struct{}{}
+		priorRevs := map[string]struct{}{}
 		for _, e := range prior {
-			priorShorts[strings.TrimPrefix(e.Revision, "sha256:")] = struct{}{}
+			if e.Revision != "" {
+				priorRevs[e.Revision] = struct{}{}
+			}
 		}
 		for i, e := range out {
-			if strings.HasPrefix(e, "sha256:") {
-				t.Errorf("out[%d]=%q carries the sha256: prefix", i, e)
-			}
 			if _, dup := seen[e]; dup {
 				t.Errorf("out[%d]=%q duplicates a previous element", i, e)
 			}
 			seen[e] = struct{}{}
 		}
 
-		// Invariant 6: every suffix element is a short-form found
-		// in prior. The head (out[0]) is the just-published rev so
-		// it may or may not be in prior; the suffix is exclusively
-		// drawn from prior.
+		// Invariant 5: every suffix element is a revision found in prior. The
+		// head (out[0]) is the just-published rev so it may or may not be in
+		// prior; the suffix is exclusively drawn from prior.
 		for i := 1; i < len(out); i++ {
-			if _, ok := priorShorts[out[i]]; !ok {
-				t.Errorf("out[%d]=%q is not the short-form of any prior entry %v",
+			if _, ok := priorRevs[out[i]]; !ok {
+				t.Errorf("out[%d]=%q is not the revision of any prior entry %v",
 					i, out[i], prior)
 			}
 		}
