@@ -29,13 +29,13 @@ jobs:
           fetch-depth: 0
       - id: gate
         name: Check whether a release is needed
-        uses: metio/ci/needs-release@392a32762cd5626c0aa9e6e67414240a021b90ae # 2026.6.26153329
+        uses: metio/ci/needs-release@553c5f3c3d2693c7ef182954136bdfac7b25b80e # 2026.7.2101318
         with:
           paths: go.mod main.go internal api config Dockerfile
       - id: version
         name: Compute the next version
         if: steps.gate.outputs.needed == 'true'
-        uses: metio/ci/calver@392a32762cd5626c0aa9e6e67414240a021b90ae # 2026.6.26153329
+        uses: metio/ci/calver@553c5f3c3d2693c7ef182954136bdfac7b25b80e # 2026.7.2101318
   build:
     name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
     needs: prepare
@@ -122,7 +122,7 @@ jobs:
       - name: Clone Git Repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
       - name: Build, push and sign the image
-        uses: metio/ci/container-release@392a32762cd5626c0aa9e6e67414240a021b90ae # 2026.6.26153329
+        uses: metio/ci/container-release@553c5f3c3d2693c7ef182954136bdfac7b25b80e # 2026.7.2101318
         with:
           image: ghcr.io/${{ github.repository }}
           version: ${{ needs.prepare.outputs.version }}
@@ -159,12 +159,12 @@ jobs:
           shopt -s nullglob
           sha256sum ./*.tar.gz ./*.zip > "$SUMS"
       - name: Sign Checksums (cosign keyless)
-        uses: metio/ci/cosign-sign-blob@392a32762cd5626c0aa9e6e67414240a021b90ae # 2026.6.26153329
+        uses: metio/ci/cosign-sign-blob@553c5f3c3d2693c7ef182954136bdfac7b25b80e # 2026.7.2101318
         with:
           file: dist/${{ github.event.repository.name }}_${{ needs.prepare.outputs.version }}_SHA256SUMS
       - id: notes
         name: Generate Release Notes
-        uses: metio/ci/release-notes@392a32762cd5626c0aa9e6e67414240a021b90ae # 2026.6.26153329
+        uses: metio/ci/release-notes@553c5f3c3d2693c7ef182954136bdfac7b25b80e # 2026.7.2101318
         with:
           version: ${{ needs.prepare.outputs.version }}
           previous: ${{ needs.prepare.outputs.previous }}
