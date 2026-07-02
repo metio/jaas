@@ -1,0 +1,134 @@
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en"><generator uri="https://gohugo.io/" version="0.163.3">Hugo</generator><title type="html">Endpoint on Jsonnet-as-a-Service</title><link href="https://jaas.projects.metio.wtf/tags/endpoint/" rel="alternate" type="text/html" title="html"/><link href="https://jaas.projects.metio.wtf/tags/endpoint/index.xml" rel="alternate" type="application/rss+xml" title="rss"/><link href="https://jaas.projects.metio.wtf/tags/endpoint/atom.xml" rel="self" type="application/atom+xml" title="atom"/><updated>2026-07-02T07:56:37+00:00</updated><author><name>metio.wtf</name></author><id>https://jaas.projects.metio.wtf/tags/endpoint/</id><entry><title type="html">Rendering endpoint</title><link href="https://jaas.projects.metio.wtf/rendering/rendering-endpoint/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/get-started/local-rendering/?utm_source=atom_feed" rel="related" type="text/html" title="Local rendering"/><id>https://jaas.projects.metio.wtf/rendering/rendering-endpoint/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-26T15:54:29+02:00</updated><content type="html"><![CDATA[<blockquote>The GET /jsonnet/{snippet} request, snippet resolution, the management probes, and the stable error contract.</blockquote><p>Send a <code>GET</code> to the rendering endpoint with a snippet name and JaaS returns the
+evaluated Jsonnet as JSON:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">curl http://127.0.0.1:8080/jsonnet/example1
+</span></span></code></pre></div><p>The Jsonnet server binds <code>127.0.0.1:8080</code> by default (<code>--listen-address</code>,
+<code>--port</code>). The URL shape is <code>GET /&lt;jsonnet-endpoint-path&gt;/{snippet...}</code>, where
+<code>{snippet...}</code> is a trailing path segment that may contain slashes. A successful
+response carries <code>Content-Type: application/json</code> and the rendered document.</p>
+<h2 id="the-endpoint-path">The endpoint path</h2>
+<p>The leading path segment defaults to <code>jsonnet</code> and is set with
+<code>--jsonnet-endpoint-path</code>. Running with <code>--jsonnet-endpoint-path render</code> moves the
+endpoint to <code>GET /render/{snippet...}</code>:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">./jaas --jsonnet-endpoint-path render --snippet-directory examples/snippets/dashboards
+</span></span><span class="line"><span class="cl">curl http://127.0.0.1:8080/render/example1
+</span></span></code></pre></div><h2 id="snippet-resolution">Snippet resolution</h2>
+<p>The <code>{snippet...}</code> segment names which file JaaS evaluates. Resolution checks
+the <code>--snippet</code> files first, then looks for <code>&lt;name&gt;/main.jsonnet</code> under each
+<code>--snippet-directory</code>. See
+<a href="/rendering/snippets-and-libraries/">Snippets and libraries</a>
+ for how to declare
+both.</p>
+<p>Resolution is sandboxed through Go&rsquo;s <code>os.Root</code>, which rejects <code>..</code> traversal and
+symlinks that escape the configured directory. A crafted URL never reaches a
+file outside the snippet roots:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">curl -i http://127.0.0.1:8080/jsonnet/../etc/passwd
+</span></span><span class="line"><span class="cl"><span class="c1"># HTTP/1.1 404 Not Found</span>
+</span></span></code></pre></div><h2 id="management-probes">Management probes</h2>
+<p>A second HTTP server — the management server — exposes the Kubernetes lifecycle
+probes. It binds <code>127.0.0.1:8081</code> by default (<code>--management-listen-address</code>,
+<code>--management-port</code>):</p>
+<table>
+	<thead>
+			<tr>
+					<th>Path</th>
+					<th>Meaning</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><code>/live</code></td>
+					<td>Liveness. Unconditional <code>200</code>.</td>
+			</tr>
+			<tr>
+					<td><code>/start</code></td>
+					<td>Startup. Consults health state; <code>200</code> once started, otherwise <code>503</code> + JSON.</td>
+			</tr>
+			<tr>
+					<td><code>/ready</code></td>
+					<td>Readiness. Consults health state; <code>200</code> when ready, otherwise <code>503</code> + JSON.</td>
+			</tr>
+	</tbody>
+</table>
+<p>A not-ready probe returns a JSON body naming the state:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">curl -i http://127.0.0.1:8081/ready
+</span></span><span class="line"><span class="cl"><span class="c1"># HTTP/1.1 503 Service Unavailable</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># {&#34;status&#34;:&#34;not ready&#34;}</span>
+</span></span></code></pre></div><h2 id="error-contract">Error contract</h2>
+<p>Every non-2xx response is an <a href="https://www.rfc-editor.org/rfc/rfc9457">RFC 9457</a>
+
+problem document with <code>Content-Type: application/problem+json</code> so programmatic
+callers can pick the failure apart:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-json" data-lang="json"><span class="line"><span class="cl"><span class="p">{</span>
+</span></span><span class="line"><span class="cl">  <span class="nt">&#34;type&#34;</span><span class="p">:</span>    <span class="s2">&#34;https://jaas.projects.metio.wtf/errors/snippet_not_found&#34;</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">  <span class="nt">&#34;title&#34;</span><span class="p">:</span>   <span class="s2">&#34;Snippet not found&#34;</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">  <span class="nt">&#34;status&#34;</span><span class="p">:</span>  <span class="mi">404</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">  <span class="nt">&#34;detail&#34;</span><span class="p">:</span>  <span class="s2">&#34;snippet \&#34;missing\&#34; not found&#34;</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">  <span class="nt">&#34;code&#34;</span><span class="p">:</span>    <span class="s2">&#34;snippet_not_found&#34;</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">  <span class="nt">&#34;snippet&#34;</span><span class="p">:</span> <span class="s2">&#34;missing&#34;</span>
+</span></span><span class="line"><span class="cl"><span class="p">}</span>
+</span></span></code></pre></div><ul>
+<li><code>type</code> — the RFC 9457 problem-type URI, formed as
+<code>https://jaas.projects.metio.wtf/errors/</code> + the <code>code</code>.</li>
+<li><code>title</code> — a short, human-readable summary of the problem.</li>
+<li><code>status</code> — the HTTP status, mirrored into the body.</li>
+<li><code>detail</code> — human-readable specifics for this occurrence.</li>
+<li><code>code</code> — the stable short identifier. Callers match on this; these strings do
+not change. It is the matcher that pairs with the <code>type</code> URI.</li>
+<li><code>snippet</code> — echoes the requested name when one was parsed, and is omitted
+otherwise.</li>
+</ul>
+<p>Error bodies use <code>application/problem+json</code>; a successful <code>200</code> response stays
+<code>application/json</code> and carries the rendered document.</p>
+<table>
+	<thead>
+			<tr>
+					<th><code>code</code></th>
+					<th style="text-align: right"><code>status</code></th>
+					<th>When</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><code>method_not_allowed</code></td>
+					<td style="text-align: right"><code>405</code></td>
+					<td>Anything other than <code>GET</code> on the endpoint.</td>
+			</tr>
+			<tr>
+					<td><code>snippet_not_found</code></td>
+					<td style="text-align: right"><code>404</code></td>
+					<td>The requested snippet name resolves to no file.</td>
+			</tr>
+			<tr>
+					<td><code>evaluation_timeout</code></td>
+					<td style="text-align: right"><code>504</code></td>
+					<td>Evaluation exceeded <code>--evaluation-timeout</code>.</td>
+			</tr>
+			<tr>
+					<td><code>evaluation_unavailable</code></td>
+					<td style="text-align: right"><code>503</code></td>
+					<td>The concurrent-eval cap (<code>--max-concurrent-evals</code>) is full.</td>
+			</tr>
+			<tr>
+					<td><code>evaluation_failed</code></td>
+					<td style="text-align: right"><code>400</code></td>
+					<td>go-jsonnet returned an error (syntax, missing import, stack-limit exceeded).</td>
+			</tr>
+	</tbody>
+</table>
+<p>For <code>evaluation_failed</code>, <code>detail</code> is the constant <code>&quot;evaluation failed&quot;</code>. The full
+go-jsonnet diagnostic — syntax error, missing import, stack-limit, with file and
+line numbers — is written to the server logs instead of the response body, since
+it names on-disk snippet paths. Read the controller logs to debug a failing
+snippet; in operator mode the snippet&rsquo;s failure also surfaces on its
+<code>JsonnetSnippet</code> status condition.</p>
+<p>A client that closes the connection mid-evaluation receives no body and no
+status line — the handler detects the cancellation and returns without writing
+anything.</p>
+<p>The timeout, stack, and concurrency caps that drive <code>evaluation_timeout</code> and
+<code>evaluation_unavailable</code> are documented in
+<a href="/rendering/evaluation-and-security/">Evaluation and security</a>
+. To pass values into
+a render, see
+<a href="/rendering/external-variables-and-tlas/">External variables and TLAs</a>
+.</p>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/http" term="http" label="http"/><category scheme="https://jaas.projects.metio.wtf/tags/endpoint" term="endpoint" label="endpoint"/><category scheme="https://jaas.projects.metio.wtf/tags/errors" term="errors" label="errors"/></entry></feed>

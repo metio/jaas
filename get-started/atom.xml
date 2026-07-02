@@ -1,0 +1,443 @@
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en"><generator uri="https://gohugo.io/" version="0.163.3">Hugo</generator><title type="html">Get started on Jsonnet-as-a-Service</title><link href="https://jaas.projects.metio.wtf/get-started/" rel="alternate" type="text/html" title="html"/><link href="https://jaas.projects.metio.wtf/get-started/index.xml" rel="alternate" type="application/rss+xml" title="rss"/><link href="https://jaas.projects.metio.wtf/get-started/atom.xml" rel="self" type="application/atom+xml" title="atom"/><updated>2026-07-02T07:56:36+00:00</updated><author><name>metio.wtf</name></author><id>https://jaas.projects.metio.wtf/get-started/</id><entry><title type="html">Kubernetes</title><link href="https://jaas.projects.metio.wtf/get-started/kubernetes/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/reference/helm-values/?utm_source=atom_feed" rel="related" type="text/html" title="Helm chart values"/><link href="https://jaas.projects.metio.wtf/get-started/quickstart/?utm_source=atom_feed" rel="related" type="text/html" title="Quickstart"/><link href="https://jaas.projects.metio.wtf/reference/upgrading/?utm_source=atom_feed" rel="related" type="text/html" title="Upgrading"/><link href="https://jaas.projects.metio.wtf/security/admission-webhook/?utm_source=atom_feed" rel="related" type="text/html" title="Admission webhook"/><link href="https://jaas.projects.metio.wtf/observability/alerting/?utm_source=atom_feed" rel="related" type="text/html" title="Alerting"/><id>https://jaas.projects.metio.wtf/get-started/kubernetes/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-26T15:54:29+02:00</updated><content type="html"><![CDATA[<blockquote>Install JaaS on Kubernetes with the Helm chart in either of its two modes — OCI volume mounting or Flux CR-based.</blockquote><p>JaaS ships as a container image at <code>ghcr.io/metio/jaas:latest</code> and as a Helm
+chart at <code>oci://ghcr.io/metio/helm-charts/jaas</code>, also listed on
+<a href="https://artifacthub.io/packages/helm/jaas/jaas">ArtifactHub</a>
+. Pre-built
+binaries for Linux, macOS, and Windows are attached to each GitHub release for
+operators who prefer to run the binary directly.</p>
+<h2 id="prerequisites">Prerequisites</h2>
+<ul>
+<li>A <a href="https://kubernetes.io/">Kubernetes</a>
+ cluster, <strong>v1.28 or later</strong>, with
+<code>kubectl</code> configured against it.</li>
+<li><a href="https://helm.sh/">Helm</a>
+ <strong>v3.14 or later</strong> — OCI chart support is required to
+pull the chart from <code>ghcr.io</code>.</li>
+</ul>
+<p>The Flux CR-based mode (below) additionally needs:</p>
+<ul>
+<li><a href="https://fluxcd.io/">Flux</a>
+ <strong>v2.7.0 or later</strong> in the cluster — the
+<code>ExternalArtifact</code> CRD that JaaS publishes lands in v2.7.0.</li>
+<li><a href="https://cert-manager.io/">cert-manager</a>
+ — <strong>only</strong> if you set the admission
+webhook to <code>cert-manager</code> mode. The chart defaults to <code>self-signed</code>, which
+provisions and rotates the webhook&rsquo;s TLS in-process and needs no cert-manager;
+see <a href="/running/production/#admission-webhook-tls">Production</a>
+ for the
+trade-off.</li>
+</ul>
+<p>The OCI volume-mounting mode needs neither Flux nor cert-manager.</p>
+<h2 id="install-and-update">Install and update</h2>
+<p><code>helm upgrade --install</code> is idempotent: the same command installs the chart the
+first time and applies your changes on every subsequent run, so it&rsquo;s the only
+deploy command you need. To update later, re-run it with an updated <code>--values</code>
+file or <code>--set</code> flags.</p>
+<p>The chart runs JaaS in one of two mutually exclusive modes in a single release.
+Pick the one that matches your use case; you <strong>cannot</strong> combine them in one
+release — the chart&rsquo;s pre-install preflight rejects the combination.</p>
+<h3 id="mode-1--oci-volume-mounting-http-renderer">Mode 1 — OCI volume mounting (HTTP renderer)</h3>
+<p>JaaS evaluates Jsonnet snippets on demand and returns JSON over HTTP. Snippets and
+libraries are mounted into the pod from OCI artifacts as image volumes (the
+<code>snippets</code> and <code>additionalLibraries</code> chart values), read straight from a registry.
+There are no CRDs, no leader election, and no persistent storage — the pod is
+stateless.</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">helm upgrade --install jaas oci://ghcr.io/metio/helm-charts/jaas <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --namespace jaas-system --create-namespace <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --values my-values.yaml <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --wait
+</span></span></code></pre></div><p>A minimal <code>my-values.yaml</code> — <code>snippets</code> and <code>additionalLibraries</code> are maps of
+<code>name: image-reference</code>:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="c"># Snippets to render — a map of name: image. The name becomes the URL path, so</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c"># this snippet is served at GET /jsonnet/dashboards.</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">snippets</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">dashboards</span><span class="p">:</span><span class="w"> </span><span class="l">ghcr.io/my-org/my-dashboards:latest</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c"># Well-known libraries have a built-in toggle — enable grafonnet with one flag</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c"># (the chart already knows its JOI image). docsonnet and xtd work the same way.</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">libraries</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">grafonnet</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c"># additionalLibraries mounts any OTHER library image — a JOI library without a</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c"># built-in toggle, or your own private bundle. The map KEY is the directory the</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c"># image mounts under and that the renderer adds to its import search path</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c"># (`--library-path /srv/libraries/&lt;key&gt;`); it must be unique. The entry below</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c"># mounts ghcr.io/acme/jsonnet-acme-lib at /srv/libraries/acme.</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">additionalLibraries</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">acme</span><span class="p">:</span><span class="w"> </span><span class="l">ghcr.io/acme/jsonnet-acme-lib:latest</span><span class="w">
+</span></span></span></code></pre></div><p>The chart mounts each image read-only and wires the renderer for you. The
+<code>dashboards</code> snippet is then reachable at <code>GET /jsonnet/dashboards</code>. A library is
+imported by the path it resolves to under its search directory — for a
+jb-vendored image like grafonnet, the full vendor path baked into it:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-jsonnet" data-lang="jsonnet"><span class="line"><span class="cl"><span class="k">import</span><span class="w"> </span><span class="s">&#39;github.com/grafana/grafonnet/gen/grafonnet-latest/main.libsonnet&#39;</span><span class="w">
+</span></span></span></code></pre></div><p>The Jsonnet HTTP server listens on port <code>8080</code> (configurable via <code>ports.http</code>).</p>
+<h3 id="mode-2--flux-cr-based-operator">Mode 2 — Flux CR-based (operator)</h3>
+<p>JaaS watches <code>JsonnetSnippet</code> and <code>JsonnetLibrary</code> CRs, evaluates snippets, and
+publishes the results as <code>ExternalArtifact</code> resources. Downstream Flux consumers
+(kustomize-controller, helm-controller, stageset-controller) fetch the rendered
+JSON from the artifact server.</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">helm upgrade --install jaas oci://ghcr.io/metio/helm-charts/jaas <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --namespace jaas-system --create-namespace <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --set operator.enabled<span class="o">=</span><span class="nb">true</span> <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --set operator.storage.persistence.enabled<span class="o">=</span><span class="nb">true</span> <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --wait
+</span></span></code></pre></div><p>A minimal values snippet for the operator shape:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">operator</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">storage</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c"># local backend with a PVC — enough for a single-replica install. For</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c"># multi-replica HA, switch to backend: s3 (see /running/production/).</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">backend</span><span class="p">:</span><span class="w"> </span><span class="l">local</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">persistence</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">size</span><span class="p">:</span><span class="w"> </span><span class="l">10Gi</span><span class="w">
+</span></span></span></code></pre></div><p>The operator publishes artifacts at the URL configured via
+<code>operator.storage.baseURL</code>. Left empty, it defaults to the in-cluster Service
+DNS name (<code>http://jaas-storage.&lt;namespace&gt;.svc.cluster.local:&lt;port&gt;</code>), which is
+correct when downstream Flux consumers fetch artifacts from inside the cluster.
+Set it explicitly only when consumers dereference the artifacts through an
+Ingress or external hostname.</p>
+<h3 id="install-with-flux-gitops">Install with Flux (GitOps)</h3>
+<p>To manage JaaS from a Flux GitOps repository instead of <code>helm</code> on the command
+line, point an <code>OCIRepository</code> at the chart and install it with a <code>HelmRelease</code>.
+The <code>values:</code> block takes exactly the same keys as the <code>--values</code> file above —
+this example is the operator shape with local storage:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l">source.toolkit.fluxcd.io/v1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">OCIRepository</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">metadata</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">jaas</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">jaas-system</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">spec</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">interval</span><span class="p">:</span><span class="w"> </span><span class="l">1h</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l">oci://ghcr.io/metio/helm-charts/jaas</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">ref</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c"># Latest released chart. Pin to a specific tag for production; Renovate can</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c"># keep the pin current.</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">semver</span><span class="p">:</span><span class="w"> </span><span class="s2">&#34;&gt;=0.0.0&#34;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nn">---</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l">helm.toolkit.fluxcd.io/v2</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">HelmRelease</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">metadata</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">jaas</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">jaas-system</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">spec</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">interval</span><span class="p">:</span><span class="w"> </span><span class="l">1h</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">chartRef</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">OCIRepository</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">jaas</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">values</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">operator</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">storage</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">backend</span><span class="p">:</span><span class="w"> </span><span class="l">local</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">persistence</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">          </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">          </span><span class="nt">size</span><span class="p">:</span><span class="w"> </span><span class="l">10Gi</span><span class="w">
+</span></span></span></code></pre></div><p>Both resources live in <code>jaas-system</code>, so the namespace must exist first: create
+it with <code>kubectl create namespace jaas-system</code>, or include a <code>Namespace</code> manifest
+alongside them. The source- and helm-controllers reconcile an <code>OCIRepository</code> and
+<code>HelmRelease</code> directly, so no wrapping <code>Kustomization</code> is required — apply the two
+with <code>kubectl apply -f</code>, or commit them to whatever Git/OCI source your Flux setup
+already syncs. For the HTTP-renderer shape, drop the <code>operator</code> block and set
+<code>snippets</code> / <code>libraries</code> under <code>values:</code> instead. <code>HelmRelease</code> gives you
+upgrades, rollbacks, and drift correction; pull the chart version forward by
+bumping the <code>OCIRepository</code> <code>ref</code>.</p>
+<h3 id="manage-the-crds">Manage the CRDs</h3>
+<p>The chart ships its CRDs (<code>JsonnetSnippet</code>, <code>JsonnetLibrary</code>) inside the regular
+templates — not Helm&rsquo;s special <code>crds/</code> directory — so a <code>helm upgrade --install</code>
+applies schema changes like any other resource, governed by <code>crds.create</code>
+(default <code>true</code>). The CRDs carry <code>helm.sh/resource-policy: keep</code>, so a
+<code>helm uninstall</code> leaves them — and your existing resources — in place; remove them
+by hand only if you really mean to.</p>
+<p>Check <a href="/reference/upgrading/">Upgrading</a>
+
+before upgrading across a release that changes an immutable field such as a
+Deployment&rsquo;s <code>spec.selector.matchLabels</code> — those require a manual
+<code>kubectl --namespace jaas-system delete deploy jaas</code> first.</p>
+<p>If you manage CRDs out of band, the raw definitions are published in the
+repository under <code>config/crd/bases/</code> and can be applied with
+<code>kubectl apply --server-side -f</code>.</p>
+<h2 id="customize">Customize</h2>
+<p>Every setting the chart exposes — the two modes above, storage backend, leader
+election, the admission webhook, NetworkPolicy, service mesh, metrics, and the
+rest — is a Helm value. Two references cover them:</p>
+<ul>
+<li><a href="/reference/helm-values/">Helm chart values</a>
+ — the full values reference,
+generated from the chart&rsquo;s own schema.</li>
+<li><a href="/reference/configuration/">Configuration reference</a>
+ — every binary flag and
+the chart value that drives it.</li>
+</ul>
+<p>For production sizing — S3 storage, multi-replica HA, observability, and webhook
+hardening — see the <a href="/running/production/">Production guide</a>
+.</p>
+<h2 id="verify">Verify</h2>
+<p>For the operator shape, confirm the Deployment is available and the CRDs are
+registered:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace jaas-system rollout status deploy/jaas
+</span></span><span class="line"><span class="cl">kubectl get crd jsonnetsnippets.jaas.metio.wtf jsonnetlibraries.jaas.metio.wtf
+</span></span></code></pre></div><p>For the HTTP renderer, confirm the pod is ready and the endpoint answers:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace jaas-system get pods --selector app.kubernetes.io/name<span class="o">=</span>jaas
+</span></span><span class="line"><span class="cl">kubectl --namespace jaas-system port-forward svc/jaas 8080:8080 <span class="p">&amp;</span>
+</span></span><span class="line"><span class="cl">curl http://localhost:8080/jsonnet/my-dashboard
+</span></span></code></pre></div><h2 id="next-steps">Next steps</h2>
+<ul>
+<li><a href="/get-started/quickstart/">Quickstart tutorial</a>
+ — five steps from a Helm install
+to a published artifact.</li>
+<li><a href="/running/production/">Production hardening</a>
+ — storage, observability, the
+admission webhook, and multi-replica HA.</li>
+</ul>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/installation" term="installation" label="installation"/><category scheme="https://jaas.projects.metio.wtf/tags/helm" term="helm" label="helm"/><category scheme="https://jaas.projects.metio.wtf/tags/kubernetes" term="kubernetes" label="kubernetes"/><category scheme="https://jaas.projects.metio.wtf/tags/operator" term="operator" label="operator"/></entry><entry><title type="html">Local rendering</title><link href="https://jaas.projects.metio.wtf/get-started/local-rendering/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/rendering/rendering-endpoint/?utm_source=atom_feed" rel="related" type="text/html" title="Rendering endpoint"/><id>https://jaas.projects.metio.wtf/get-started/local-rendering/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-26T15:54:29+02:00</updated><content type="html"><![CDATA[<blockquote>Run JaaS as a cluster-free Jsonnet renderer over HTTP, with snippet directories, library paths, TLAs, and external variables.</blockquote><p>JaaS runs as a cluster-free Jsonnet renderer: point it at a directory of
+snippets and a directory of libraries, then <code>GET</code> a snippet name to receive the
+evaluated JSON. No Kubernetes, no operator mode, no Flux. The evaluation core is
+the same one the operator uses, so a snippet that renders correctly here renders
+identically in-cluster.</p>
+<p>This tutorial runs against this repository&rsquo;s <code>examples/</code> layout, so clone the
+repo first:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">git clone https://github.com/metio/jaas
+</span></span><span class="line"><span class="cl"><span class="nb">cd</span> jaas
+</span></span></code></pre></div><h2 id="step-1--get-the-binary-or-container-image">Step 1 — Get the binary or container image</h2>
+<p>Pre-built binaries are attached to each
+<a href="https://github.com/metio/jaas/releases">GitHub release</a>
+. Download the archive
+for your platform, unpack it, and the <code>jaas</code> binary is inside.</p>
+<p>A container image is published at <code>ghcr.io/metio/jaas:latest</code>:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">docker pull ghcr.io/metio/jaas:latest
+</span></span></code></pre></div><p>The examples below use a <code>jaas</code> binary on your <code>PATH</code>. To run the container
+instead, mount <code>examples/</code> and map the port — for example
+<code>docker run --rm -p 8080:8080 -v &quot;$PWD/examples:/examples&quot; ghcr.io/metio/jaas:latest</code>
+with the flags adjusted to the in-container <code>/examples</code> paths, and
+<code>--listen-address 0.0.0.0</code> so the port is reachable from the host.</p>
+<h2 id="step-2--run-jaas-over-the-examples-directory">Step 2 — Run JaaS over the examples directory</h2>
+<p>Start JaaS with one snippet directory and one library path:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">jaas <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --snippet-directory examples/snippets/dashboards <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --library-path examples/libraries
+</span></span></code></pre></div><p><code>--snippet-directory</code> exposes each subdirectory as a snippet whose name is the
+directory name and whose entry file is <code>main.jsonnet</code>. <code>--library-path</code> makes the
+libraries under <code>examples/libraries</code> importable by alias. Both flags repeat, so
+you can pass several of each. The Jsonnet server binds <code>127.0.0.1:8080</code> by
+default.</p>
+<p>Confirm it started by hitting the readiness probe on the management server:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">curl -i http://127.0.0.1:8081/ready
+</span></span><span class="line"><span class="cl"><span class="c1"># HTTP/1.1 200 OK</span>
+</span></span></code></pre></div><h2 id="step-3--render-a-snippet">Step 3 — Render a snippet</h2>
+<p><code>examples/snippets/dashboards/inheritance</code> is a self-contained snippet. Request
+it by directory name:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">curl http://127.0.0.1:8080/jsonnet/inheritance
+</span></span></code></pre></div><p>JaaS returns the evaluated Jsonnet as JSON with <code>Content-Type: application/json</code>. The <code>library-precedence</code> snippet imports the <code>examplonet</code>
+library you exposed with <code>--library-path</code>:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">curl http://127.0.0.1:8080/jsonnet/library-precedence
+</span></span></code></pre></div><p>A snippet name that resolves to no file returns a <code>404</code> with a JSON error body; a
+Jsonnet error returns a <code>400</code> whose body is a generic <code>evaluation_failed</code>. The full
+go-jsonnet diagnostic (with file and line) is written to the terminal where jaas
+runs, so locally you see it right next to the request.</p>
+<h2 id="step-4--pass-a-top-level-argument">Step 4 — Pass a top-level argument</h2>
+<p>Top-level arguments arrive as URL query parameters. The <code>multi-tla</code> snippet is
+<code>function(tags=[&quot;default&quot;])</code> and joins its <code>tags</code> argument. Repeating a query
+key passes a list, which becomes a JSON array TLA:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">curl <span class="s1">&#39;http://127.0.0.1:8080/jsonnet/multi-tla?tags=prod&amp;tags=eu-west&#39;</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># {</span>
+</span></span><span class="line"><span class="cl"><span class="c1">#    &#34;count&#34;: 2,</span>
+</span></span><span class="line"><span class="cl"><span class="c1">#    &#34;joined&#34;: &#34;prod, eu-west&#34;,</span>
+</span></span><span class="line"><span class="cl"><span class="c1">#    &#34;list&#34;: [ &#34;prod&#34;, &#34;eu-west&#34; ]</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># }</span>
+</span></span></code></pre></div><p>A single occurrence of a query key (<code>?tags=prod</code>) passes a string instead of a
+one-element array.</p>
+<h2 id="step-5--set-an-external-variable">Step 5 — Set an external variable</h2>
+<p>External variables are supplied through environment variables prefixed
+<code>JAAS_EXT_VAR_</code>. The variable after the prefix is the <code>std.extVar</code> key. Restart
+JaaS with the variables the <code>example1</code> snippet reads (<code>name</code> and <code>key</code>):</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl"><span class="nv">JAAS_EXT_VAR_name</span><span class="o">=</span>Alice <span class="se">\
+</span></span></span><span class="line"><span class="cl"><span class="nv">JAAS_EXT_VAR_key</span><span class="o">=</span>secret-value <span class="se">\
+</span></span></span><span class="line"><span class="cl">jaas <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --snippet-directory examples/snippets/dashboards <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --library-path examples/libraries
+</span></span></code></pre></div><p>Then render the snippet:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">curl http://127.0.0.1:8080/jsonnet/example1
+</span></span><span class="line"><span class="cl"><span class="c1"># {</span>
+</span></span><span class="line"><span class="cl"><span class="c1">#    ...</span>
+</span></span><span class="line"><span class="cl"><span class="c1">#    &#34;person1&#34;: {</span>
+</span></span><span class="line"><span class="cl"><span class="c1">#       &#34;external&#34;: &#34;secret-value&#34;,</span>
+</span></span><span class="line"><span class="cl"><span class="c1">#       &#34;name&#34;: &#34;Alice&#34;,</span>
+</span></span><span class="line"><span class="cl"><span class="c1">#       &#34;welcome&#34;: &#34;Hello Alice!&#34;</span>
+</span></span><span class="line"><span class="cl"><span class="c1">#    },</span>
+</span></span><span class="line"><span class="cl"><span class="c1">#    ...</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># }</span>
+</span></span></code></pre></div><p><code>std.extVar('name')</code> and <code>std.extVar('key')</code> resolve to the values from the
+environment. External variables are read once at startup, not per request.</p>
+<h2 id="same-core-as-the-operator">Same core as the operator</h2>
+<p>The <code>jaas</code> binary evaluates Jsonnet through the same evaluation core whether it
+serves HTTP locally or reconciles a <code>JsonnetSnippet</code> in operator mode. Local
+rendering is the fast feedback loop for snippet authoring: a snippet that renders
+here — with the same libraries available — renders identically when the operator
+publishes it as an <code>ExternalArtifact</code>.</p>
+<h2 id="where-to-go-next">Where to go next</h2>
+<ul>
+<li><a href="/rendering/rendering-endpoint/">Rendering endpoint</a>
+ — the request shape, snippet
+resolution, the management probes, and the stable error contract.</li>
+<li><a href="/rendering/snippets-and-libraries/">Snippets and libraries</a>
+ — declaring snippets
+with <code>--snippet</code> and <code>--snippet-directory</code>, and libraries with <code>--library-path</code>.</li>
+<li><a href="/rendering/external-variables-and-tlas/">External variables and TLAs</a>
+ — the full
+<code>JAAS_EXT_VAR_*</code> and query-parameter rules.</li>
+</ul>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/local" term="local" label="local"/><category scheme="https://jaas.projects.metio.wtf/tags/renderer" term="renderer" label="renderer"/><category scheme="https://jaas.projects.metio.wtf/tags/http" term="http" label="http"/></entry><entry><title type="html">Quickstart</title><link href="https://jaas.projects.metio.wtf/get-started/quickstart/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/get-started/kubernetes/?utm_source=atom_feed" rel="related" type="text/html" title="Kubernetes"/><link href="https://jaas.projects.metio.wtf/security/admission-webhook/?utm_source=atom_feed" rel="related" type="text/html" title="Admission webhook"/><link href="https://jaas.projects.metio.wtf/observability/alerting/?utm_source=atom_feed" rel="related" type="text/html" title="Alerting"/><link href="https://jaas.projects.metio.wtf/operator/creating-sources/?utm_source=atom_feed" rel="related" type="text/html" title="Creating source artifacts"/><link href="https://jaas.projects.metio.wtf/observability/dashboard/?utm_source=atom_feed" rel="related" type="text/html" title="Dashboard"/><id>https://jaas.projects.metio.wtf/get-started/quickstart/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-26T15:54:29+02:00</updated><content type="html"><![CDATA[<blockquote>Install the JaaS operator and publish your first ExternalArtifact from an inline-files JsonnetSnippet.</blockquote><p>This tutorial takes you from an empty cluster to one published Flux
+<code>ExternalArtifact</code> carrying rendered JSON. The path is operator mode with no
+optional knobs — no webhook, no S3, no Flux source CRs — and a single
+<code>JsonnetSnippet</code> whose source is inline <code>spec.files</code>.</p>
+<h2 id="prerequisites">Prerequisites</h2>
+<ul>
+<li>
+<p>A Kubernetes cluster. <code>kind</code>, <code>minikube</code>, or a managed cluster all work.</p>
+</li>
+<li>
+<p><code>kubectl</code> configured to talk to it.</p>
+</li>
+<li>
+<p><code>helm</code> 3.x.</p>
+</li>
+<li>
+<p>Flux installed, at <strong>v2.7.0 or newer</strong>. A <code>JsonnetSnippet</code> publishes its
+result as a Flux <code>ExternalArtifact</code>, and the <code>ExternalArtifact</code> CRD lands in
+source-controller v1.7.0 (Flux v2.7.0) — earlier bundles have no such CRD and
+the publish path fails. Install all of Flux:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl apply -f https://github.com/fluxcd/flux2/releases/download/v2.7.0/install.yaml
+</span></span></code></pre></div></li>
+</ul>
+<h2 id="step-1--install-the-chart">Step 1 — Install the chart</h2>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">helm upgrade --install jaas oci://ghcr.io/metio/helm-charts/jaas <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --namespace jaas-system --create-namespace <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --set operator.enabled<span class="o">=</span><span class="nb">true</span> <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --set operator.defaultServiceAccount<span class="o">=</span>default <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --wait --timeout 5m
+</span></span></code></pre></div><p><code>operator.defaultServiceAccount=default</code> tells the operator which
+ServiceAccount to impersonate in a tenant namespace when a snippet does not name
+its own. That is fine for this tutorial; production assigns a dedicated SA per
+tenant — see <a href="/security/tenancy-and-rbac/">Tenancy and RBAC</a>
+.</p>
+<p>Verify the operator is running:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace jaas-system get deploy jaas
+</span></span><span class="line"><span class="cl"><span class="c1"># NAME   READY   UP-TO-DATE   AVAILABLE   AGE</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># jaas   1/1     1            1           30s</span>
+</span></span></code></pre></div><h2 id="step-2--grant-the-tenant-serviceaccount-the-minimum-verbs">Step 2 — Grant the tenant ServiceAccount the minimum verbs</h2>
+<p>The <code>default</code> ServiceAccount&rsquo;s built-in RBAC does not include the verbs the
+operator needs to publish the artifact. In the tenant namespace — here <code>default</code>
+— apply a <code>Role</code> and <code>RoleBinding</code>:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">cat <span class="s">&lt;&lt;EOF | kubectl apply -f -
+</span></span></span><span class="line"><span class="cl"><span class="s">apiVersion: rbac.authorization.k8s.io/v1
+</span></span></span><span class="line"><span class="cl"><span class="s">kind: Role
+</span></span></span><span class="line"><span class="cl"><span class="s">metadata:
+</span></span></span><span class="line"><span class="cl"><span class="s">  namespace: default
+</span></span></span><span class="line"><span class="cl"><span class="s">  name: jaas-tenant
+</span></span></span><span class="line"><span class="cl"><span class="s">rules:
+</span></span></span><span class="line"><span class="cl"><span class="s">  - apiGroups: [source.toolkit.fluxcd.io]
+</span></span></span><span class="line"><span class="cl"><span class="s">    resources: [externalartifacts]
+</span></span></span><span class="line"><span class="cl"><span class="s">    verbs: [get, create, update, patch]
+</span></span></span><span class="line"><span class="cl"><span class="s">---
+</span></span></span><span class="line"><span class="cl"><span class="s">apiVersion: rbac.authorization.k8s.io/v1
+</span></span></span><span class="line"><span class="cl"><span class="s">kind: RoleBinding
+</span></span></span><span class="line"><span class="cl"><span class="s">metadata:
+</span></span></span><span class="line"><span class="cl"><span class="s">  namespace: default
+</span></span></span><span class="line"><span class="cl"><span class="s">  name: jaas-tenant
+</span></span></span><span class="line"><span class="cl"><span class="s">subjects:
+</span></span></span><span class="line"><span class="cl"><span class="s">  - kind: ServiceAccount
+</span></span></span><span class="line"><span class="cl"><span class="s">    name: default
+</span></span></span><span class="line"><span class="cl"><span class="s">    namespace: default
+</span></span></span><span class="line"><span class="cl"><span class="s">roleRef:
+</span></span></span><span class="line"><span class="cl"><span class="s">  apiGroup: rbac.authorization.k8s.io
+</span></span></span><span class="line"><span class="cl"><span class="s">  kind: Role
+</span></span></span><span class="line"><span class="cl"><span class="s">  name: jaas-tenant
+</span></span></span><span class="line"><span class="cl"><span class="s">EOF</span>
+</span></span></code></pre></div><p>The operator impersonates the tenant ServiceAccount to upsert the
+<code>ExternalArtifact</code> it publishes. Without <code>create</code>, <code>update</code>, and <code>patch</code> on
+<code>externalartifacts</code>, the first reconcile fails with <code>Reason=RBACDenied</code>.</p>
+<p>Verify the binding:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace default get rolebinding jaas-tenant
+</span></span><span class="line"><span class="cl"><span class="c1"># NAME          ROLE               AGE</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># jaas-tenant   Role/jaas-tenant   5s</span>
+</span></span></code></pre></div><h2 id="step-3--apply-your-first-snippet">Step 3 — Apply your first snippet</h2>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">cat <span class="s">&lt;&lt;EOF | kubectl apply -f -
+</span></span></span><span class="line"><span class="cl"><span class="s">apiVersion: jaas.metio.wtf/v1
+</span></span></span><span class="line"><span class="cl"><span class="s">kind: JsonnetSnippet
+</span></span></span><span class="line"><span class="cl"><span class="s">metadata:
+</span></span></span><span class="line"><span class="cl"><span class="s">  name: hello
+</span></span></span><span class="line"><span class="cl"><span class="s">  namespace: default
+</span></span></span><span class="line"><span class="cl"><span class="s">spec:
+</span></span></span><span class="line"><span class="cl"><span class="s">  serviceAccountName: default
+</span></span></span><span class="line"><span class="cl"><span class="s">  files:
+</span></span></span><span class="line"><span class="cl"><span class="s">    main.jsonnet: |
+</span></span></span><span class="line"><span class="cl"><span class="s">      {
+</span></span></span><span class="line"><span class="cl"><span class="s">        greeting: &#34;hello from jaas&#34;,
+</span></span></span><span class="line"><span class="cl"><span class="s">        rendered_at: std.extVar(&#34;now&#34;),
+</span></span></span><span class="line"><span class="cl"><span class="s">      }
+</span></span></span><span class="line"><span class="cl"><span class="s">  externalVariables:
+</span></span></span><span class="line"><span class="cl"><span class="s">    now: &#34;quickstart&#34;
+</span></span></span><span class="line"><span class="cl"><span class="s">EOF</span>
+</span></span></code></pre></div><p>This is a complete <code>JsonnetSnippet</code>. Three fields carry it:</p>
+<ul>
+<li><code>spec.serviceAccountName</code> — the ServiceAccount the operator impersonates for
+this snippet&rsquo;s API calls.</li>
+<li><code>spec.files.&lt;filename&gt;</code> — inline Jsonnet source. The default entry file is
+<code>main.jsonnet</code>; override it with <code>spec.entryFile</code>.</li>
+<li><code>spec.externalVariables</code> — <code>std.extVar()</code> lookups available to the snippet.</li>
+</ul>
+<p>Verify the resource exists:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace default get jsonnetsnippet hello
+</span></span></code></pre></div><h2 id="step-4--confirm-it-reconciled">Step 4 — Confirm it reconciled</h2>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace default get jsonnetsnippet hello
+</span></span><span class="line"><span class="cl"><span class="c1"># NAME    READY   URL                                                                                    AGE</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># hello   True    http://jaas-storage.jaas-system.svc.cluster.local:8082/default/hello/&lt;sha256&gt;.tar.gz   5s</span>
+</span></span></code></pre></div><p>The <code>URL</code> column is the artifact&rsquo;s address. If <code>READY</code> is <code>False</code>, describe the
+resource — the <code>Reason</code> and <code>Message</code> on the Ready condition name the problem
+(most commonly an RBAC gap or a Jsonnet syntax error):</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace default describe jsonnetsnippet hello
+</span></span></code></pre></div><p>The <code>ExternalArtifact</code> is the resource downstream Flux consumers read:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace default get externalartifact hello -o yaml
+</span></span><span class="line"><span class="cl"><span class="c1"># status:</span>
+</span></span><span class="line"><span class="cl"><span class="c1">#   artifact:</span>
+</span></span><span class="line"><span class="cl"><span class="c1">#     url: http://jaas-storage.jaas-system.svc.cluster.local:8082/default/hello/&lt;sha256&gt;.tar.gz</span>
+</span></span><span class="line"><span class="cl"><span class="c1">#     digest: sha256:&lt;hex&gt;</span>
+</span></span><span class="line"><span class="cl"><span class="c1">#     revision: sha256:&lt;hex&gt;</span>
+</span></span><span class="line"><span class="cl"><span class="c1">#     size: &lt;bytes&gt;</span>
+</span></span></code></pre></div><h2 id="step-5--fetch-the-rendered-bytes">Step 5 — Fetch the rendered bytes</h2>
+<p>The URL resolves in-cluster only. Fetch the tarball from a one-shot pod:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl"><span class="nv">URL</span><span class="o">=</span><span class="k">$(</span>kubectl --namespace default get jsonnetsnippet hello -o <span class="nv">jsonpath</span><span class="o">=</span><span class="s1">&#39;{.status.artifactURL}&#39;</span><span class="k">)</span>
+</span></span><span class="line"><span class="cl">kubectl run --rm -i --restart<span class="o">=</span>Never --image<span class="o">=</span>docker.io/curlimages/curl:8.10.1 fetch -- <span class="se">\
+</span></span></span><span class="line"><span class="cl">    sh -c <span class="s2">&#34;curl -fsSL &#39;</span><span class="nv">$URL</span><span class="s2">&#39; | tar -xzO rendered.json&#34;</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># {</span>
+</span></span><span class="line"><span class="cl"><span class="c1">#    &#34;greeting&#34;: &#34;hello from jaas&#34;,</span>
+</span></span><span class="line"><span class="cl"><span class="c1">#    &#34;rendered_at&#34;: &#34;quickstart&#34;</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># }</span>
+</span></span></code></pre></div><p>The tarball carries a single <code>rendered.json</code> because <code>spec.output</code> defaults to
+<code>rendered</code> (the evaluated JSON). Setting <code>spec.output: source</code> publishes the raw
+<code>.jsonnet</code> files instead, for consumers that re-evaluate themselves.</p>
+<h2 id="clean-up">Clean up</h2>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace default delete jsonnetsnippet hello
+</span></span><span class="line"><span class="cl">kubectl --namespace default delete rolebinding jaas-tenant
+</span></span><span class="line"><span class="cl">kubectl --namespace default delete role jaas-tenant
+</span></span><span class="line"><span class="cl">helm --namespace jaas-system uninstall jaas
+</span></span><span class="line"><span class="cl">kubectl delete namespace jaas-system
+</span></span></code></pre></div><p>The chart&rsquo;s pre-delete hook waits for the snippet&rsquo;s finalizer to drop — which
+removes the <code>ExternalArtifact</code> — before the operator pod is removed, so the
+uninstall leaves no orphans.</p>
+<h2 id="where-to-go-next">Where to go next</h2>
+<ul>
+<li><a href="/guides/grafana-dashboards/">Grafana dashboards</a>
+ — render grafonnet
+dashboards and hand them to the grafana-operator.</li>
+<li><a href="/guides/deploying-manifests/">Deploying manifests with StageSet</a>
+ — render
+Kubernetes manifests and roll them out with stageset-controller.</li>
+<li><a href="/operator/operator-mode/">Operator mode</a>
+ — the full operator reference: source
+kinds, leader election, the artifact contract.</li>
+<li><a href="/rendering/">Usage</a>
+ — every configuration knob, one page per concern.</li>
+</ul>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/operator" term="operator" label="operator"/><category scheme="https://jaas.projects.metio.wtf/tags/externalartifact" term="externalartifact" label="externalartifact"/><category scheme="https://jaas.projects.metio.wtf/tags/helm" term="helm" label="helm"/></entry></feed>

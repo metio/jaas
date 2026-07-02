@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en"><generator uri="https://gohugo.io/" version="0.163.3">Hugo</generator><title type="html">Getting-Started on Jsonnet-as-a-Service</title><link href="https://jaas.projects.metio.wtf/tags/getting-started/" rel="alternate" type="text/html" title="html"/><link href="https://jaas.projects.metio.wtf/tags/getting-started/index.xml" rel="alternate" type="application/rss+xml" title="rss"/><link href="https://jaas.projects.metio.wtf/tags/getting-started/atom.xml" rel="self" type="application/atom+xml" title="atom"/><updated>2026-07-02T07:56:37+00:00</updated><author><name>metio.wtf</name></author><id>https://jaas.projects.metio.wtf/tags/getting-started/</id><entry><title type="html">Get started</title><link href="https://jaas.projects.metio.wtf/get-started/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/running/disaster-recovery/?utm_source=atom_feed" rel="related" type="text/html" title="Backup and disaster recovery"/><link href="https://jaas.projects.metio.wtf/reference/configuration/?utm_source=atom_feed" rel="related" type="text/html" title="Configuration reference"/><link href="https://jaas.projects.metio.wtf/reference/helm-values/?utm_source=atom_feed" rel="related" type="text/html" title="Helm chart values"/><link href="https://jaas.projects.metio.wtf/get-started/kubernetes/?utm_source=atom_feed" rel="related" type="text/html" title="Kubernetes"/><link href="https://jaas.projects.metio.wtf/running/operations/?utm_source=atom_feed" rel="related" type="text/html" title="Operations"/><id>https://jaas.projects.metio.wtf/get-started/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-26T15:54:29+02:00</updated><content type="html"><![CDATA[<blockquote>Render your first Jsonnet — locally without a cluster, or by installing the JaaS service on Kubernetes.</blockquote><p>Two ways to start: render Jsonnet locally with no cluster at all, or install the
+JaaS service on Kubernetes and call its HTTP endpoint.</p>
+<ul>
+<li><strong><a href="/get-started/quickstart/">Quickstart</a>
+</strong> — install JaaS and render your first
+snippet over HTTP.</li>
+<li><strong><a href="/get-started/kubernetes/">Install on Kubernetes</a>
+</strong> — prerequisites and the
+Helm install in full.</li>
+<li><strong><a href="/get-started/local-rendering/">Local rendering</a>
+</strong> — evaluate Jsonnet on your
+own machine, no cluster required.</li>
+</ul>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/getting-started" term="getting-started" label="getting-started"/><category scheme="https://jaas.projects.metio.wtf/tags/installation" term="installation" label="installation"/><category scheme="https://jaas.projects.metio.wtf/tags/quickstart" term="quickstart" label="quickstart"/></entry></feed>

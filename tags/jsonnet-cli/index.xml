@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Jsonnet-Cli on Jsonnet-as-a-Service</title><link>https://jaas.projects.metio.wtf/tags/jsonnet-cli/</link><description>Recent content in Jsonnet-Cli on Jsonnet-as-a-Service</description><generator>Hugo</generator><language>en</language><atom:link href="https://jaas.projects.metio.wtf/tags/jsonnet-cli/index.xml" rel="self" type="application/rss+xml"/><item><title>JaaS vs the jsonnet CLI</title><link>https://jaas.projects.metio.wtf/comparisons/jsonnet-cli/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/comparisons/jsonnet-cli/</guid><description>&lt;p&gt;The &lt;a href="https://jsonnet.org/"&gt;&lt;code&gt;jsonnet&lt;/code&gt;&lt;/a&gt;
+ command-line tool — usually paired with
+&lt;a href="https://github.com/jsonnet-bundler/jsonnet-bundler"&gt;&lt;code&gt;jsonnet-bundler&lt;/code&gt;&lt;/a&gt;
+ (&lt;code&gt;jb&lt;/code&gt;)
+for vendoring libraries — evaluates Jsonnet to JSON on your machine. JaaS runs
+the &lt;strong&gt;same go-jsonnet core&lt;/strong&gt; as a service. This is not a question of which
+implementation is correct; it is a question of &lt;em&gt;where the evaluation runs and
+what surrounds it&lt;/em&gt;.&lt;/p&gt;
+&lt;h2 id="what-the-service-adds"&gt;What the service adds&lt;/h2&gt;
+&lt;p&gt;Over a local binary invocation, JaaS adds:&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;An HTTP endpoint other systems can call.&lt;/strong&gt; &lt;code&gt;GET /jsonnet/&amp;lt;snippet&amp;gt;&lt;/code&gt; returns
+the evaluated JSON, with Top Level Arguments supplied as query parameters and
+external variables configured on the service. Anything that speaks HTTP can
+request a render without installing the toolchain or the vendor tree. See the
+&lt;a href="https://jaas.projects.metio.wtf/rendering/rendering-endpoint/"&gt;rendering endpoint&lt;/a&gt;
+ usage page.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;An operator that turns a snippet into a revisioned Flux artifact.&lt;/strong&gt; With
+&lt;code&gt;--enable-flux-integration&lt;/code&gt;, a &lt;code&gt;JsonnetSnippet&lt;/code&gt; is evaluated continuously and
+published as a content-addressed &lt;code&gt;ExternalArtifact&lt;/code&gt; that Flux consumers apply
+in-cluster — re-rendered automatically when its source changes. See
+&lt;a href="https://jaas.projects.metio.wtf/operator/operator-mode/"&gt;operator mode&lt;/a&gt;
+.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Import resolution that matches &lt;code&gt;jsonnet -J vendor&lt;/code&gt;.&lt;/strong&gt; JaaS resolves imports
+with the same semantics as the CLI&amp;rsquo;s JPATH/vendor search, so the JSON a
+snippet produces under the service matches what the CLI produces locally.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Evaluation caps.&lt;/strong&gt; &lt;code&gt;--evaluation-timeout&lt;/code&gt; bounds wall-clock time per render,
+&lt;code&gt;--max-stack&lt;/code&gt; bounds call-stack depth, and &lt;code&gt;--max-concurrent-evals&lt;/code&gt; bounds how
+many evaluations run at once — so one expensive snippet cannot exhaust a
+shared server. The CLI imposes none of these on its own.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Read-scope sandboxing.&lt;/strong&gt; Snippet-name resolution goes through Go&amp;rsquo;s
+&lt;code&gt;os.Root&lt;/code&gt;, which rejects &lt;code&gt;..&lt;/code&gt; traversal and symlinks that escape the
+configured snippet directory, so a crafted request cannot read arbitrary
+files. The &lt;a href="https://jaas.projects.metio.wtf/rendering/evaluation-and-security/"&gt;evaluation and security&lt;/a&gt;
+ page
+details the caps and the boundaries.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h2 id="when-the-plain-cli-is-the-right-tool"&gt;When the plain CLI is the right tool&lt;/h2&gt;
+&lt;p&gt;The CLI is the better choice for work that is local and one-off:&lt;/p&gt;</description></item></channel></rss>

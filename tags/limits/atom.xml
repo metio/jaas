@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en"><generator uri="https://gohugo.io/" version="0.163.3">Hugo</generator><title type="html">Limits on Jsonnet-as-a-Service</title><link href="https://jaas.projects.metio.wtf/tags/limits/" rel="alternate" type="text/html" title="html"/><link href="https://jaas.projects.metio.wtf/tags/limits/index.xml" rel="alternate" type="application/rss+xml" title="rss"/><link href="https://jaas.projects.metio.wtf/tags/limits/atom.xml" rel="self" type="application/atom+xml" title="atom"/><updated>2026-07-02T07:56:37+00:00</updated><author><name>metio.wtf</name></author><id>https://jaas.projects.metio.wtf/tags/limits/</id><entry><title type="html">Evaluation and security</title><link href="https://jaas.projects.metio.wtf/rendering/evaluation-and-security/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/runbooks/eval-saturation/?utm_source=atom_feed" rel="related" type="text/html" title="Eval-concurrency saturation"/><link href="https://jaas.projects.metio.wtf/runbooks/evaluationfailed/?utm_source=atom_feed" rel="related" type="text/html" title="EvaluationFailed"/><link href="https://jaas.projects.metio.wtf/runbooks/evaluationtimeout/?utm_source=atom_feed" rel="related" type="text/html" title="EvaluationTimeout"/><link href="https://jaas.projects.metio.wtf/runbooks/externalvariableconflict/?utm_source=atom_feed" rel="related" type="text/html" title="ExternalVariableConflict"/><link href="https://jaas.projects.metio.wtf/security/network-policy/?utm_source=atom_feed" rel="related" type="text/html" title="Network policy"/><id>https://jaas.projects.metio.wtf/rendering/evaluation-and-security/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-26T15:54:29+02:00</updated><content type="html"><![CDATA[<blockquote>Timeout, stack, and concurrency caps on evaluation, and the security model to lock down before exposing the service.</blockquote><p>JaaS runs Jsonnet on the server and returns the result over HTTP. Three caps
+bound each evaluation, and a small security model governs what a snippet and its
+callers can reach. Review and tune both sections before exposing the service to
+a wider audience.</p>
+<h2 id="evaluation-caps">Evaluation caps</h2>
+<table>
+	<thead>
+			<tr>
+					<th>Flag</th>
+					<th>Default</th>
+					<th>Effect</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><code>--evaluation-timeout</code></td>
+					<td><code>5s</code></td>
+					<td>Wall-clock budget per evaluation. Exceeding it returns <code>504 evaluation_timeout</code>. <code>0</code> disables the timeout.</td>
+			</tr>
+			<tr>
+					<td><code>--max-stack</code></td>
+					<td><code>500</code></td>
+					<td>Maximum Jsonnet call-stack depth. <code>0</code> uses go-jsonnet&rsquo;s own default.</td>
+			</tr>
+			<tr>
+					<td><code>--max-concurrent-evals</code></td>
+					<td><code>max(GOMAXPROCS*4, 16)</code></td>
+					<td>In-flight evaluations allowed at once. Excess requests return <code>503 evaluation_unavailable</code>. <code>0</code> disables the cap.</td>
+			</tr>
+	</tbody>
+</table>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">./jaas <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --snippet-directory examples/snippets/dashboards <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --evaluation-timeout 2s <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --max-stack <span class="m">1000</span> <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --max-concurrent-evals <span class="m">32</span>
+</span></span></code></pre></div><p>The default for <code>--max-concurrent-evals</code> bounds worst-case goroutine pile-up
+under a runaway snippet. Each in-flight evaluation pins roughly one CPU for its
+working set, so raising the cap far above the available parallelism queues work
+without adding throughput.</p>
+<h2 id="security-model">Security model</h2>
+<p><strong>Library paths are an unrestricted read scope.</strong> Any file reachable under a
+configured <code>--library-path</code>, or under a snippet&rsquo;s own directory, can be
+<code>import</code>-ed or <code>importstr</code>-ed by any snippet — go-jsonnet&rsquo;s importer does not
+sandbox per snippet. Scope these directories tightly. Never point them at <code>/</code>,
+<code>/etc</code>, or anywhere holding credentials.</p>
+<p><strong>Snippets are operator-controlled, not caller-controlled.</strong> Callers supply only
+top-level arguments through the query string. Jsonnet&rsquo;s <code>import</code> and <code>importstr</code>
+require string-literal paths, so a TLA or external variable cannot construct an
+import path. Deploying a snippet authored by someone you do not trust is
+equivalent to running their code on the server.</p>
+<p><strong>Snippet name resolution is sandboxed.</strong> The URL&rsquo;s snippet segment resolves
+through Go&rsquo;s <code>os.Root</code>, which rejects <code>..</code> traversal and symlinks that escape the
+configured snippet directory. A URL like <code>/jsonnet/../etc/passwd</code> returns <code>404</code>,
+even though the OS would otherwise resolve the path.</p>
+<p><strong>Evaluation has caps but no mid-flight cancellation.</strong> <code>--evaluation-timeout</code>
+bounds wall-clock time and <code>--max-stack</code> bounds call-stack depth, but go-jsonnet
+cannot abort an evaluation already running. A slow snippet keeps consuming CPU
+until it finishes naturally or the timeout fires the HTTP response. Size
+container CPU and memory limits to absorb that worst case.</p>
+<p>The Prometheus metrics <code>jaas_eval_in_flight</code> (gauge: live in-flight count),
+<code>jaas_eval_unavailable_total</code> (counter: cumulative cap rejections), and
+<code>jaas_eval_outstanding_timed_out</code> (gauge: evals still running after their
+request timed out) surface how close evaluation runs to these caps. See
+<a href="/observability/">Observability</a>
+ for detail.</p>
+<p>The HTTP status codes these caps produce are documented in the
+<a href="/rendering/rendering-endpoint/">rendering endpoint</a>
+ error contract.</p>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/security" term="security" label="security"/><category scheme="https://jaas.projects.metio.wtf/tags/limits" term="limits" label="limits"/><category scheme="https://jaas.projects.metio.wtf/tags/evaluation" term="evaluation" label="evaluation"/></entry></feed>

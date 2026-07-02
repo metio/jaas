@@ -1,0 +1,355 @@
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en"><generator uri="https://gohugo.io/" version="0.163.3">Hugo</generator><title type="html">Metrics on Jsonnet-as-a-Service</title><link href="https://jaas.projects.metio.wtf/tags/metrics/" rel="alternate" type="text/html" title="html"/><link href="https://jaas.projects.metio.wtf/tags/metrics/index.xml" rel="alternate" type="application/rss+xml" title="rss"/><link href="https://jaas.projects.metio.wtf/tags/metrics/atom.xml" rel="self" type="application/atom+xml" title="atom"/><updated>2026-07-02T07:56:37+00:00</updated><author><name>metio.wtf</name></author><id>https://jaas.projects.metio.wtf/tags/metrics/</id><entry><title type="html">High reconcile latency</title><link href="https://jaas.projects.metio.wtf/runbooks/reconcile-latency/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/runbooks/workqueue-saturation/?utm_source=atom_feed" rel="related" type="text/html" title="Workqueue saturation"/><link href="https://jaas.projects.metio.wtf/runbooks/artifacttoolarge/?utm_source=atom_feed" rel="related" type="text/html" title="ArtifactTooLarge"/><link href="https://jaas.projects.metio.wtf/runbooks/crd-watch-engagement/?utm_source=atom_feed" rel="related" type="text/html" title="CRD watch engagement failing"/><link href="https://jaas.projects.metio.wtf/runbooks/crossnamespacerefrejected/?utm_source=atom_feed" rel="related" type="text/html" title="CrossNamespaceRefRejected"/><link href="https://jaas.projects.metio.wtf/runbooks/dependencycycle/?utm_source=atom_feed" rel="related" type="text/html" title="DependencyCycle"/><id>https://jaas.projects.metio.wtf/runbooks/reconcile-latency/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-18T20:07:20+02:00</updated><content type="html"><![CDATA[<blockquote>Individual reconcile calls are taking longer than the configured p99 threshold, indicating slow source fetches, heavy evaluation, or a sluggish storage backend</blockquote><p>Linked from the <code>JaaSReconcileLatencyHigh</code> alert. Fires when the controller-runtime <code>controller_runtime_reconcile_time_seconds</code> histogram p99 exceeds the configured threshold (default 30s) for the alert window.</p>
+<h2 id="symptom">Symptom</h2>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-text" data-lang="text"><span class="line"><span class="cl">ALERTS{alertname=&#34;JaaSReconcileLatencyHigh&#34;, controller=&#34;jsonnetsnippet&#34;}
+</span></span></code></pre></div><ul>
+<li><code>kubectl get jsonnetsnippet</code> shows status updates trickling in well after spec changes.</li>
+<li>Operator pod CPU is moderate-to-high but the queue is draining (distinguishes this from <a href="/runbooks/workqueue-saturation/">workqueue-saturation</a>
+, where the queue itself is growing).</li>
+</ul>
+<h2 id="cause">Cause</h2>
+<p>Reconcile latency is the wall-clock cost of one <code>Reconcile()</code> call. Inside the call, JaaS does (in order):</p>
+<ol>
+<li><code>Get</code> the snippet from the cache.</li>
+<li>Run the dependency-cycle BFS (one Get per touched node).</li>
+<li>Resolve the source (inline files, or sourceRef → Fetcher: source-CR Get + tarball HTTP fetch + tar extract).</li>
+<li>Resolve libraries (one Get per <code>LibraryRef</code>).</li>
+<li>Evaluate the snippet via go-jsonnet.</li>
+<li>Publish via the storage backend (<code>Put</code>).</li>
+<li>Status update + ExternalArtifact upsert.</li>
+</ol>
+<p>Slow reconciles are almost always one of:</p>
+<ul>
+<li><strong>Slow <code>Fetcher</code></strong> — a large tarball over a slow network, or a misbehaving source-controller (digest mismatch retries).</li>
+<li><strong>Heavy jsonnet evaluation</strong> — a snippet that imports lots of large libraries or runs unbounded recursion below the stack limit.</li>
+<li><strong>Slow <code>Publisher</code></strong> — S3 throttling, a slow PVC, or large rendered output (close to <code>--max-artifact-bytes</code>).</li>
+<li><strong>Cycle-detection blowup</strong> — a dense graph of snippets cross-referencing via <code>sourceRef</code>. The BFS is O(V+E) but each visit is a <code>Get</code>.</li>
+</ul>
+<h2 id="diagnosis">Diagnosis</h2>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl"><span class="c1"># Where is the time going? OTel spans break Reconcile into sub-stages.</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># Requires --tracing-endpoint set on the operator.</span>
+</span></span><span class="line"><span class="cl">kubectl --namespace &lt;jaas-ns&gt; get deploy jaas <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --output <span class="nv">jsonpath</span><span class="o">=</span><span class="s1">&#39;{.spec.template.spec.containers[0].args}&#39;</span> <span class="se">\
+</span></span></span><span class="line"><span class="cl">  <span class="p">|</span> tr <span class="s1">&#39;,&#39;</span> <span class="s1">&#39;\n&#39;</span> <span class="p">|</span> grep tracing
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># Without tracing: the histograms expose enough to triangulate.</span>
+</span></span><span class="line"><span class="cl">kubectl --namespace &lt;jaas-ns&gt; port-forward svc/jaas-metrics 8083:8083 <span class="p">&amp;</span>
+</span></span><span class="line"><span class="cl">curl -s localhost:8083/metrics <span class="p">|</span> grep -E <span class="s1">&#39;reconcile_time|rendered_bytes&#39;</span>
+</span></span></code></pre></div><p>The <code>jaas_snippet_rendered_bytes</code> histogram tells you whether a slow Publisher is the cause (large outputs) vs. a slow Fetcher (small outputs but the histogram is dominated by upstream IO).</p>
+<p>For a single suspect snippet, force a reconcile under load and observe:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace &lt;ns&gt; annotate jsonnetsnippet &lt;name&gt; <span class="se">\
+</span></span></span><span class="line"><span class="cl">  jaas.metio.wtf/reconcile-at<span class="o">=</span><span class="k">$(</span>date -u +%FT%TZ<span class="k">)</span> --overwrite
+</span></span><span class="line"><span class="cl">kubectl --namespace &lt;jaas-ns&gt; logs deploy/jaas --tail<span class="o">=</span><span class="m">50</span> <span class="p">|</span> grep &lt;name&gt;
+</span></span></code></pre></div><h2 id="remediation">Remediation</h2>
+<ul>
+<li><strong>Slow Fetcher.</strong> Narrow <code>spec.sourceRef.path</code> to the subdirectory the snippet actually needs. Tarballs balloon when an entire monorepo is published; the filter trims what JaaS has to download.</li>
+<li><strong>Heavy eval.</strong> Cap <code>--max-stack</code> to bound runaway recursion. Profile the snippet locally via <code>jsonnet</code> (the CLI) — the operator&rsquo;s evaluation is identical.</li>
+<li><strong>Slow Publisher.</strong> See <a href="/runbooks/storage-recovery/">storage-recovery</a>
+ for backend-specific tuning.</li>
+<li><strong>Cycle-detection blowup.</strong> Reorganize snippets so the cross-reference graph is shallow; cycle detection visits every reachable node, so a fan-out of N snippets multiplies the cost.</li>
+<li><strong>OTel for forensics.</strong> Enable <code>--tracing-endpoint</code> and the per-stage spans turn this from guessing into measurement. The chart values key is <code>operator.tracing.endpoint</code>.</li>
+</ul>
+<h2 id="prevention">Prevention</h2>
+<ul>
+<li>Pair the alert with <code>JaaSSnippetArtifactGrowing</code> (<a href="/runbooks/artifacttoolarge/">artifacttoolarge</a>
+). A snippet whose rendered bytes are climbing is almost always headed for a latency spike too.</li>
+<li>For multi-replica HA, leader election keeps only one replica in the reconcile loop — sustained latency on the lease-holder is what matters; standby latency is not measured.</li>
+</ul>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/runbooks" term="runbooks" label="runbooks"/><category scheme="https://jaas.projects.metio.wtf/tags/troubleshooting" term="troubleshooting" label="troubleshooting"/><category scheme="https://jaas.projects.metio.wtf/tags/metrics" term="metrics" label="metrics"/></entry><entry><title type="html">Metrics</title><link href="https://jaas.projects.metio.wtf/observability/metrics/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/observability/alerting/?utm_source=atom_feed" rel="related" type="text/html" title="Alerting"/><link href="https://jaas.projects.metio.wtf/observability/logging/?utm_source=atom_feed" rel="related" type="text/html" title="Logging"/><link href="https://jaas.projects.metio.wtf/observability/slos/?utm_source=atom_feed" rel="related" type="text/html" title="Service level objectives"/><link href="https://jaas.projects.metio.wtf/observability/tracing/?utm_source=atom_feed" rel="related" type="text/html" title="Tracing"/><link href="https://jaas.projects.metio.wtf/security/admission-webhook/?utm_source=atom_feed" rel="related" type="text/html" title="Admission webhook"/><id>https://jaas.projects.metio.wtf/observability/metrics/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-26T15:54:29+02:00</updated><content type="html"><![CDATA[<blockquote>The controller-runtime Prometheus endpoint, the custom jaas_ metric family, scraping with a ServiceMonitor or a plain scrape config, querying with PromQL, and the Helm chart keys that drive it.</blockquote><p>The JaaS operator exposes a Prometheus metrics endpoint covering controller-runtime&rsquo;s
+standard families plus a custom <code>jaas_*</code> family the reconciler registers. Scrape
+it for dashboards and feed it into the shipped <a href="/observability/alerting/">alerts</a>
+.</p>
+<h2 id="the-binary">The binary</h2>
+<p>controller-runtime&rsquo;s Prometheus endpoint binds <code>--metrics-bind-address</code> (default
+<code>:8083</code>), serving the standard text exposition format at <code>/metrics</code>. Setting it
+to <code>0</code> disables the endpoint. The default deliberately avoids controller-runtime&rsquo;s
+built-in <code>:8080</code>, which would collide with the Jsonnet HTTP port.</p>
+<p>The full flag list with defaults is on the
+<a href="/reference/configuration/">configuration page</a>
+.</p>
+<h3 id="metrics-reference">Metrics reference</h3>
+<p>The operator exports these custom <code>jaas_*</code> metrics, registered against
+controller-runtime&rsquo;s registry so they ride the same <code>/metrics</code> endpoint:</p>
+<table>
+	<thead>
+			<tr>
+					<th>Metric</th>
+					<th>Type</th>
+					<th>Labels</th>
+					<th>Meaning</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><code>jaas_snippet_reconcile_total</code></td>
+					<td>counter</td>
+					<td><code>namespace</code>, <code>name</code>, <code>status</code>, <code>reason</code></td>
+					<td>One bump per reconcile that touches the Ready condition. <code>status</code> is <code>True</code>/<code>False</code>; <code>reason</code> is the Reason constant from the snippet&rsquo;s condition.</td>
+			</tr>
+			<tr>
+					<td><code>jaas_snippet_rendered_bytes</code></td>
+					<td>histogram</td>
+					<td><code>namespace</code>, <code>name</code></td>
+					<td>Rendered artifact size, observed only on <code>Synced</code> reconciles. Buckets run 256 B…64 MiB.</td>
+			</tr>
+			<tr>
+					<td><code>jaas_snippet_rate_limited_total</code></td>
+					<td>counter</td>
+					<td><code>namespace</code>, <code>name</code></td>
+					<td>Reconciles deferred by the per-snippet token bucket. Paired with the <code>RateLimited</code> Warning event.</td>
+			</tr>
+			<tr>
+					<td><code>jaas_snippet_eval_unavailable_total</code></td>
+					<td>counter</td>
+					<td><code>namespace</code>, <code>name</code></td>
+					<td>Reconciles deferred because the global concurrent-eval cap was full. Paired with the <code>EvalUnavailable</code> Warning event.</td>
+			</tr>
+			<tr>
+					<td><code>jaas_snippet_force_drop_total</code></td>
+					<td>counter</td>
+					<td><code>namespace</code>, <code>name</code>, <code>reason</code></td>
+					<td>Snippets whose finalizer was force-dropped because <code>Publisher.Withdraw</code> kept failing past <code>--max-withdraw-wait</code> or hit a permanent API error. <code>reason</code> names the trigger (<code>withdraw_timed_out</code>, <code>tenant_client_permanent</code>, <code>withdraw_permanent</code>). Sustained non-zero values mean orphaned tarballs are accumulating; see the <a href="/runbooks/storage-recovery/">storage-recovery runbook</a>
+.</td>
+			</tr>
+			<tr>
+					<td><code>jaas_eval_in_flight</code></td>
+					<td>gauge</td>
+					<td>—</td>
+					<td>Evaluations currently holding a slot in the global concurrent-eval semaphore. Reads through to the live count on every scrape.</td>
+			</tr>
+			<tr>
+					<td><code>jaas_eval_max_concurrent</code></td>
+					<td>gauge</td>
+					<td>—</td>
+					<td>Configured ceiling of the semaphore (<code>--max-concurrent-evals</code>). Zero means the gate is disabled — any saturation alert must guard on this being non-zero.</td>
+			</tr>
+			<tr>
+					<td><code>jaas_eval_unavailable_total</code></td>
+					<td>counter</td>
+					<td>—</td>
+					<td>Process-global accumulator of evaluations the semaphore rejected, across the HTTP and operator paths. Monotonic; resets on restart.</td>
+			</tr>
+			<tr>
+					<td><code>jaas_eval_outstanding_timed_out</code></td>
+					<td>gauge</td>
+					<td>—</td>
+					<td>Evaluation goroutines whose parent&rsquo;s context fired before the synchronous go-jsonnet call returned. Sustained non-zero readings flag a runaway snippet.</td>
+			</tr>
+			<tr>
+					<td><code>jaas_storage_sweep_failures_total</code></td>
+					<td>counter</td>
+					<td>—</td>
+					<td>Background storage-sweep passes that returned an error. The sweep removes orphaned <code>.tar.gz.tmp</code> residue; failures here don&rsquo;t block reconciles but let stale files accumulate.</td>
+			</tr>
+			<tr>
+					<td><code>jaas_webhook_cert_renewal_failures_total</code></td>
+					<td>counter</td>
+					<td>—</td>
+					<td>Self-signed cert renewal attempts that returned an error. Sustained non-zero values flag RBAC drift or a write-permission loss on <code>--webhook-cert-dir</code>; the existing cert&rsquo;s natural expiry is the deadline before admission breaks cluster-wide.</td>
+			</tr>
+			<tr>
+					<td><code>jaas_tenant_token_mint_failures_total</code></td>
+					<td>counter</td>
+					<td><code>namespace</code>, <code>serviceAccount</code></td>
+					<td><code>TokenRequest</code> mints that returned an error. Sustained non-zero values on a pair indicate revoked <code>serviceaccounts/token: create</code> or a deleted namespace; affected snippets pin Ready=Unknown.</td>
+			</tr>
+			<tr>
+					<td><code>jaas_crd_watch_engagement_failures_total</code></td>
+					<td>counter</td>
+					<td><code>gvk</code></td>
+					<td><code>EngageFluxWatch</code> calls that returned an error. Sustained non-zero values on a GVK mean dependent snippets won&rsquo;t re-render on upstream source events until the watch engages.</td>
+			</tr>
+	</tbody>
+</table>
+<p>The eval gauges (<code>jaas_eval_in_flight</code>, <code>jaas_eval_max_concurrent</code>,
+<code>jaas_eval_outstanding_timed_out</code>) reflect the global concurrent-eval cap; see
+<a href="/rendering/evaluation-and-security/">evaluation and security</a>
+ for how that cap works
+and how to size <code>--max-concurrent-evals</code>.</p>
+<p>Alongside these, controller-runtime contributes its standard families for free —
+<code>controller_runtime_reconcile_total</code>, <code>controller_runtime_reconcile_time_seconds</code>,
+the <code>workqueue_*</code> series (depth, latency, retries), and the Go/process
+collectors. The shipped <a href="/observability/alerting/">alerts</a>
+ build on both the <code>jaas_*</code>
+metrics and these controller-runtime signals.</p>
+<h3 id="querying-with-promql">Querying with PromQL</h3>
+<p>Once scraped, a few PromQL queries answer the common questions:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-promql" data-lang="promql"><span class="line"><span class="cl"><span class="c1"># Rate of failed reconciles per snippet, excluding healthy/intentional states.</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="k">sum</span><span class="w"> </span><span class="k">by</span><span class="w"> </span><span class="o">(</span><span class="nv">namespace</span><span class="p">,</span><span class="w"> </span><span class="nv">name</span><span class="o">)</span><span class="w"> </span><span class="o">(</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="kr">rate</span><span class="o">(</span><span class="nv">jaas_snippet_reconcile_total</span><span class="p">{</span><span class="nl">status</span><span class="o">=</span><span class="p">&#34;</span><span class="s">False</span><span class="p">&#34;,</span><span class="nl">reason</span><span class="o">!~</span><span class="p">&#34;</span><span class="s">Synced|Suspended|Pending</span><span class="p">&#34;}[</span><span class="s">5m</span><span class="p">]</span><span class="o">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="o">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1"># Eval semaphore saturation, guarded on the gate being enabled.</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nv">jaas_eval_in_flight</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="nv">jaas_eval_max_concurrent</span><span class="w"> </span><span class="ow">and</span><span class="w"> </span><span class="nv">jaas_eval_max_concurrent</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mi">0</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c1"># p99 rendered artifact size per snippet.</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="kr">histogram_quantile</span><span class="o">(</span><span class="mf">0.99</span><span class="p">,</span><span class="w"> </span><span class="k">sum</span><span class="w"> </span><span class="k">by</span><span class="w"> </span><span class="o">(</span><span class="nv">namespace</span><span class="p">,</span><span class="w"> </span><span class="nv">name</span><span class="p">,</span><span class="w"> </span><span class="nv">le</span><span class="o">)</span><span class="w"> </span><span class="o">(</span><span class="kr">rate</span><span class="o">(</span><span class="nv">jaas_snippet_rendered_bytes_bucket</span><span class="p">[</span><span class="s">30m</span><span class="p">]</span><span class="o">)))</span><span class="w">
+</span></span></span></code></pre></div><h2 id="the-helm-chart">The Helm chart</h2>
+<p>The metrics port is set under <code>ports</code>, and the chart wires it to a dedicated
+<code>jaas-metrics</code> Service whenever the operator is enabled:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">ports</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="c"># controller-runtime metrics endpoint; maps to --metrics-bind-address.</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="c"># Set to 0 in operator.metrics.enabled to disable entirely.</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">metrics</span><span class="p">:</span><span class="w"> </span><span class="m">8083</span><span class="w">
+</span></span></span></code></pre></div><p>Scraping is configured under <code>operator.metrics</code>. A <code>ServiceMonitor</code> for the
+Prometheus Operator is opt-in — it selects the <code>jaas-metrics</code> Service and scrapes
+its <code>metrics</code> port at <code>/metrics</code>:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">operator</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">metrics</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">serviceMonitor</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">interval</span><span class="p">:</span><span class="w"> </span><span class="l">30s</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">scrapeTimeout</span><span class="p">:</span><span class="w"> </span><span class="l">10s</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="c"># Labels your Prometheus instance selects ServiceMonitors on.</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">labels</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">release</span><span class="p">:</span><span class="w"> </span><span class="l">kube-prometheus</span><span class="w">
+</span></span></span></code></pre></div><p>Without the Prometheus Operator, point a plain Prometheus scrape config at the
+<code>jaas-metrics</code> Service (port <code>8083</code>, path <code>/metrics</code>), or add the usual
+<code>prometheus.io/scrape</code> annotation set to the pod through <code>pod.additionalLabels</code>
+and let a kubernetes-pods scrape job discover it.</p>
+<p>To turn the alerts on, see <a href="/observability/alerting/">Alerting</a>
+.</p>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/operator" term="operator" label="operator"/><category scheme="https://jaas.projects.metio.wtf/tags/metrics" term="metrics" label="metrics"/><category scheme="https://jaas.projects.metio.wtf/tags/prometheus" term="prometheus" label="prometheus"/><category scheme="https://jaas.projects.metio.wtf/tags/observability" term="observability" label="observability"/></entry><entry><title type="html">Observability</title><link href="https://jaas.projects.metio.wtf/observability/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/observability/slos/?utm_source=atom_feed" rel="related" type="text/html" title="Service level objectives"/><link href="https://jaas.projects.metio.wtf/observability/alerting/?utm_source=atom_feed" rel="related" type="text/html" title="Alerting"/><link href="https://jaas.projects.metio.wtf/observability/logging/?utm_source=atom_feed" rel="related" type="text/html" title="Logging"/><link href="https://jaas.projects.metio.wtf/observability/metrics/?utm_source=atom_feed" rel="related" type="text/html" title="Metrics"/><link href="https://jaas.projects.metio.wtf/observability/tracing/?utm_source=atom_feed" rel="related" type="text/html" title="Tracing"/><id>https://jaas.projects.metio.wtf/observability/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-18T20:07:20+02:00</updated><content type="html"><![CDATA[<blockquote>How to watch JaaS in production — structured logs, OTLP traces, Prometheus metrics, and the shipped alert catalog with Kubernetes Events and Flux notification routing.</blockquote><p>JaaS gives you four ways to see what it is doing in a cluster. Structured logs
+tell you what happened on a single request or reconcile; traces follow one
+operation across its spans; metrics aggregate behaviour into time series for
+dashboards and alerts; and alerts plus Kubernetes Events turn a sustained
+problem into a page or a notification.</p>
+<p>Each pillar has its own page covering both the binary&rsquo;s flags and the Helm chart
+keys that drive them:</p>
+<ul>
+<li><a href="/observability/logging/">Logging</a>
+ — the <code>log/slog</code> logger, <code>--log-level</code> and
+<code>--log-format</code>, and reading JSON logs with <code>kubectl logs</code> and <code>jq</code>.</li>
+<li><a href="/observability/tracing/">Tracing</a>
+ — OTLP gRPC export to an OpenTelemetry collector,
+sampling, and viewing spans.</li>
+<li><a href="/observability/metrics/">Metrics</a>
+ — the Prometheus endpoint, the custom <code>jaas_*</code>
+metric family, scraping with a <code>ServiceMonitor</code>, and querying with PromQL.</li>
+<li><a href="/observability/alerting/">Alerting</a>
+ — the opt-in <code>PrometheusRule</code> alert catalog with
+its runbook links, plus Kubernetes Events routed through Flux&rsquo;s
+notification-controller.</li>
+</ul>
+<p>Logging applies to every mode JaaS runs in. Tracing, metrics, and alerting are
+operator-mode concerns and take effect once <code>--enable-flux-integration</code> is set
+(<code>operator.enabled</code> in the chart).</p>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/operator" term="operator" label="operator"/><category scheme="https://jaas.projects.metio.wtf/tags/logging" term="logging" label="logging"/><category scheme="https://jaas.projects.metio.wtf/tags/tracing" term="tracing" label="tracing"/><category scheme="https://jaas.projects.metio.wtf/tags/metrics" term="metrics" label="metrics"/><category scheme="https://jaas.projects.metio.wtf/tags/alerts" term="alerts" label="alerts"/></entry><entry><title type="html">Service level objectives</title><link href="https://jaas.projects.metio.wtf/observability/slos/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/observability/alerting/?utm_source=atom_feed" rel="related" type="text/html" title="Alerting"/><link href="https://jaas.projects.metio.wtf/observability/dashboard/?utm_source=atom_feed" rel="related" type="text/html" title="Dashboard"/><link href="https://jaas.projects.metio.wtf/observability/metrics/?utm_source=atom_feed" rel="related" type="text/html" title="Metrics"/><link href="https://jaas.projects.metio.wtf/security/admission-webhook/?utm_source=atom_feed" rel="related" type="text/html" title="Admission webhook"/><link href="https://jaas.projects.metio.wtf/operator/creating-sources/?utm_source=atom_feed" rel="related" type="text/html" title="Creating source artifacts"/><id>https://jaas.projects.metio.wtf/observability/slos/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-19T09:16:22+02:00</updated><content type="html"><![CDATA[<blockquote>The JaaS operator&rsquo;s SLOs — reconcile availability and reconcile latency — with their SLIs, targets, error budget, the dashboard that shows them, and how to tune them.</blockquote><p>The JaaS operator tracks two service-level objectives. Each is an objective on a
+service-level indicator (SLI) computed from the <a href="/observability/metrics/">metrics</a>
+,
+measured over a rolling window. The published dashboard renders them, and the Helm
+chart can alert on them.</p>
+<h2 id="slo-1--reconcile-availability">SLO 1 — reconcile availability</h2>
+<p><strong>Objective:</strong> ≥ <strong>99%</strong> of syncing reconciles reach <code>Ready=True</code>, over a <strong>28-day</strong>
+window.</p>
+<p>The SLI counts only reconciles that were actually trying to sync — the intentional
+<code>Pending</code> and <code>Suspended</code> states are excluded from both halves:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-promql" data-lang="promql"><span class="line"><span class="cl"><span class="k">sum</span><span class="o">(</span><span class="kr">rate</span><span class="o">(</span><span class="nv">jaas_snippet_reconcile_total</span><span class="p">{</span><span class="nl">status</span><span class="o">=</span><span class="p">&#34;</span><span class="s">True</span><span class="p">&#34;}[</span><span class="s">28d</span><span class="p">]</span><span class="o">))</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="o">/</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="o">(</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="k">sum</span><span class="o">(</span><span class="kr">rate</span><span class="o">(</span><span class="nv">jaas_snippet_reconcile_total</span><span class="p">{</span><span class="nl">status</span><span class="o">=</span><span class="p">&#34;</span><span class="s">True</span><span class="p">&#34;}[</span><span class="s">28d</span><span class="p">]</span><span class="o">))</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="o">+</span><span class="w"> </span><span class="k">sum</span><span class="o">(</span><span class="kr">rate</span><span class="o">(</span><span class="nv">jaas_snippet_reconcile_total</span><span class="p">{</span><span class="nl">status</span><span class="o">=</span><span class="p">&#34;</span><span class="s">False</span><span class="p">&#34;,</span><span class="nl">reason</span><span class="o">!~</span><span class="p">&#34;</span><span class="s">Suspended|Pending</span><span class="p">&#34;}[</span><span class="s">28d</span><span class="p">]</span><span class="o">))</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="o">)</span><span class="w">
+</span></span></span></code></pre></div><p>The <strong>error budget</strong> is the 1% of reconciles allowed to fail over the window.
+Remaining budget, normalised so <code>1</code> is full and <code>0</code> is exhausted:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-promql" data-lang="promql"><span class="line"><span class="cl"><span class="o">(&lt;</span><span class="nv">availability</span><span class="o">&gt;</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mf">0.99</span><span class="o">)</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="o">(</span><span class="mi">1</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mf">0.99</span><span class="o">)</span><span class="w">
+</span></span></span></code></pre></div><h2 id="slo-2--reconcile-latency">SLO 2 — reconcile latency</h2>
+<p><strong>Objective:</strong> the JsonnetSnippet controller&rsquo;s <strong>p95</strong> reconcile duration stays
+<strong>below 30s</strong> over the window.</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-promql" data-lang="promql"><span class="line"><span class="cl"><span class="kr">histogram_quantile</span><span class="o">(</span><span class="mf">0.95</span><span class="p">,</span><span class="w"> </span><span class="k">sum</span><span class="w"> </span><span class="k">by</span><span class="w"> </span><span class="o">(</span><span class="nv">le</span><span class="o">)</span><span class="w"> </span><span class="o">(</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="kr">rate</span><span class="o">(</span><span class="nv">controller_runtime_reconcile_time_seconds_bucket</span><span class="p">{</span><span class="nl">controller</span><span class="o">=</span><span class="p">&#34;</span><span class="s">jsonnetsnippet</span><span class="p">&#34;}[</span><span class="s">28d</span><span class="p">]</span><span class="o">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="o">))</span><span class="w">
+</span></span></span></code></pre></div><h2 id="see-the-slos-on-the-dashboard">See the SLOs on the dashboard</h2>
+<p>The published <a href="/observability/dashboard/">dashboard</a>
+ opens with an SLO band:
+current availability against its objective, error budget remaining, p95 latency
+against its objective, and an availability-versus-objective trend. The
+operator-internals panels below explain any movement.</p>
+<p>The objectives and window are top-level arguments, so you set them per environment
+when you render the dashboard through a <code>JsonnetSnippet</code>:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">spec</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">tlas</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">datasource</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&#34;prometheus&#34;</span><span class="p">]</span><span class="w">   </span><span class="c"># your Prometheus datasource UID</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">window</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&#34;28d&#34;</span><span class="p">]</span><span class="w">              </span><span class="c"># SLO window</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">availabilityTarget</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&#34;0.99&#34;</span><span class="p">]</span><span class="w"> </span><span class="c"># 99%</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">latencyTarget</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&#34;30&#34;</span><span class="p">]</span><span class="w">        </span><span class="c"># seconds</span><span class="w">
+</span></span></span></code></pre></div><p>A short window is fine for a demo; a real <code>28d</code> SLI needs at least that much
+Prometheus retention. For long windows, precompute the SLI with a recording rule
+and point <code>window</code> at the recorded series instead of a raw <code>rate(...[28d])</code>.</p>
+<h2 id="alert-on-the-budget">Alert on the budget</h2>
+<p>The shipped <a href="/observability/alerting/">alerts</a>
+ already page on the <em>causes</em> of SLO
+loss (reconcile errors, latency, eval saturation). To alert on the objective
+itself, add an availability-SLO rule through the chart&rsquo;s <code>extraRules</code> passthrough —
+here it fires when recent availability drops below 99%:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">operator</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">metrics</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">prometheusRule</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">extraRules</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span>- <span class="nt">alert</span><span class="p">:</span><span class="w"> </span><span class="l">JaaSReconcileAvailabilityBelowSLO</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">          </span><span class="nt">expr</span><span class="p">:</span><span class="w"> </span><span class="p">|</span><span class="sd">
+</span></span></span><span class="line"><span class="cl"><span class="sd">            (
+</span></span></span><span class="line"><span class="cl"><span class="sd">              sum(rate(jaas_snippet_reconcile_total{status=&#34;True&#34;}[1h]))
+</span></span></span><span class="line"><span class="cl"><span class="sd">              /
+</span></span></span><span class="line"><span class="cl"><span class="sd">              (
+</span></span></span><span class="line"><span class="cl"><span class="sd">                sum(rate(jaas_snippet_reconcile_total{status=&#34;True&#34;}[1h]))
+</span></span></span><span class="line"><span class="cl"><span class="sd">                + sum(rate(jaas_snippet_reconcile_total{status=&#34;False&#34;,reason!~&#34;Suspended|Pending&#34;}[1h]))
+</span></span></span><span class="line"><span class="cl"><span class="sd">              )
+</span></span></span><span class="line"><span class="cl"><span class="sd">            ) &lt; 0.99</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">          </span><span class="nt">for</span><span class="p">:</span><span class="w"> </span><span class="l">1h</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">          </span><span class="nt">labels</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="nt">severity</span><span class="p">:</span><span class="w"> </span><span class="l">warning</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">          </span><span class="nt">annotations</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="nt">summary</span><span class="p">:</span><span class="w"> </span><span class="l">JaaS reconcile availability is below its 99% objective</span><span class="w">
+</span></span></span></code></pre></div><p>The alert measures a short recent window (<code>1h</code>) so it pages while the budget is
+actively burning; the dashboard&rsquo;s <code>window</code> shows the full SLO window. See
+<a href="/observability/alerting/">Alerting</a>
+ for the rest of the catalog.</p>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/operator" term="operator" label="operator"/><category scheme="https://jaas.projects.metio.wtf/tags/slo" term="slo" label="slo"/><category scheme="https://jaas.projects.metio.wtf/tags/metrics" term="metrics" label="metrics"/><category scheme="https://jaas.projects.metio.wtf/tags/alerts" term="alerts" label="alerts"/></entry><entry><title type="html">Workqueue saturation</title><link href="https://jaas.projects.metio.wtf/runbooks/workqueue-saturation/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/runbooks/reconcile-latency/?utm_source=atom_feed" rel="related" type="text/html" title="High reconcile latency"/><link href="https://jaas.projects.metio.wtf/runbooks/artifacttoolarge/?utm_source=atom_feed" rel="related" type="text/html" title="ArtifactTooLarge"/><link href="https://jaas.projects.metio.wtf/runbooks/crd-watch-engagement/?utm_source=atom_feed" rel="related" type="text/html" title="CRD watch engagement failing"/><link href="https://jaas.projects.metio.wtf/runbooks/crossnamespacerefrejected/?utm_source=atom_feed" rel="related" type="text/html" title="CrossNamespaceRefRejected"/><link href="https://jaas.projects.metio.wtf/runbooks/dependencycycle/?utm_source=atom_feed" rel="related" type="text/html" title="DependencyCycle"/><id>https://jaas.projects.metio.wtf/runbooks/workqueue-saturation/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-18T20:07:20+02:00</updated><content type="html"><![CDATA[<blockquote>The reconciler&rsquo;s workqueue depth exceeds the threshold because the operator is dequeuing reconciles slower than the apiserver enqueues them</blockquote><p>Linked from the <code>JaaSControllerWorkqueueDepthHigh</code> alert. Fires when the reconciler&rsquo;s workqueue holds more items than the configured threshold (default 50) for the alert window. Not tied to a <code>Reason</code> constant — workqueue depth is a controller-runtime signal, not a per-snippet status.</p>
+<h2 id="symptom">Symptom</h2>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-text" data-lang="text"><span class="line"><span class="cl">ALERTS{alertname=&#34;JaaSControllerWorkqueueDepthHigh&#34;, controller=&#34;jsonnetsnippet&#34;}
+</span></span></code></pre></div><ul>
+<li>New snippet writes settle slowly (status takes minutes to flip, not seconds).</li>
+<li>Existing snippets re-render later than <code>spec.interval</code> would suggest.</li>
+<li><code>kubectl describe jsonnetsnippet</code> shows a stale <code>ObservedGeneration</code>.</li>
+</ul>
+<h2 id="cause">Cause</h2>
+<p>The operator is dequeuing reconciles slower than the API server enqueues them. Common causes, in observed-frequency order:</p>
+<ol>
+<li><strong>Slow Publisher backend.</strong> S3 throttling, a slow PVC, or a stalled object-store transaction — each reconcile blocks on the storage <code>Put</code>.</li>
+<li><strong>API server pressure.</strong> The cluster&rsquo;s apiserver is slow on <code>GET</code> / <code>UPDATE</code> (often during a control-plane upgrade or under heavy general load).</li>
+<li><strong>Per-snippet rate-limiter exhaustion.</strong> A flapping snippet eats its token-bucket budget; the controller&rsquo;s exponential backoff stretches the queue.</li>
+<li><strong>A large fan-out from a single source watch.</strong> One Flux source republishes and 100 snippets reference it; every snippet&rsquo;s reconcile lands in the queue at once.</li>
+<li><strong>Webhook latency.</strong> When <code>--enable-webhook</code> is on, every snippet write traverses the validating webhook. A wedged webhook (cert issue, slow tenant client) holds the apiserver&rsquo;s call open and indirectly enlarges the queue.</li>
+</ol>
+<h2 id="diagnosis">Diagnosis</h2>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl"><span class="c1"># Per-controller queue depth — confirm which controller is saturated</span>
+</span></span><span class="line"><span class="cl">kubectl --namespace &lt;jaas-ns&gt; port-forward svc/jaas-metrics 8083:8083 <span class="p">&amp;</span>
+</span></span><span class="line"><span class="cl">curl -s localhost:8083/metrics <span class="p">|</span> grep -E <span class="s1">&#39;workqueue_depth|workqueue_adds_total&#39;</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># Reconcile-time histogram — separates &#34;lots of queued items&#34; (fan-out)</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># from &#34;each reconcile is slow&#34; (storage / apiserver).</span>
+</span></span><span class="line"><span class="cl">curl -s localhost:8083/metrics <span class="p">|</span> grep <span class="s1">&#39;controller_runtime_reconcile_time_seconds&#39;</span>
+</span></span></code></pre></div><p>Cross-reference operator logs for the slow path:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace &lt;jaas-ns&gt; logs deploy/jaas --tail<span class="o">=</span><span class="m">500</span> <span class="se">\
+</span></span></span><span class="line"><span class="cl">  <span class="p">|</span> grep -E <span class="s1">&#39;reconcile|publisher|s3|webhook&#39;</span>
+</span></span></code></pre></div><p>If <code>controller_runtime_reconcile_time_seconds</code> p99 is also high, the alert is the symptom — <code>JaaSReconcileLatencyHigh</code> is the more useful page; see <a href="/runbooks/reconcile-latency/">reconcile-latency</a>
+.</p>
+<h2 id="remediation">Remediation</h2>
+<ul>
+<li><strong>Storage backend slow.</strong> Switch from <code>local</code> (PVC) to <code>s3</code> for higher write throughput, or vice versa if S3 is throttled. See <a href="/runbooks/storage-recovery/">storage-recovery</a>
+.</li>
+<li><strong>Apiserver slow.</strong> Pause spec-update churn (<code>spec.interval</code> longer on hot snippets), then wait for control-plane health to return.</li>
+<li><strong>Rate-limiter exhaustion.</strong> Increase <code>operator.rerenderBurst</code> to absorb the spike, then investigate why a snippet is flapping (typically a <code>Reason*</code> other than <code>Synced</code> keeps firing — check <code>kubectl get events</code>).</li>
+<li><strong>Fan-out from a single source.</strong> Stagger snippet intervals so their watch events don&rsquo;t all settle at once. The controller serializes per-snippet; concurrency across snippets is bounded by <code>MaxConcurrentReconciles</code> (set high enough at chart default — 5 — that drag from a single fan-out is unusual).</li>
+<li><strong>Webhook latency.</strong> <code>kubectl get validatingwebhookconfiguration jaas-jsonnetsnippet --output yaml</code> and confirm the <code>caBundle</code> is current; restart the operator if the cert was rotated externally.</li>
+</ul>
+<h2 id="prevention">Prevention</h2>
+<ul>
+<li>Run <code>operator.metrics.prometheusRule.enabled: true</code> so this alert fires <em>before</em> downstream consumers notice.</li>
+<li>Cap <code>--max-artifact-bytes</code> so a runaway snippet can&rsquo;t slow every Publisher write behind it.</li>
+<li>For multi-replica HA, leader election keeps only one replica reconciling — workqueue depth on the lease-holder is the only one that matters.</li>
+</ul>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/runbooks" term="runbooks" label="runbooks"/><category scheme="https://jaas.projects.metio.wtf/tags/troubleshooting" term="troubleshooting" label="troubleshooting"/><category scheme="https://jaas.projects.metio.wtf/tags/metrics" term="metrics" label="metrics"/></entry></feed>

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Guides on Jsonnet-as-a-Service</title><link>https://jaas.projects.metio.wtf/tags/guides/</link><description>Recent content in Guides on Jsonnet-as-a-Service</description><generator>Hugo</generator><language>en</language><atom:link href="https://jaas.projects.metio.wtf/tags/guides/index.xml" rel="self" type="application/rss+xml"/><item><title>Guides</title><link>https://jaas.projects.metio.wtf/guides/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/guides/</guid><description>&lt;p&gt;Task-focused walkthroughs that stitch several pieces together. For a single
+feature in isolation, see &lt;a href="https://jaas.projects.metio.wtf/rendering/"&gt;Rendering Jsonnet&lt;/a&gt;
+ and
+&lt;a href="https://jaas.projects.metio.wtf/operator/"&gt;Operator mode&lt;/a&gt;
+.&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;&lt;a href="https://jaas.projects.metio.wtf/guides/grafana-dashboards/"&gt;Grafana dashboards&lt;/a&gt;
+&lt;/strong&gt; — render grafonnet
+dashboards through JaaS and hand them to the grafana-operator.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;a href="https://jaas.projects.metio.wtf/guides/deploying-manifests/"&gt;Deploying manifests with StageSet&lt;/a&gt;
+&lt;/strong&gt; — feed a
+rendered artifact into a gated &lt;a href="https://stageset.projects.metio.wtf/"&gt;StageSet&lt;/a&gt;
+
+rollout.&lt;/li&gt;
+&lt;/ul&gt;</description></item></channel></rss>

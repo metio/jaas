@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en"><generator uri="https://gohugo.io/" version="0.163.3">Hugo</generator><title type="html">Multi-Tenancy on Jsonnet-as-a-Service</title><link href="https://jaas.projects.metio.wtf/tags/multi-tenancy/" rel="alternate" type="text/html" title="html"/><link href="https://jaas.projects.metio.wtf/tags/multi-tenancy/index.xml" rel="alternate" type="application/rss+xml" title="rss"/><link href="https://jaas.projects.metio.wtf/tags/multi-tenancy/atom.xml" rel="self" type="application/atom+xml" title="atom"/><updated>2026-07-02T07:56:37+00:00</updated><author><name>metio.wtf</name></author><id>https://jaas.projects.metio.wtf/tags/multi-tenancy/</id><entry><title type="html">Security &amp; multi-tenancy</title><link href="https://jaas.projects.metio.wtf/security/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/runbooks/crossnamespacerefrejected/?utm_source=atom_feed" rel="related" type="text/html" title="CrossNamespaceRefRejected"/><link href="https://jaas.projects.metio.wtf/rendering/evaluation-and-security/?utm_source=atom_feed" rel="related" type="text/html" title="Evaluation and security"/><link href="https://jaas.projects.metio.wtf/runbooks/librarynotfound/?utm_source=atom_feed" rel="related" type="text/html" title="LibraryNotFound"/><link href="https://jaas.projects.metio.wtf/security/network-policy/?utm_source=atom_feed" rel="related" type="text/html" title="Network policy"/><link href="https://jaas.projects.metio.wtf/running/production/?utm_source=atom_feed" rel="related" type="text/html" title="Production"/><id>https://jaas.projects.metio.wtf/security/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-26T15:54:29+02:00</updated><content type="html"><![CDATA[<blockquote>Run JaaS safely — tenant impersonation and RBAC, admission validation, network policy, and service mesh.</blockquote><p>How to run JaaS without granting it broad cluster power and how to constrain what
+it can reach. In operator mode, snippets resolve under a tenant ServiceAccount, so
+a snippet can do exactly what its RBAC allows and no more.</p>
+<ul>
+<li><strong><a href="/security/tenancy-and-rbac/">Tenancy and RBAC</a>
+</strong> — tenant impersonation and
+the permissions the operator needs.</li>
+<li><strong><a href="/security/admission-webhook/">Admission webhook</a>
+</strong> — validate resources at
+admission time.</li>
+<li><strong><a href="/security/network-policy/">Network policy</a>
+</strong> — lock JaaS&rsquo;s traffic down to
+what it needs.</li>
+<li><strong><a href="/security/service-mesh/">Service mesh</a>
+</strong> — run JaaS inside a mesh.</li>
+</ul>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/security" term="security" label="security"/><category scheme="https://jaas.projects.metio.wtf/tags/multi-tenancy" term="multi-tenancy" label="multi-tenancy"/><category scheme="https://jaas.projects.metio.wtf/tags/rbac" term="rbac" label="rbac"/></entry></feed>

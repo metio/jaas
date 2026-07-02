@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en"><generator uri="https://gohugo.io/" version="0.163.3">Hugo</generator><title type="html">Grafana-Operator on Jsonnet-as-a-Service</title><link href="https://jaas.projects.metio.wtf/tags/grafana-operator/" rel="alternate" type="text/html" title="html"/><link href="https://jaas.projects.metio.wtf/tags/grafana-operator/index.xml" rel="alternate" type="application/rss+xml" title="rss"/><link href="https://jaas.projects.metio.wtf/tags/grafana-operator/atom.xml" rel="self" type="application/atom+xml" title="atom"/><updated>2026-07-02T07:56:37+00:00</updated><author><name>metio.wtf</name></author><id>https://jaas.projects.metio.wtf/tags/grafana-operator/</id><entry><title type="html">JaaS and grafana-operator</title><link href="https://jaas.projects.metio.wtf/comparisons/grafana-operator/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/comparisons/tanka/?utm_source=atom_feed" rel="related" type="text/html" title="JaaS vs Tanka"/><link href="https://jaas.projects.metio.wtf/comparisons/jsonnet-controller/?utm_source=atom_feed" rel="related" type="text/html" title="JaaS vs jsonnet-controller"/><link href="https://jaas.projects.metio.wtf/comparisons/jsonnet-cli/?utm_source=atom_feed" rel="related" type="text/html" title="JaaS vs the jsonnet CLI"/><link href="https://jaas.projects.metio.wtf/comparisons/flux-operator/?utm_source=atom_feed" rel="related" type="text/html" title="vs Flux Operator ResourceSet"/><id>https://jaas.projects.metio.wtf/comparisons/grafana-operator/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-26T15:54:29+02:00</updated><content type="html"><![CDATA[<blockquote>How JaaS renders Grafana dashboard JSON from Jsonnet while grafana-operator reconciles it into Grafana.</blockquote><p>JaaS and the <a href="https://grafana.github.io/grafana-operator/">grafana-operator</a>
+ are
+not alternatives — they do different jobs and are commonly used together. JaaS
+<em>produces</em> dashboard JSON from Jsonnet; grafana-operator <em>consumes</em> dashboard
+JSON and reconciles it into a Grafana instance.</p>
+<h2 id="division-of-labour">Division of labour</h2>
+<p>grafana-operator manages Grafana itself. It reconciles <code>GrafanaDashboard</code>,
+<code>GrafanaDatasource</code>, <code>GrafanaFolder</code>, and related resources into one or more
+Grafana instances, handling authentication, folder placement, datasource wiring,
+and drift correction inside Grafana. A <code>GrafanaDashboard</code> can take its dashboard
+model from inline JSON, a URL, a ConfigMap, a <code>grafana.com</code> dashboard ID, or a
+remote source.</p>
+<p>JaaS evaluates Jsonnet — including <a href="https://grafana.github.io/grafonnet/">grafonnet</a>
+
+— and publishes the rendered dashboard JSON as a Flux <code>ExternalArtifact</code>. It
+knows nothing about Grafana: it renders JSON and stops there.</p>
+<p>So the two compose along a clean seam. You author dashboards in grafonnet, JaaS
+renders them to JSON, and grafana-operator takes that JSON and reconciles it into
+Grafana. Each tool owns one half of the pipeline and neither reaches into the
+other&rsquo;s domain.</p>
+<h2 id="when-grafana-operator-alone-is-enough">When grafana-operator alone is enough</h2>
+<p>If your dashboards are already plain JSON, or you consume them by <code>grafana.com</code>
+dashboard ID, or you maintain them in the Grafana UI and export the model, then
+grafana-operator covers the whole workflow on its own. There is no Jsonnet to
+render, so there is nothing for JaaS to do. Reach for grafana-operator by itself
+whenever the dashboard model exists as static JSON.</p>
+<h2 id="when-to-add-jaas">When to add JaaS</h2>
+<p>Add JaaS when your dashboards are authored in grafonnet (or any Jsonnet),
+typically to share panels, variables, and layout helpers across many dashboards
+instead of duplicating JSON. JaaS turns that Jsonnet into the JSON
+grafana-operator expects, with the same <code>jsonnet -J vendor</code> import resolution
+you use locally, so a dashboard renders identically on your workstation and
+in-cluster. grafana-operator then reconciles the rendered output as it would any
+other dashboard JSON.</p>
+<h2 id="wiring-them-together">Wiring them together</h2>
+<p>The grafana-operator project documents the JaaS integration directly, including
+the <code>GrafanaDashboard</code> configuration that points at a JaaS-rendered artifact:
+<a href="https://grafana.github.io/grafana-operator/docs/examples/dashboard/jaas/readme/">grafana-operator dashboard example with JaaS</a>
+.
+Keep all <code>GrafanaDashboard</code>, datasource, and folder configuration on the
+grafana-operator side; JaaS contributes only the rendering step and the
+<code>ExternalArtifact</code> it publishes.</p>
+<p>The <a href="/guides/grafana-dashboards/">Grafana dashboards</a>
+ tutorial shows the JaaS
+side — authoring a grafonnet dashboard as a <code>JsonnetSnippet</code> and publishing the
+rendered JSON.</p>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/comparison" term="comparison" label="comparison"/><category scheme="https://jaas.projects.metio.wtf/tags/grafana-operator" term="grafana-operator" label="grafana-operator"/></entry></feed>

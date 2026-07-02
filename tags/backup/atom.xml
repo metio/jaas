@@ -1,0 +1,159 @@
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en"><generator uri="https://gohugo.io/" version="0.163.3">Hugo</generator><title type="html">Backup on Jsonnet-as-a-Service</title><link href="https://jaas.projects.metio.wtf/tags/backup/" rel="alternate" type="text/html" title="html"/><link href="https://jaas.projects.metio.wtf/tags/backup/index.xml" rel="alternate" type="application/rss+xml" title="rss"/><link href="https://jaas.projects.metio.wtf/tags/backup/atom.xml" rel="self" type="application/atom+xml" title="atom"/><updated>2026-07-02T07:56:37+00:00</updated><author><name>metio.wtf</name></author><id>https://jaas.projects.metio.wtf/tags/backup/</id><entry><title type="html">Backup and disaster recovery</title><link href="https://jaas.projects.metio.wtf/running/disaster-recovery/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/runbooks/artifacttoolarge/?utm_source=atom_feed" rel="related" type="text/html" title="ArtifactTooLarge"/><link href="https://jaas.projects.metio.wtf/reference/configuration/?utm_source=atom_feed" rel="related" type="text/html" title="Configuration reference"/><link href="https://jaas.projects.metio.wtf/reference/helm-values/?utm_source=atom_feed" rel="related" type="text/html" title="Helm chart values"/><link href="https://jaas.projects.metio.wtf/get-started/kubernetes/?utm_source=atom_feed" rel="related" type="text/html" title="Kubernetes"/><link href="https://jaas.projects.metio.wtf/running/operations/?utm_source=atom_feed" rel="related" type="text/html" title="Operations"/><id>https://jaas.projects.metio.wtf/running/disaster-recovery/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-26T15:54:29+02:00</updated><content type="html"><![CDATA[<blockquote>Back up the right thing and rebuild a JaaS install after cluster or storage loss — the artifact store is a regeneratable cache, your GitOps repository is the source of truth.</blockquote><p>Back up your GitOps repository and rebuild a lost JaaS install from it. The
+operator reconstructs every derived artifact from the <code>JsonnetSnippet</code> and
+<code>JsonnetLibrary</code> resources you already keep under version control — so a full
+recovery is &ldquo;reinstall the chart, restore the resources, wait for one
+reconcile loop&rdquo;.</p>
+<h2 id="recovery-philosophy">Recovery philosophy</h2>
+<p>JaaS is a renderer. On every reconcile it re-evaluates a snippet&rsquo;s spec and
+re-publishes the result, so the bytes it writes to the artifact store are
+<strong>derived state</strong>, not data you author. Two facts make recovery cheap:</p>
+<ul>
+<li>The artifact store — the filesystem volume behind <code>--storage-path</code>, or the
+S3 bucket behind <code>--storage-backend=s3</code> — is a <strong>cache</strong>. Losing it costs a
+re-render, not your work.</li>
+<li><code>Publish</code> is <strong>deterministic and idempotent</strong>: the same snippet at the same
+revision renders to byte-identical tarball bytes and therefore the same
+<code>sha256</code> digest. Re-publishing after storage loss recreates the exact same
+artifact at the exact same URL.</li>
+</ul>
+<p>The source of truth is your <strong>GitOps repository</strong> — the <code>JsonnetSnippet</code> and
+<code>JsonnetLibrary</code> resources, plus the upstream Flux sources (<code>GitRepository</code>,
+<code>OCIRepository</code>, <code>Bucket</code>) those snippets fetch from. Back that up and you can
+rebuild everything else.</p>
+<p>Backing up the artifact store is therefore <strong>optional</strong>. It buys one thing: a
+shorter <a href="#the-re-render-gap">re-render gap</a>
+ on recovery, because consumers can
+keep fetching the restored tarballs while the operator catches up. It is never
+required for correctness.</p>
+<h2 id="what-to-back-up">What to back up</h2>
+<table>
+	<thead>
+			<tr>
+					<th>Component</th>
+					<th>Source of truth</th>
+					<th>Regeneratable?</th>
+					<th>Back up?</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><code>JsonnetSnippet</code> / <code>JsonnetLibrary</code> resources</td>
+					<td>Your GitOps repository</td>
+					<td>No</td>
+					<td><strong>Yes</strong> — this is the only required backup</td>
+			</tr>
+			<tr>
+					<td>Upstream Flux sources (<code>GitRepository</code>, <code>OCIRepository</code>, <code>Bucket</code>)</td>
+					<td>Your GitOps repository</td>
+					<td>No</td>
+					<td><strong>Yes</strong> — same repository</td>
+			</tr>
+			<tr>
+					<td>Artifact tarballs (PVC or S3 bucket)</td>
+					<td>The snippet spec</td>
+					<td>Yes — re-rendered on reconcile</td>
+					<td>Optional — only shortens the recovery gap</td>
+			</tr>
+			<tr>
+					<td><code>ExternalArtifact</code> resources</td>
+					<td>The Publisher</td>
+					<td>Yes — re-published every reconcile</td>
+					<td>No</td>
+			</tr>
+			<tr>
+					<td><code>status.history</code> revisions</td>
+					<td>Incremental publishes</td>
+					<td>Yes — rebuilt as snippets re-render</td>
+					<td>No</td>
+			</tr>
+			<tr>
+					<td>Webhook serving CA (self-signed mode)</td>
+					<td>Generated in-pod</td>
+					<td>Yes — regenerated on startup</td>
+					<td>No</td>
+			</tr>
+			<tr>
+					<td>Leader-election lease</td>
+					<td>Ephemeral</td>
+					<td>Yes — re-elected on startup</td>
+					<td>No</td>
+			</tr>
+	</tbody>
+</table>
+<h2 id="rebuild-a-cluster-from-scratch">Rebuild a cluster from scratch</h2>
+<p>Restore in this order. There is <strong>no manual re-render step</strong> — the operator
+re-publishes automatically once the resources exist.</p>
+<ol>
+<li>
+<p><strong>Install the chart.</strong></p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">helm --namespace &lt;jaas-ns&gt; install jaas oci://ghcr.io/metio/helm-charts/jaas <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --create-namespace <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --set operator.enabled<span class="o">=</span><span class="nb">true</span>
+</span></span></code></pre></div></li>
+<li>
+<p><strong>Restore the resources.</strong> If Flux manages the cluster, point it at your
+GitOps repository and let it sync the <code>JsonnetSnippet</code> / <code>JsonnetLibrary</code>
+resources and their upstream sources back in. Without Flux, re-apply them
+from your backup:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl apply --filename &lt;your-gitops-checkout&gt;/
+</span></span></code></pre></div></li>
+<li>
+<p><strong>(Optional) Restore the artifact store.</strong> If you snapshot the PVC or
+replicate the S3 bucket, restore it now to skip the re-render gap. Skipping
+this step is safe — the operator repopulates the store from the specs.</p>
+</li>
+<li>
+<p><strong>Wait for reconciliation.</strong> The operator re-evaluates every snippet and
+re-publishes its tarball + <code>ExternalArtifact</code>. With the chart default
+(<code>replicas.max: 1</code>) the store is fully repopulated within one reconcile
+loop.</p>
+</li>
+</ol>
+<h2 id="the-re-render-gap">The re-render gap</h2>
+<p>Between a storage loss and the first re-publish, an <code>ExternalArtifact</code>&rsquo;s
+<code>status.artifact.url</code> points at a tarball that is not yet on disk, so
+downstream Flux consumers (kustomize-controller, helm-controller,
+grafana-operator) see <code>404 Not Found</code>. The operator marks the artifact
+not-ready until <code>Publish</code> runs again, and consumers gate on <code>Ready=True</code>, so
+they retry with backoff and recover on their own once the re-render lands.</p>
+<p>To shrink the gap:</p>
+<ul>
+<li>
+<p><strong>Restore the store</strong> (step 3 above) so consumers keep fetching while the
+operator catches up.</p>
+</li>
+<li>
+<p><strong>Force a reconcile</strong> instead of waiting for the next watch tick:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl annotate --all-namespaces jsonnetsnippet --all <span class="se">\
+</span></span></span><span class="line"><span class="cl">  jaas.metio.wtf/reconcile-at<span class="o">=</span><span class="k">$(</span>date -u +%FT%TZ<span class="k">)</span> --overwrite
+</span></span></code></pre></div><p>Re-running this against a healthy store is safe — <code>Publish</code> is idempotent,
+so it rewrites byte-identical tarballs.</p>
+</li>
+</ul>
+<h2 id="verify-recovery">Verify recovery</h2>
+<p>Confirm every snippet rendered and every artifact is fetchable.</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl"><span class="c1"># Every snippet should report Ready=True.</span>
+</span></span><span class="line"><span class="cl">kubectl get jsonnetsnippet --all-namespaces
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># Every ExternalArtifact should carry a populated artifact URL.</span>
+</span></span><span class="line"><span class="cl">kubectl get externalartifact --all-namespaces <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --output custom-columns<span class="o">=</span>NS:.metadata.namespace,NAME:.metadata.name,URL:.status.artifact.url
+</span></span></code></pre></div><p>Dereference an artifact URL to confirm the store serves bytes — port-forward
+the storage Service and fetch one tarball:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace &lt;jaas-ns&gt; port-forward svc/jaas-storage 8082:8082 <span class="p">&amp;</span>
+</span></span><span class="line"><span class="cl">curl -fsSL http://localhost:8082/&lt;namespace&gt;/&lt;snippet&gt;/&lt;rev&gt;.tar.gz <span class="p">|</span> wc -c
+</span></span></code></pre></div><p>A non-zero byte count and a <code>2xx</code> status mean the artifact is recovered and
+downstream consumers can fetch it.</p>
+<h2 id="related-pages">Related pages</h2>
+<ul>
+<li><a href="/runbooks/storage-recovery/">Storage backend recovery</a>
+ — per-incident
+procedures for a degraded store (PVC lost, S3 outage, disk full, OOM,
+forced withdraw, HA lease handoff).</li>
+<li><a href="/observability/metrics/">Metrics</a>
+ and <a href="/observability/alerting/">Alerting</a>
+
+— signals that confirm a recovery completed and catch the next incident
+before it spreads.</li>
+</ul>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/installation" term="installation" label="installation"/><category scheme="https://jaas.projects.metio.wtf/tags/backup" term="backup" label="backup"/><category scheme="https://jaas.projects.metio.wtf/tags/disaster-recovery" term="disaster-recovery" label="disaster-recovery"/><category scheme="https://jaas.projects.metio.wtf/tags/storage" term="storage" label="storage"/><category scheme="https://jaas.projects.metio.wtf/tags/gitops" term="gitops" label="gitops"/></entry></feed>

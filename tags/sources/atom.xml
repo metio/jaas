@@ -1,0 +1,610 @@
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en"><generator uri="https://gohugo.io/" version="0.163.3">Hugo</generator><title type="html">Sources on Jsonnet-as-a-Service</title><link href="https://jaas.projects.metio.wtf/tags/sources/" rel="alternate" type="text/html" title="html"/><link href="https://jaas.projects.metio.wtf/tags/sources/index.xml" rel="alternate" type="application/rss+xml" title="rss"/><link href="https://jaas.projects.metio.wtf/tags/sources/atom.xml" rel="self" type="application/atom+xml" title="atom"/><updated>2026-07-02T07:56:37+00:00</updated><author><name>metio.wtf</name></author><id>https://jaas.projects.metio.wtf/tags/sources/</id><entry><title type="html">Creating source artifacts</title><link href="https://jaas.projects.metio.wtf/operator/creating-sources/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/api/externalartifact/?utm_source=atom_feed" rel="related" type="text/html" title="ExternalArtifact output contract"/><link href="https://jaas.projects.metio.wtf/api/jsonnetsnippet/?utm_source=atom_feed" rel="related" type="text/html" title="JsonnetSnippet"/><link href="https://jaas.projects.metio.wtf/operator/operator-mode/?utm_source=atom_feed" rel="related" type="text/html" title="Operator mode"/><link href="https://jaas.projects.metio.wtf/operator/snippet-sources/?utm_source=atom_feed" rel="related" type="text/html" title="Snippet sources"/><link href="https://jaas.projects.metio.wtf/security/admission-webhook/?utm_source=atom_feed" rel="related" type="text/html" title="Admission webhook"/><id>https://jaas.projects.metio.wtf/operator/creating-sources/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-26T15:54:29+02:00</updated><content type="html"><![CDATA[<blockquote>Step-by-step recipes to prepare GitRepository, OCIRepository, and Bucket sources for a JsonnetSnippet — including the single-layer rule for OCI.</blockquote><p>A <code>JsonnetSnippet</code>&rsquo;s <code>spec.sourceRef</code> consumes a Flux source. The operator reads
+the referenced source CR&rsquo;s <code>status.artifact.url</code>, downloads the tarball Flux&rsquo;s
+source-controller serves there, verifies its <code>status.artifact.digest</code>, and
+extracts it into the snippet&rsquo;s file tree. Every supported kind —
+<code>GitRepository</code>, <code>OCIRepository</code>, and <code>Bucket</code> — reaches the operator through
+that same <code>status.artifact</code> contract, so the operator never talks to a git
+remote, an OCI registry, or an object store directly. Flux owns that fetch; the
+operator consumes the artifact Flux already produced.</p>
+<p>The recipes below show how to produce each source kind so a snippet can reference
+it. <a href="/operator/snippet-sources/">Snippet sources</a>
+ covers wiring the finished source
+into a <code>JsonnetSnippet</code>. For the source CRDs themselves and their full field
+reference, see the <a href="https://fluxcd.io/">Flux documentation</a>
+.</p>
+<p>A <code>JsonnetSnippet</code> references the source you create with a <code>spec.sourceRef</code>:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l">jaas.metio.wtf/v1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">JsonnetSnippet</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">metadata</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">dashboards</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">default</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">spec</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">serviceAccountName</span><span class="p">:</span><span class="w"> </span><span class="l">dashboards-tenant</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">entryFile</span><span class="p">:</span><span class="w"> </span><span class="l">dashboards/api-latency.jsonnet</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">sourceRef</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">GitRepository     </span><span class="w"> </span><span class="c"># or OCIRepository, or Bucket</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">dashboards-source</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">path: dashboards/        # optional</span><span class="p">:</span><span class="w"> </span><span class="l">narrow extraction to a subtree</span><span class="w">
+</span></span></span></code></pre></div><p>The tenant ServiceAccount needs <code>get</code> on the referenced source kind. See
+<a href="/security/tenancy-and-rbac/">Tenancy and RBAC</a>
+ for the exact verbs.</p>
+<h2 id="gitrepository">GitRepository</h2>
+<p>A <code>GitRepository</code> source tracks a branch, tag, or commit of a git repository.
+source-controller clones the ref and packs the tree into the tarball the
+operator fetches. There is no packaging or layer constraint — the operator
+extracts whatever files the commit contains.</p>
+<ol>
+<li>
+<p>Lay out your Jsonnet files in a directory. File names and the directory
+structure carry over verbatim into the snippet&rsquo;s file tree, so place the
+entry file where <code>spec.entryFile</code> expects it:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-text" data-lang="text"><span class="line"><span class="cl">dashboards/
+</span></span><span class="line"><span class="cl">├── api-latency.jsonnet
+</span></span><span class="line"><span class="cl">├── error-budget.jsonnet
+</span></span><span class="line"><span class="cl">└── lib/
+</span></span><span class="line"><span class="cl">    └── panels.libsonnet
+</span></span></code></pre></div></li>
+<li>
+<p>Commit the files and push them to a git repository:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">git add dashboards/
+</span></span><span class="line"><span class="cl">git commit -m <span class="s2">&#34;Add Grafana dashboards&#34;</span>
+</span></span><span class="line"><span class="cl">git push origin main
+</span></span></code></pre></div></li>
+<li>
+<p>Create the <code>GitRepository</code> source. With the Flux CLI:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">flux create <span class="nb">source</span> git dashboards-source <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --url<span class="o">=</span>https://github.com/example-org/grafana-dashboards <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --branch<span class="o">=</span>main <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --interval<span class="o">=</span>5m <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --namespace<span class="o">=</span>default <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --export
+</span></span></code></pre></div><p>The equivalent CR YAML, which is authoritative:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l">source.toolkit.fluxcd.io/v1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">GitRepository</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">metadata</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">dashboards-source</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">default</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">spec</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">interval</span><span class="p">:</span><span class="w"> </span><span class="l">5m</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l">https://github.com/example-org/grafana-dashboards</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">ref</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">branch</span><span class="p">:</span><span class="w"> </span><span class="l">main</span><span class="w">
+</span></span></span></code></pre></div></li>
+<li>
+<p>Point a snippet&rsquo;s <code>spec.sourceRef</code> at the source. Set <code>kind: GitRepository</code>,
+<code>name: dashboards-source</code>, and optionally <code>path:</code> to extract only a subtree:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l">jaas.metio.wtf/v1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">JsonnetSnippet</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">metadata</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">api-latency-dashboard</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">default</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">spec</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">serviceAccountName</span><span class="p">:</span><span class="w"> </span><span class="l">dashboards-tenant</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">entryFile</span><span class="p">:</span><span class="w"> </span><span class="l">dashboards/api-latency.jsonnet</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">sourceRef</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">GitRepository</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">dashboards-source</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l">dashboards/</span><span class="w">
+</span></span></span></code></pre></div></li>
+</ol>
+<p>When a new commit lands on the tracked branch, source-controller republishes the
+artifact and the operator&rsquo;s watch re-renders the snippet.</p>
+<h2 id="ocirepository">OCIRepository</h2>
+<p>An <code>OCIRepository</code> source pulls an OCI artifact from a registry. source-controller
+unpacks the artifact&rsquo;s single gzipped-tar layer into the tarball the operator
+fetches. Producing the artifact with <code>flux push artifact</code> packs a directory into
+exactly that shape.</p>
+<ol>
+<li>
+<p>Lay out your Jsonnet files in a directory, the same as for a git source:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-text" data-lang="text"><span class="line"><span class="cl">./
+</span></span><span class="line"><span class="cl">├── main.jsonnet
+</span></span><span class="line"><span class="cl">└── lib/
+</span></span><span class="line"><span class="cl">    └── panels.libsonnet
+</span></span></code></pre></div></li>
+<li>
+<p>Push the directory as an OCI artifact with the Flux CLI. <code>flux push artifact</code>
+packs the directory into one gzipped-tar layer and pushes it to the registry:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">flux push artifact oci://ghcr.io/example-org/dashboards:v1 <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --path<span class="o">=</span>. <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --source<span class="o">=</span><span class="s2">&#34;</span><span class="k">$(</span>git config --get remote.origin.url<span class="k">)</span><span class="s2">&#34;</span> <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --revision<span class="o">=</span><span class="s2">&#34;</span><span class="k">$(</span>git rev-parse HEAD<span class="k">)</span><span class="s2">&#34;</span>
+</span></span></code></pre></div><p><code>--source</code> and <code>--revision</code> stamp provenance metadata onto the artifact;
+set them to a URL and a version identifier of your choosing.</p>
+</li>
+<li>
+<p>Create the <code>OCIRepository</code> source. With the Flux CLI:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">flux create <span class="nb">source</span> oci dashboards-source <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --url<span class="o">=</span>oci://ghcr.io/example-org/dashboards <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --tag<span class="o">=</span>v1 <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --interval<span class="o">=</span>5m <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --namespace<span class="o">=</span>default <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --export
+</span></span></code></pre></div><p>The equivalent CR YAML, which is authoritative:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l">source.toolkit.fluxcd.io/v1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">OCIRepository</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">metadata</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">dashboards-source</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">default</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">spec</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">interval</span><span class="p">:</span><span class="w"> </span><span class="l">5m</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l">oci://ghcr.io/example-org/dashboards</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">ref</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">tag</span><span class="p">:</span><span class="w"> </span><span class="l">v1</span><span class="w">
+</span></span></span></code></pre></div></li>
+<li>
+<p>Point a snippet&rsquo;s <code>spec.sourceRef</code> at the source with <code>kind: OCIRepository</code>:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l">jaas.metio.wtf/v1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">JsonnetSnippet</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">metadata</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">api-latency-dashboard</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">default</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">spec</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">serviceAccountName</span><span class="p">:</span><span class="w"> </span><span class="l">dashboards-tenant</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">entryFile</span><span class="p">:</span><span class="w"> </span><span class="l">main.jsonnet</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">sourceRef</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">OCIRepository</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">dashboards-source</span><span class="w">
+</span></span></span></code></pre></div></li>
+</ol>
+<blockquote>
+<p><strong>Single layer is mandatory.</strong> <code>flux push artifact</code> produces an OCI artifact
+with exactly one gzipped-tar layer, which is what source-controller expects
+and the only shape it unpacks. An artifact built any other way — a hand-rolled
+<code>oras push</code> with one file per layer, a <code>Dockerfile</code>/container-image build, or
+any tool that splits content across multiple layers — is not consumed
+correctly. source-controller cannot reconstruct the file tree, the snippet&rsquo;s
+source never resolves, and the snippet reports <code>Ready=False</code>. Always build OCI
+sources with <code>flux push artifact</code>.</p>
+</blockquote>
+<p>Verify the layer count before relying on an artifact. Fetch the manifest and
+confirm the <code>layers</code> array has length 1:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">oras manifest fetch oci://ghcr.io/example-org/dashboards:v1 <span class="p">|</span> <span class="se">\
+</span></span></span><span class="line"><span class="cl">  jq <span class="s1">&#39;.layers | length&#39;</span>
+</span></span></code></pre></div><p>A result of <code>1</code> is required. Any other number means the artifact was not built
+with <code>flux push artifact</code> and will not resolve.</p>
+<h3 id="private-registries-and-amazon-ecr">Private registries and Amazon ECR</h3>
+<p>source-controller performs the pull, so registry credentials belong on the
+<code>OCIRepository</code> (or on source-controller itself) — never on the JaaS operator or a
+snippet&rsquo;s ServiceAccount. The same applies to a <code>JsonnetLibrary</code> whose <code>sourceRef</code>
+points at an <code>OCIRepository</code>.</p>
+<p>For a generic private registry, add a <code>spec.secretRef</code> to a <code>docker-registry</code>
+Secret. For <strong>Amazon ECR you need no pull Secret at all</strong>: set <code>spec.provider: aws</code>
+and source-controller authenticates with its own ambient AWS identity. On EKS that
+is an IRSA role bound to <strong>source-controller&rsquo;s</strong> ServiceAccount with ECR read
+permissions:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l">source.toolkit.fluxcd.io/v1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">OCIRepository</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">metadata</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">dashboards-source</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">default</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">spec</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">interval</span><span class="p">:</span><span class="w"> </span><span class="l">5m</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">provider</span><span class="p">:</span><span class="w"> </span><span class="l">aws</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l">oci://111122223333.dkr.ecr.eu-west-1.amazonaws.com/dashboards</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">ref</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">tag</span><span class="p">:</span><span class="w"> </span><span class="l">v1</span><span class="w">
+</span></span></span></code></pre></div><p>The IRSA role needs <code>ecr:GetAuthorizationToken</code> (resource <code>*</code>) plus
+<code>ecr:BatchGetImage</code> and <code>ecr:GetDownloadUrlForLayer</code> on the repository. Because the
+credential is source-controller&rsquo;s, one role covers every <code>OCIRepository</code> it pulls,
+and the JaaS operator stays out of the registry path entirely.</p>
+<p>This IRSA role is source-controller&rsquo;s, not the JaaS operator&rsquo;s. The JaaS operator
+uses IRSA only for its own <a href="/operator/storage-and-ha/">S3 storage backend</a>
+ — a
+separate concern from pulling sources.</p>
+<p>There is a third way to load OCI content that does not go through a <code>sourceRef</code> at
+all: the chart can mount snippets and libraries from <strong>OCI image volumes</strong>
+(<code>snippets</code> / <code>additionalLibraries</code>), read straight from a registry into the pod.
+Those volumes are pulled by the <strong>kubelet</strong>, exactly like a container image — so
+they authenticate the way images do, not through IRSA. On EKS that means the
+<strong>node&rsquo;s</strong> IAM role with ECR read (the <code>AmazonEC2ContainerRegistryReadOnly</code>
+managed policy the default node role already carries), or an <code>imagePullSecret</code> on
+the pod. Pod-level IRSA grants the <em>pod&rsquo;s</em> ServiceAccount AWS API access, which the
+kubelet does not use when pulling images, so it is not the mechanism for this path.
+With a node role that can read ECR, image-volume snippets and libraries load with
+no pull Secret. Static OCI mounts and operator mode are mutually exclusive in one
+release, so a given install uses either these mounts or the <code>sourceRef</code> path above,
+not both.</p>
+<p>The <a href="https://github.com/metio/jsonnet-oci-images">jsonnet-oci-images (JOI)</a>
+
+project enforces this same single-layer rule for every image it publishes, so
+its images are ready-made single-layer <code>OCIRepository</code> sources. Reference a JOI
+image directly when you need a shared Jsonnet library tree (grafonnet, the
+jsonnet-libs catalog) rather than building and maintaining your own OCI source.</p>
+<h2 id="bucket">Bucket</h2>
+<p>A <code>Bucket</code> source mirrors objects from an S3- or GCS-compatible bucket.
+source-controller fetches the matching objects, packs them into the tarball the
+operator fetches, and there is no layer constraint — the only requirement is
+that the objects laid out under the bucket prefix form the file tree your snippet
+expects.</p>
+<ol>
+<li>
+<p>Produce the files to upload. Either upload the individual <code>.jsonnet</code> /
+<code>.libsonnet</code> files under a prefix, or pack them into a single archive — both
+work, source-controller flattens the mirrored objects into the file tree:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-text" data-lang="text"><span class="line"><span class="cl">dashboards/
+</span></span><span class="line"><span class="cl">├── main.jsonnet
+</span></span><span class="line"><span class="cl">└── lib/
+</span></span><span class="line"><span class="cl">    └── panels.libsonnet
+</span></span></code></pre></div></li>
+<li>
+<p>Upload the files to the bucket under a prefix. With the AWS CLI against an
+S3-compatible endpoint:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">aws s3 cp dashboards/ s3://example-bucket/dashboards/ <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --recursive <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --endpoint-url<span class="o">=</span>https://s3.example.com
+</span></span></code></pre></div></li>
+<li>
+<p>Create the <code>Bucket</code> source. With the Flux CLI:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">flux create <span class="nb">source</span> bucket dashboards-source <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --bucket-name<span class="o">=</span>example-bucket <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --endpoint<span class="o">=</span>s3.example.com <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --provider<span class="o">=</span>generic <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --secret-ref<span class="o">=</span>bucket-credentials <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --interval<span class="o">=</span>5m <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --namespace<span class="o">=</span>default <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --export
+</span></span></code></pre></div><p>The equivalent CR YAML, which is authoritative:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l">source.toolkit.fluxcd.io/v1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">Bucket</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">metadata</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">dashboards-source</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">default</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">spec</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">interval</span><span class="p">:</span><span class="w"> </span><span class="l">5m</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">provider</span><span class="p">:</span><span class="w"> </span><span class="l">generic</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">bucketName</span><span class="p">:</span><span class="w"> </span><span class="l">example-bucket</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">endpoint</span><span class="p">:</span><span class="w"> </span><span class="l">s3.example.com</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">secretRef</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">bucket-credentials</span><span class="w">
+</span></span></span></code></pre></div><p>The referenced Secret carries the bucket credentials (<code>accesskey</code> /
+<code>secretkey</code>). See the <a href="https://fluxcd.io/">Flux documentation</a>
+ for the Secret
+layout and provider-specific fields.</p>
+</li>
+<li>
+<p>Point a snippet&rsquo;s <code>spec.sourceRef</code> at the source with <code>kind: Bucket</code>. Use
+<code>path:</code> to extract only the prefix that holds your Jsonnet:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l">jaas.metio.wtf/v1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">JsonnetSnippet</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">metadata</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">api-latency-dashboard</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">default</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">spec</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">serviceAccountName</span><span class="p">:</span><span class="w"> </span><span class="l">dashboards-tenant</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">entryFile</span><span class="p">:</span><span class="w"> </span><span class="l">main.jsonnet</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">sourceRef</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">Bucket</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">dashboards-source</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l">dashboards/</span><span class="w">
+</span></span></span></code></pre></div></li>
+</ol>
+<h2 id="which-source-should-i-use">Which source should I use?</h2>
+<table>
+	<thead>
+			<tr>
+					<th>Source</th>
+					<th>Use when</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><code>GitRepository</code></td>
+					<td>Your Jsonnet is human-authored configuration living in a version-controlled git repository.</td>
+			</tr>
+			<tr>
+					<td><code>OCIRepository</code></td>
+					<td>You want an immutable, content-addressed artifact; must be a single layer, and pairs with JOI images.</td>
+			</tr>
+			<tr>
+					<td><code>Bucket</code></td>
+					<td>Your artifacts already live in S3- or GCS-compatible object storage.</td>
+			</tr>
+	</tbody>
+</table>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/operator" term="operator" label="operator"/><category scheme="https://jaas.projects.metio.wtf/tags/sources" term="sources" label="sources"/><category scheme="https://jaas.projects.metio.wtf/tags/oci" term="oci" label="oci"/><category scheme="https://jaas.projects.metio.wtf/tags/flux" term="flux" label="flux"/></entry><entry><title type="html">DependencyCycle</title><link href="https://jaas.projects.metio.wtf/runbooks/dependencycycle/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/runbooks/sourcefetchfailed/?utm_source=atom_feed" rel="related" type="text/html" title="SourceFetchFailed"/><link href="https://jaas.projects.metio.wtf/runbooks/sourcenotready/?utm_source=atom_feed" rel="related" type="text/html" title="SourceNotReady"/><link href="https://jaas.projects.metio.wtf/runbooks/sourcerefnotyetsupported/?utm_source=atom_feed" rel="related" type="text/html" title="SourceRefNotYetSupported"/><link href="https://jaas.projects.metio.wtf/runbooks/artifacttoolarge/?utm_source=atom_feed" rel="related" type="text/html" title="ArtifactTooLarge"/><link href="https://jaas.projects.metio.wtf/runbooks/crd-watch-engagement/?utm_source=atom_feed" rel="related" type="text/html" title="CRD watch engagement failing"/><id>https://jaas.projects.metio.wtf/runbooks/dependencycycle/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-18T20:07:20+02:00</updated><content type="html"><![CDATA[<blockquote>The snippet&rsquo;s sourceRef or library chain loops back to itself, which would cause infinite re-render</blockquote><h2 id="symptom">Symptom</h2>
+<p><code>READY=False</code>, <code>REASON=DependencyCycle</code>. The Message names the snippet that closes the cycle.</p>
+<h2 id="cause">Cause</h2>
+<p>The snippet&rsquo;s <code>spec.sourceRef</code> chain transitively points back at the snippet itself. The reconciler detects this and refuses to publish so chained snippets don&rsquo;t loop forever (each republish would trigger every downstream snippet to re-render, which would re-trigger the upstream, and so on).</p>
+<p>Two cycle shapes:</p>
+<ol>
+<li><strong>Direct sourceRef cycle:</strong> <code>A.spec.sourceRef → ExternalArtifact/A</code>. A snippet sourcing from its own published artifact.</li>
+<li><strong>Library-mediated cycle:</strong> <code>A.spec.libraries → JsonnetLibrary/L</code>, where <code>L.spec.sourceRef → ExternalArtifact/A</code> (or a longer chain back to A).</li>
+</ol>
+<p>The validating webhook (<code>--enable-webhook</code>) rejects new CRs that introduce a cycle at admission; the reconciler check is a fallback for when admission is bypassed or the cycle is introduced retroactively (e.g., adding a new library that closes a loop with existing snippets).</p>
+<h2 id="diagnosis">Diagnosis</h2>
+<p>Walk the chain manually:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace &lt;ns&gt; get jsonnetsnippet &lt;name&gt; --output <span class="nv">jsonpath</span><span class="o">=</span><span class="s1">&#39;{.spec.sourceRef}&#39;</span> <span class="o">&amp;&amp;</span> <span class="nb">echo</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># Then inspect what that sourceRef points at, and what it sources from in turn.</span>
+</span></span></code></pre></div><p>For library-mediated cycles, the chain is:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-text" data-lang="text"><span class="line"><span class="cl">snippet A.spec.libraries[i] → JsonnetLibrary L → L.spec.sourceRef → ExternalArtifact X → snippet that publishes X
+</span></span></code></pre></div><p>If the publishing snippet at the end is A, you have a cycle.</p>
+<h2 id="remediation">Remediation</h2>
+<p>Break the cycle by removing the back-edge. Common fixes:</p>
+<ul>
+<li>detach a library from its sourceRef (inline its files instead, if small)</li>
+<li>have the upstream snippet publish a smaller artifact the downstream doesn&rsquo;t need to re-consume</li>
+<li>restructure so the shared data lives in a static ConfigMap referenced as a sourceRef-equivalent, not in a snippet output</li>
+</ul>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/runbooks" term="runbooks" label="runbooks"/><category scheme="https://jaas.projects.metio.wtf/tags/troubleshooting" term="troubleshooting" label="troubleshooting"/><category scheme="https://jaas.projects.metio.wtf/tags/sources" term="sources" label="sources"/></entry><entry><title type="html">Operator mode</title><link href="https://jaas.projects.metio.wtf/operator/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/operator/creating-sources/?utm_source=atom_feed" rel="related" type="text/html" title="Creating source artifacts"/><link href="https://jaas.projects.metio.wtf/api/externalartifact/?utm_source=atom_feed" rel="related" type="text/html" title="ExternalArtifact output contract"/><link href="https://jaas.projects.metio.wtf/api/jsonnetsnippet/?utm_source=atom_feed" rel="related" type="text/html" title="JsonnetSnippet"/><link href="https://jaas.projects.metio.wtf/operator/operator-mode/?utm_source=atom_feed" rel="related" type="text/html" title="Operator mode"/><link href="https://jaas.projects.metio.wtf/operator/snippet-sources/?utm_source=atom_feed" rel="related" type="text/html" title="Snippet sources"/><id>https://jaas.projects.metio.wtf/operator/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-26T15:54:29+02:00</updated><content type="html"><![CDATA[<blockquote>Run JaaS as a Flux source — evaluate JsonnetSnippet resources and publish the result as an ExternalArtifact for downstream consumers.</blockquote><p>With Flux integration enabled, JaaS watches <code>JsonnetSnippet</code> resources, evaluates
+them, and publishes each result as an <code>ExternalArtifact</code> that Flux consumers can
+deploy. These pages cover the operator and the sources it reads and writes.</p>
+<ul>
+<li><strong><a href="/operator/operator-mode/">Operator mode</a>
+</strong> — enable the operator and the
+custom resources it reconciles.</li>
+<li><strong><a href="/operator/snippet-sources/">Snippet sources</a>
+</strong> — point a snippet at a Flux
+source for its inputs.</li>
+<li><strong><a href="/operator/creating-sources/">Creating source artifacts</a>
+</strong> — how snippets are
+published as <code>ExternalArtifact</code> outputs.</li>
+<li><strong><a href="/operator/storage-and-ha/">Storage and HA</a>
+</strong> — artifact storage backends and
+leader-elected high availability.</li>
+</ul>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/operator" term="operator" label="operator"/><category scheme="https://jaas.projects.metio.wtf/tags/flux" term="flux" label="flux"/><category scheme="https://jaas.projects.metio.wtf/tags/sources" term="sources" label="sources"/></entry><entry><title type="html">Snippet sources</title><link href="https://jaas.projects.metio.wtf/operator/snippet-sources/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/operator/creating-sources/?utm_source=atom_feed" rel="related" type="text/html" title="Creating source artifacts"/><link href="https://jaas.projects.metio.wtf/security/admission-webhook/?utm_source=atom_feed" rel="related" type="text/html" title="Admission webhook"/><link href="https://jaas.projects.metio.wtf/observability/alerting/?utm_source=atom_feed" rel="related" type="text/html" title="Alerting"/><link href="https://jaas.projects.metio.wtf/observability/dashboard/?utm_source=atom_feed" rel="related" type="text/html" title="Dashboard"/><link href="https://jaas.projects.metio.wtf/runbooks/dependencycycle/?utm_source=atom_feed" rel="related" type="text/html" title="DependencyCycle"/><id>https://jaas.projects.metio.wtf/operator/snippet-sources/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-26T15:54:29+02:00</updated><content type="html"><![CDATA[<blockquote>Where a JsonnetSnippet&rsquo;s Jsonnet comes from — inline files, a Flux source, a multi-snippet tree, and chained snippet output.</blockquote><p>A <code>JsonnetSnippet</code> declares exactly one source for its Jsonnet bytes: either
+inline <code>spec.files</code> or a <code>spec.sourceRef</code> pointing at a Flux source. Admission
+rejects a snippet that sets both or neither. The operator resolves the source
+into an in-memory file tree, evaluates <code>spec.entryFile</code> within it, and publishes
+the result.</p>
+<h2 id="inline-files">Inline files</h2>
+<p><code>spec.files</code> is a map of filename to Jsonnet source. The operator evaluates the
+entry file (<code>spec.entryFile</code>, default <code>main.jsonnet</code>) against the rest of the
+map. This is the simplest source — the snippet is self-contained, with no
+external dependency to fetch:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l">jaas.metio.wtf/v1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">JsonnetSnippet</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">metadata</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">hello-world</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">default</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">spec</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">serviceAccountName</span><span class="p">:</span><span class="w"> </span><span class="l">hello-world-tenant</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">entryFile</span><span class="p">:</span><span class="w"> </span><span class="l">main.jsonnet</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">files</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">main.jsonnet</span><span class="p">:</span><span class="w"> </span><span class="p">|</span><span class="sd">
+</span></span></span><span class="line"><span class="cl"><span class="sd">      {
+</span></span></span><span class="line"><span class="cl"><span class="sd">        greeting: &#39;hello&#39;,
+</span></span></span><span class="line"><span class="cl"><span class="sd">        recipient: std.extVar(&#39;audience&#39;),
+</span></span></span><span class="line"><span class="cl"><span class="sd">      }</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">externalVariables</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">audience</span><span class="p">:</span><span class="w"> </span><span class="l">world</span><span class="w">
+</span></span></span></code></pre></div><h2 id="a-flux-source">A Flux source</h2>
+<p><code>spec.sourceRef</code> points at a Flux source CR whose artifact tarball the operator
+fetches and extracts into the snippet&rsquo;s file tree. The <code>kind</code> is one of
+<code>GitRepository</code>, <code>OCIRepository</code>, <code>Bucket</code>, or <code>ExternalArtifact</code> — see Flux&rsquo;s
+<a href="https://fluxcd.io/">source-controller documentation</a>
+ for how each source CR
+publishes its artifact.</p>
+<p>When the referenced source republishes — a new commit lands on the
+<code>GitRepository</code>, a new tag pushes to the <code>OCIRepository</code> — the operator&rsquo;s watch
+on Flux source kinds re-queues the snippet and re-renders it. No <code>spec.interval</code>
+is required for this; the watch is event-driven.</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l">source.toolkit.fluxcd.io/v1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">GitRepository</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">metadata</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">dashboards-source</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">default</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">spec</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">interval</span><span class="p">:</span><span class="w"> </span><span class="l">5m</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l">https://github.com/example-org/grafana-dashboards</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">ref</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">branch</span><span class="p">:</span><span class="w"> </span><span class="l">main</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nn">---</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l">jaas.metio.wtf/v1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">JsonnetSnippet</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">metadata</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">api-latency-dashboard</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">default</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">spec</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">serviceAccountName</span><span class="p">:</span><span class="w"> </span><span class="l">dashboards-tenant</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">entryFile</span><span class="p">:</span><span class="w"> </span><span class="l">dashboards/api-latency.jsonnet</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">sourceRef</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">GitRepository</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">dashboards-source</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l">dashboards/</span><span class="w">
+</span></span></span></code></pre></div><p><code>spec.sourceRef.path</code> narrows extraction to a subdirectory of the artifact&rsquo;s
+tarball. Empty means the whole tree. The tenant ServiceAccount needs <code>get</code> on
+the referenced source kind — see <a href="/security/tenancy-and-rbac/">Tenancy and RBAC</a>
+.</p>
+<h3 id="the-entry-file-and-multi-snippet-trees">The entry file and multi-snippet trees</h3>
+<p><code>spec.entryFile</code> names the file — relative to the resolved source root — that
+go-jsonnet evaluates. It defaults to <code>main.jsonnet</code>. The field is restricted to
+relative <code>[A-Za-z0-9._/-]+</code> paths with no <code>..</code> segments, so it cannot traverse
+out of the extracted tree.</p>
+<p>One Flux source often carries many snippets. A shared dashboards repository, for
+example, holds one <code>.jsonnet</code> file per dashboard. Rather than one source per
+dashboard, point several <code>JsonnetSnippet</code> resources at the same <code>GitRepository</code>
+and give each a different <code>entryFile</code>:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l">jaas.metio.wtf/v1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">JsonnetSnippet</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">metadata</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">api-latency-dashboard</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">default</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">spec</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">serviceAccountName</span><span class="p">:</span><span class="w"> </span><span class="l">dashboards-tenant</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">entryFile</span><span class="p">:</span><span class="w"> </span><span class="l">dashboards/api-latency.jsonnet</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">sourceRef</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">GitRepository</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">dashboards-source</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nn">---</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l">jaas.metio.wtf/v1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">JsonnetSnippet</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">metadata</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">error-budget-dashboard</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">default</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">spec</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">serviceAccountName</span><span class="p">:</span><span class="w"> </span><span class="l">dashboards-tenant</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">entryFile</span><span class="p">:</span><span class="w"> </span><span class="l">dashboards/error-budget.jsonnet</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">sourceRef</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">GitRepository</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">dashboards-source</span><span class="w">
+</span></span></span></code></pre></div><p>Both snippets share the source fetch and re-render together when the repository
+republishes, but each publishes its own <code>ExternalArtifact</code> from its own entry
+file.</p>
+<h2 id="chaining-snippets">Chaining snippets</h2>
+<p>A <code>JsonnetSnippet</code> can source from the <code>ExternalArtifact</code> another snippet
+publishes. This composes a pipeline of renders: snippet A evaluates and
+publishes its JSON, and snippet B takes that JSON as its input, transforms it,
+and publishes a second artifact. A downstream consumer deploys only the final
+artifact.</p>
+<p>Chaining works because the <code>ExternalArtifact</code> is a Flux source like any other.
+Snippet B sets <code>spec.sourceRef</code> with <code>kind: ExternalArtifact</code> and <code>name</code> pointing
+at the producing snippet — an <code>ExternalArtifact</code> is published under the producing
+<code>JsonnetSnippet</code>&rsquo;s name. The operator fetches A&rsquo;s artifact tarball into B&rsquo;s file
+tree. In the default <code>rendered</code> output mode that tarball holds a single
+<code>rendered.json</code>, so snippet B sets <code>entryFile: rendered.json</code> to evaluate A&rsquo;s
+output. Because JSON is valid Jsonnet, B&rsquo;s entry file can extend the imported
+object directly:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="c"># Snippet A renders a shared config blob other snippets consume.</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l">jaas.metio.wtf/v1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">JsonnetSnippet</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">metadata</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">base-config</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">default</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">spec</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">serviceAccountName</span><span class="p">:</span><span class="w"> </span><span class="l">chained-tenant</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">entryFile</span><span class="p">:</span><span class="w"> </span><span class="l">main.jsonnet</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">files</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">main.jsonnet</span><span class="p">:</span><span class="w"> </span><span class="p">|</span><span class="sd">
+</span></span></span><span class="line"><span class="cl"><span class="sd">      {
+</span></span></span><span class="line"><span class="cl"><span class="sd">        cluster: &#39;prod&#39;,
+</span></span></span><span class="line"><span class="cl"><span class="sd">        region: &#39;eu-west-1&#39;,
+</span></span></span><span class="line"><span class="cl"><span class="sd">        retentionDays: 30,
+</span></span></span><span class="line"><span class="cl"><span class="sd">      }</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nn">---</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c"># Snippet B sources from base-config&#39;s ExternalArtifact and extends it.</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l">jaas.metio.wtf/v1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">JsonnetSnippet</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">metadata</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">derived-config</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">default</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">spec</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">serviceAccountName</span><span class="p">:</span><span class="w"> </span><span class="l">chained-tenant</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">entryFile</span><span class="p">:</span><span class="w"> </span><span class="l">rendered.json</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">sourceRef</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">ExternalArtifact</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">base-config</span><span class="w">
+</span></span></span></code></pre></div><p><code>derived-config</code> re-emits <code>base-config</code>&rsquo;s rendered JSON as its own artifact. The
+operator&rsquo;s watch on <code>ExternalArtifact</code> updates re-queues <code>derived-config</code>
+whenever <code>base-config</code> republishes, so the pipeline stays current end to end.</p>
+<h3 id="source-variant">Source variant</h3>
+<p>The rendered variant above passes evaluated JSON downstream. The source variant
+passes raw Jsonnet downstream instead, for snippet B to re-evaluate itself.</p>
+<p>Snippet A sets <code>spec.output: source</code>, so its <code>ExternalArtifact</code> carries A&rsquo;s raw
+<code>.jsonnet</code> / <code>.libsonnet</code> files rather than the evaluated JSON. Snippet B points
+<code>spec.sourceRef</code> at A&rsquo;s <code>ExternalArtifact</code> and imports A&rsquo;s files as Jsonnet,
+re-evaluating them with B&rsquo;s own external variables, TLAs, and libraries. A
+becomes a source that the pipeline produces dynamically rather than one an
+operator authors by hand:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="c"># Snippet A publishes its raw Jsonnet, not its evaluated output.</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l">jaas.metio.wtf/v1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">JsonnetSnippet</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">metadata</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">dashboard-template</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">default</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">spec</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">serviceAccountName</span><span class="p">:</span><span class="w"> </span><span class="l">chained-tenant</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">output</span><span class="p">:</span><span class="w"> </span><span class="l">source</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">entryFile</span><span class="p">:</span><span class="w"> </span><span class="l">main.jsonnet</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">files</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">main.jsonnet</span><span class="p">:</span><span class="w"> </span><span class="p">|</span><span class="sd">
+</span></span></span><span class="line"><span class="cl"><span class="sd">      function(env=&#39;dev&#39;) {
+</span></span></span><span class="line"><span class="cl"><span class="sd">        title: &#39;API latency — &#39; + env,
+</span></span></span><span class="line"><span class="cl"><span class="sd">        refresh: if env == &#39;prod&#39; then &#39;30s&#39; else &#39;5m&#39;,
+</span></span></span><span class="line"><span class="cl"><span class="sd">      }</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nn">---</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c"># Snippet B sources A&#39;s raw Jsonnet and re-evaluates it with its own TLAs.</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l">jaas.metio.wtf/v1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">JsonnetSnippet</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">metadata</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">dashboard-prod</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">default</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">spec</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">serviceAccountName</span><span class="p">:</span><span class="w"> </span><span class="l">chained-tenant</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">entryFile</span><span class="p">:</span><span class="w"> </span><span class="l">main.jsonnet</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">sourceRef</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">ExternalArtifact</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">dashboard-template</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">tlas</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">env</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span>- <span class="l">prod</span><span class="w">
+</span></span></span></code></pre></div><p>Because A published <code>source</code> output, B&rsquo;s <code>sourceRef</code> extracts A&rsquo;s raw
+<code>main.jsonnet</code> into B&rsquo;s file tree, and B evaluates it as the entry file with
+<code>env=prod</code> supplied as a TLA. When A&rsquo;s template changes, A republishes and the
+<code>ExternalArtifact</code> watch re-renders B against the new Jsonnet.</p>
+<p>Choose between the two by what the downstream snippet needs: rendered chaining
+passes JSON data downstream; source chaining passes Jsonnet to be re-evaluated
+downstream. For when to reach for a <code>source</code>-output snippet instead of a
+<code>JsonnetLibrary</code>, see
+<a href="/rendering/jsonnet-libraries/#jsonnetlibrary-vs-a-source-output-snippet">JsonnetLibrary vs a source-output snippet</a>
+.</p>
+<p>The tenant ServiceAccount needs <code>get</code> on
+<code>externalartifacts.source.toolkit.fluxcd.io</code> for both variants; see
+<a href="/security/tenancy-and-rbac/">Tenancy and RBAC</a>
+.</p>
+<h3 id="cycle-detection">Cycle detection</h3>
+<p>A snippet cannot transitively depend on itself. The operator walks the
+dependency graph — <code>spec.sourceRef</code> edges to <code>ExternalArtifact</code>s and their
+producing snippets, plus <code>spec.libraries</code> edges through <code>JsonnetLibrary</code>
+<code>sourceRef</code>s — at reconcile time, before any tenant work. If the walk revisits
+the snippet it started from, the operator refuses to publish and reports
+<code>Ready=False</code> with reason <code>DependencyCycle</code>. This catches a chain that feeds
+back into itself directly or through a library, so a cycle surfaces as a clear
+status condition rather than an endless re-render loop.</p>
+<h2 id="related-pages">Related pages</h2>
+<ul>
+<li><a href="/rendering/jsonnet-libraries/">Jsonnet libraries</a>
+ — reusable <code>.libsonnet</code> files
+referenced via <code>spec.libraries</code>.</li>
+<li><a href="/security/tenancy-and-rbac/">Tenancy and RBAC</a>
+ — the verbs the tenant
+ServiceAccount needs for each source kind.</li>
+</ul>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/operator" term="operator" label="operator"/><category scheme="https://jaas.projects.metio.wtf/tags/sources" term="sources" label="sources"/><category scheme="https://jaas.projects.metio.wtf/tags/chaining" term="chaining" label="chaining"/></entry><entry><title type="html">SourceFetchFailed</title><link href="https://jaas.projects.metio.wtf/runbooks/sourcefetchfailed/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/runbooks/dependencycycle/?utm_source=atom_feed" rel="related" type="text/html" title="DependencyCycle"/><link href="https://jaas.projects.metio.wtf/runbooks/sourcenotready/?utm_source=atom_feed" rel="related" type="text/html" title="SourceNotReady"/><link href="https://jaas.projects.metio.wtf/runbooks/sourcerefnotyetsupported/?utm_source=atom_feed" rel="related" type="text/html" title="SourceRefNotYetSupported"/><link href="https://jaas.projects.metio.wtf/runbooks/artifacttoolarge/?utm_source=atom_feed" rel="related" type="text/html" title="ArtifactTooLarge"/><link href="https://jaas.projects.metio.wtf/runbooks/crd-watch-engagement/?utm_source=atom_feed" rel="related" type="text/html" title="CRD watch engagement failing"/><id>https://jaas.projects.metio.wtf/runbooks/sourcefetchfailed/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-18T20:07:20+02:00</updated><content type="html"><![CDATA[<blockquote>The operator resolved the source CR but the artifact download failed due to an HTTP error, digest mismatch, or oversized tarball</blockquote><h2 id="symptom">Symptom</h2>
+<p><code>READY=False</code>, <code>REASON=SourceFetchFailed</code>. The Message describes what went wrong (HTTP error, digest mismatch, tarball too large, etc.).</p>
+<h2 id="cause">Cause</h2>
+<p>The Fetcher resolved the source CR and started downloading the artifact, but the download itself failed. Three subcategories:</p>
+<ul>
+<li><strong>HTTP failure</strong> — connection refused, 5xx from the source-controller endpoint, TLS handshake error</li>
+<li><strong>Digest mismatch</strong> — the bytes don&rsquo;t hash to <code>status.artifact.digest</code>. Possible truncation or in-flight tampering</li>
+<li><strong>Tarball oversized</strong> — extracted bytes exceed <code>MaxArchiveBytes</code> (default 64 MiB)</li>
+</ul>
+<h2 id="diagnosis">Diagnosis</h2>
+<p>Check the source CR&rsquo;s <code>status.artifact.url</code> is reachable from the operator pod:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace &lt;jaas-ns&gt; <span class="nb">exec</span> deploy/jaas -- wget -O- &lt;status.artifact.url&gt; <span class="p">|</span> wc -c
+</span></span></code></pre></div><p>A connection refused means the storage endpoint of source-controller (or another publisher) is unreachable — usually a NetworkPolicy issue.</p>
+<p>For digest mismatches, the source CR has likely been republished mid-fetch — the next reconcile typically succeeds.</p>
+<p>For oversized tarballs, the snippet&rsquo;s <code>spec.sourceRef.path</code> filter is too broad — narrow it so only the files the snippet actually <code>import</code>s come through.</p>
+<h2 id="remediation">Remediation</h2>
+<ul>
+<li><strong>Network</strong>: fix the NetworkPolicy / DNS / TLS that&rsquo;s blocking the fetch</li>
+<li><strong>Digest</strong>: re-reconcile (manual: <code>kubectl --namespace &lt;ns&gt; annotate jsonnetsnippet &lt;name&gt; jaas.metio.wtf/reconcile-at=$(date -u +%FT%TZ) --overwrite</code>)</li>
+<li><strong>Oversized</strong>: narrow <code>spec.sourceRef.path</code> to the subdirectory the snippet needs, or split the source repo</li>
+</ul>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/runbooks" term="runbooks" label="runbooks"/><category scheme="https://jaas.projects.metio.wtf/tags/troubleshooting" term="troubleshooting" label="troubleshooting"/><category scheme="https://jaas.projects.metio.wtf/tags/sources" term="sources" label="sources"/></entry><entry><title type="html">SourceNotReady</title><link href="https://jaas.projects.metio.wtf/runbooks/sourcenotready/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/runbooks/dependencycycle/?utm_source=atom_feed" rel="related" type="text/html" title="DependencyCycle"/><link href="https://jaas.projects.metio.wtf/runbooks/sourcefetchfailed/?utm_source=atom_feed" rel="related" type="text/html" title="SourceFetchFailed"/><link href="https://jaas.projects.metio.wtf/runbooks/sourcerefnotyetsupported/?utm_source=atom_feed" rel="related" type="text/html" title="SourceRefNotYetSupported"/><link href="https://jaas.projects.metio.wtf/runbooks/artifacttoolarge/?utm_source=atom_feed" rel="related" type="text/html" title="ArtifactTooLarge"/><link href="https://jaas.projects.metio.wtf/runbooks/crd-watch-engagement/?utm_source=atom_feed" rel="related" type="text/html" title="CRD watch engagement failing"/><id>https://jaas.projects.metio.wtf/runbooks/sourcenotready/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-18T20:07:20+02:00</updated><content type="html"><![CDATA[<blockquote>The referenced Flux source CR exists but has not yet reported Ready=True or has no published artifact</blockquote><h2 id="symptom">Symptom</h2>
+<p><code>READY=False</code>, <code>REASON=SourceNotReady</code>. The Message names the source CR (<code>GitRepository/foo</code>, <code>ExternalArtifact/bar</code>, etc.).</p>
+<h2 id="cause">Cause</h2>
+<p>The Flux source CR the snippet references exists but its own <code>status.conditions[Ready]</code> is not yet True (or <code>status.artifact</code> is empty). The operator refuses to fetch from a source it can&rsquo;t trust as ready.</p>
+<p>For chained snippets specifically: the upstream snippet may have failed reconciliation, so its ExternalArtifact is stale or unpopulated.</p>
+<h2 id="diagnosis">Diagnosis</h2>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace &lt;ns&gt; describe &lt;kind&gt; &lt;source-name&gt;
+</span></span><span class="line"><span class="cl"><span class="c1"># Look for the Ready condition and any error messages.</span>
+</span></span></code></pre></div><p>For Flux sources, also check the source-controller logs:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace flux-system logs deploy/source-controller <span class="p">|</span> grep &lt;source-name&gt;
+</span></span></code></pre></div><h2 id="remediation">Remediation</h2>
+<p>Fix the upstream source. The operator watches Flux source kinds and will re-reconcile the snippet automatically when the source flips to Ready=True — no manual nudge required.</p>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/runbooks" term="runbooks" label="runbooks"/><category scheme="https://jaas.projects.metio.wtf/tags/troubleshooting" term="troubleshooting" label="troubleshooting"/><category scheme="https://jaas.projects.metio.wtf/tags/sources" term="sources" label="sources"/></entry><entry><title type="html">SourceRefNotYetSupported</title><link href="https://jaas.projects.metio.wtf/runbooks/sourcerefnotyetsupported/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/runbooks/dependencycycle/?utm_source=atom_feed" rel="related" type="text/html" title="DependencyCycle"/><link href="https://jaas.projects.metio.wtf/runbooks/sourcefetchfailed/?utm_source=atom_feed" rel="related" type="text/html" title="SourceFetchFailed"/><link href="https://jaas.projects.metio.wtf/runbooks/sourcenotready/?utm_source=atom_feed" rel="related" type="text/html" title="SourceNotReady"/><link href="https://jaas.projects.metio.wtf/runbooks/artifacttoolarge/?utm_source=atom_feed" rel="related" type="text/html" title="ArtifactTooLarge"/><link href="https://jaas.projects.metio.wtf/runbooks/crd-watch-engagement/?utm_source=atom_feed" rel="related" type="text/html" title="CRD watch engagement failing"/><id>https://jaas.projects.metio.wtf/runbooks/sourcerefnotyetsupported/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-18T20:07:20+02:00</updated><content type="html"><![CDATA[<blockquote>The snippet uses spec.sourceRef but the running binary was built without a Fetcher wired in</blockquote><h2 id="symptom">Symptom</h2>
+<p><code>READY=False</code>, <code>REASON=SourceRefNotYetSupported</code>.</p>
+<h2 id="cause">Cause</h2>
+<p>The snippet sets <code>spec.sourceRef</code> but the operator was built without a Fetcher wired in. This is a mis-deployment in practice — production binary always wires <code>sources.New()</code>. Seeing this in a real cluster means you&rsquo;re running:</p>
+<ul>
+<li>a test/dev binary</li>
+<li>a custom build where <code>defaultBuilder</code> was modified</li>
+</ul>
+<h2 id="diagnosis">Diagnosis</h2>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace &lt;jaas-ns&gt; logs deploy/jaas <span class="p">|</span> grep -i <span class="s2">&#34;fetcher&#34;</span>
+</span></span></code></pre></div><p>If the operator logs no Fetcher initialization, the binary is incomplete.</p>
+<h2 id="remediation">Remediation</h2>
+<p>Use a release binary, or convert the snippet to <code>spec.files</code> inline as a temporary workaround.</p>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/runbooks" term="runbooks" label="runbooks"/><category scheme="https://jaas.projects.metio.wtf/tags/troubleshooting" term="troubleshooting" label="troubleshooting"/><category scheme="https://jaas.projects.metio.wtf/tags/sources" term="sources" label="sources"/></entry></feed>

@@ -1,0 +1,968 @@
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en"><generator uri="https://gohugo.io/" version="0.163.3">Hugo</generator><title type="html">Oci on Jsonnet-as-a-Service</title><link href="https://jaas.projects.metio.wtf/tags/oci/" rel="alternate" type="text/html" title="html"/><link href="https://jaas.projects.metio.wtf/tags/oci/index.xml" rel="alternate" type="application/rss+xml" title="rss"/><link href="https://jaas.projects.metio.wtf/tags/oci/atom.xml" rel="self" type="application/atom+xml" title="atom"/><updated>2026-07-02T07:56:37+00:00</updated><author><name>metio.wtf</name></author><id>https://jaas.projects.metio.wtf/tags/oci/</id><entry><title type="html">Creating source artifacts</title><link href="https://jaas.projects.metio.wtf/operator/creating-sources/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/api/externalartifact/?utm_source=atom_feed" rel="related" type="text/html" title="ExternalArtifact output contract"/><link href="https://jaas.projects.metio.wtf/api/jsonnetsnippet/?utm_source=atom_feed" rel="related" type="text/html" title="JsonnetSnippet"/><link href="https://jaas.projects.metio.wtf/operator/operator-mode/?utm_source=atom_feed" rel="related" type="text/html" title="Operator mode"/><link href="https://jaas.projects.metio.wtf/operator/snippet-sources/?utm_source=atom_feed" rel="related" type="text/html" title="Snippet sources"/><link href="https://jaas.projects.metio.wtf/security/admission-webhook/?utm_source=atom_feed" rel="related" type="text/html" title="Admission webhook"/><id>https://jaas.projects.metio.wtf/operator/creating-sources/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-26T15:54:29+02:00</updated><content type="html"><![CDATA[<blockquote>Step-by-step recipes to prepare GitRepository, OCIRepository, and Bucket sources for a JsonnetSnippet — including the single-layer rule for OCI.</blockquote><p>A <code>JsonnetSnippet</code>&rsquo;s <code>spec.sourceRef</code> consumes a Flux source. The operator reads
+the referenced source CR&rsquo;s <code>status.artifact.url</code>, downloads the tarball Flux&rsquo;s
+source-controller serves there, verifies its <code>status.artifact.digest</code>, and
+extracts it into the snippet&rsquo;s file tree. Every supported kind —
+<code>GitRepository</code>, <code>OCIRepository</code>, and <code>Bucket</code> — reaches the operator through
+that same <code>status.artifact</code> contract, so the operator never talks to a git
+remote, an OCI registry, or an object store directly. Flux owns that fetch; the
+operator consumes the artifact Flux already produced.</p>
+<p>The recipes below show how to produce each source kind so a snippet can reference
+it. <a href="/operator/snippet-sources/">Snippet sources</a>
+ covers wiring the finished source
+into a <code>JsonnetSnippet</code>. For the source CRDs themselves and their full field
+reference, see the <a href="https://fluxcd.io/">Flux documentation</a>
+.</p>
+<p>A <code>JsonnetSnippet</code> references the source you create with a <code>spec.sourceRef</code>:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l">jaas.metio.wtf/v1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">JsonnetSnippet</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">metadata</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">dashboards</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">default</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">spec</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">serviceAccountName</span><span class="p">:</span><span class="w"> </span><span class="l">dashboards-tenant</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">entryFile</span><span class="p">:</span><span class="w"> </span><span class="l">dashboards/api-latency.jsonnet</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">sourceRef</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">GitRepository     </span><span class="w"> </span><span class="c"># or OCIRepository, or Bucket</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">dashboards-source</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">path: dashboards/        # optional</span><span class="p">:</span><span class="w"> </span><span class="l">narrow extraction to a subtree</span><span class="w">
+</span></span></span></code></pre></div><p>The tenant ServiceAccount needs <code>get</code> on the referenced source kind. See
+<a href="/security/tenancy-and-rbac/">Tenancy and RBAC</a>
+ for the exact verbs.</p>
+<h2 id="gitrepository">GitRepository</h2>
+<p>A <code>GitRepository</code> source tracks a branch, tag, or commit of a git repository.
+source-controller clones the ref and packs the tree into the tarball the
+operator fetches. There is no packaging or layer constraint — the operator
+extracts whatever files the commit contains.</p>
+<ol>
+<li>
+<p>Lay out your Jsonnet files in a directory. File names and the directory
+structure carry over verbatim into the snippet&rsquo;s file tree, so place the
+entry file where <code>spec.entryFile</code> expects it:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-text" data-lang="text"><span class="line"><span class="cl">dashboards/
+</span></span><span class="line"><span class="cl">├── api-latency.jsonnet
+</span></span><span class="line"><span class="cl">├── error-budget.jsonnet
+</span></span><span class="line"><span class="cl">└── lib/
+</span></span><span class="line"><span class="cl">    └── panels.libsonnet
+</span></span></code></pre></div></li>
+<li>
+<p>Commit the files and push them to a git repository:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">git add dashboards/
+</span></span><span class="line"><span class="cl">git commit -m <span class="s2">&#34;Add Grafana dashboards&#34;</span>
+</span></span><span class="line"><span class="cl">git push origin main
+</span></span></code></pre></div></li>
+<li>
+<p>Create the <code>GitRepository</code> source. With the Flux CLI:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">flux create <span class="nb">source</span> git dashboards-source <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --url<span class="o">=</span>https://github.com/example-org/grafana-dashboards <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --branch<span class="o">=</span>main <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --interval<span class="o">=</span>5m <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --namespace<span class="o">=</span>default <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --export
+</span></span></code></pre></div><p>The equivalent CR YAML, which is authoritative:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l">source.toolkit.fluxcd.io/v1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">GitRepository</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">metadata</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">dashboards-source</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">default</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">spec</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">interval</span><span class="p">:</span><span class="w"> </span><span class="l">5m</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l">https://github.com/example-org/grafana-dashboards</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">ref</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">branch</span><span class="p">:</span><span class="w"> </span><span class="l">main</span><span class="w">
+</span></span></span></code></pre></div></li>
+<li>
+<p>Point a snippet&rsquo;s <code>spec.sourceRef</code> at the source. Set <code>kind: GitRepository</code>,
+<code>name: dashboards-source</code>, and optionally <code>path:</code> to extract only a subtree:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l">jaas.metio.wtf/v1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">JsonnetSnippet</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">metadata</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">api-latency-dashboard</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">default</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">spec</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">serviceAccountName</span><span class="p">:</span><span class="w"> </span><span class="l">dashboards-tenant</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">entryFile</span><span class="p">:</span><span class="w"> </span><span class="l">dashboards/api-latency.jsonnet</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">sourceRef</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">GitRepository</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">dashboards-source</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l">dashboards/</span><span class="w">
+</span></span></span></code></pre></div></li>
+</ol>
+<p>When a new commit lands on the tracked branch, source-controller republishes the
+artifact and the operator&rsquo;s watch re-renders the snippet.</p>
+<h2 id="ocirepository">OCIRepository</h2>
+<p>An <code>OCIRepository</code> source pulls an OCI artifact from a registry. source-controller
+unpacks the artifact&rsquo;s single gzipped-tar layer into the tarball the operator
+fetches. Producing the artifact with <code>flux push artifact</code> packs a directory into
+exactly that shape.</p>
+<ol>
+<li>
+<p>Lay out your Jsonnet files in a directory, the same as for a git source:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-text" data-lang="text"><span class="line"><span class="cl">./
+</span></span><span class="line"><span class="cl">├── main.jsonnet
+</span></span><span class="line"><span class="cl">└── lib/
+</span></span><span class="line"><span class="cl">    └── panels.libsonnet
+</span></span></code></pre></div></li>
+<li>
+<p>Push the directory as an OCI artifact with the Flux CLI. <code>flux push artifact</code>
+packs the directory into one gzipped-tar layer and pushes it to the registry:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">flux push artifact oci://ghcr.io/example-org/dashboards:v1 <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --path<span class="o">=</span>. <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --source<span class="o">=</span><span class="s2">&#34;</span><span class="k">$(</span>git config --get remote.origin.url<span class="k">)</span><span class="s2">&#34;</span> <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --revision<span class="o">=</span><span class="s2">&#34;</span><span class="k">$(</span>git rev-parse HEAD<span class="k">)</span><span class="s2">&#34;</span>
+</span></span></code></pre></div><p><code>--source</code> and <code>--revision</code> stamp provenance metadata onto the artifact;
+set them to a URL and a version identifier of your choosing.</p>
+</li>
+<li>
+<p>Create the <code>OCIRepository</code> source. With the Flux CLI:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">flux create <span class="nb">source</span> oci dashboards-source <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --url<span class="o">=</span>oci://ghcr.io/example-org/dashboards <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --tag<span class="o">=</span>v1 <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --interval<span class="o">=</span>5m <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --namespace<span class="o">=</span>default <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --export
+</span></span></code></pre></div><p>The equivalent CR YAML, which is authoritative:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l">source.toolkit.fluxcd.io/v1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">OCIRepository</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">metadata</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">dashboards-source</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">default</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">spec</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">interval</span><span class="p">:</span><span class="w"> </span><span class="l">5m</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l">oci://ghcr.io/example-org/dashboards</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">ref</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">tag</span><span class="p">:</span><span class="w"> </span><span class="l">v1</span><span class="w">
+</span></span></span></code></pre></div></li>
+<li>
+<p>Point a snippet&rsquo;s <code>spec.sourceRef</code> at the source with <code>kind: OCIRepository</code>:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l">jaas.metio.wtf/v1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">JsonnetSnippet</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">metadata</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">api-latency-dashboard</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">default</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">spec</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">serviceAccountName</span><span class="p">:</span><span class="w"> </span><span class="l">dashboards-tenant</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">entryFile</span><span class="p">:</span><span class="w"> </span><span class="l">main.jsonnet</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">sourceRef</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">OCIRepository</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">dashboards-source</span><span class="w">
+</span></span></span></code></pre></div></li>
+</ol>
+<blockquote>
+<p><strong>Single layer is mandatory.</strong> <code>flux push artifact</code> produces an OCI artifact
+with exactly one gzipped-tar layer, which is what source-controller expects
+and the only shape it unpacks. An artifact built any other way — a hand-rolled
+<code>oras push</code> with one file per layer, a <code>Dockerfile</code>/container-image build, or
+any tool that splits content across multiple layers — is not consumed
+correctly. source-controller cannot reconstruct the file tree, the snippet&rsquo;s
+source never resolves, and the snippet reports <code>Ready=False</code>. Always build OCI
+sources with <code>flux push artifact</code>.</p>
+</blockquote>
+<p>Verify the layer count before relying on an artifact. Fetch the manifest and
+confirm the <code>layers</code> array has length 1:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">oras manifest fetch oci://ghcr.io/example-org/dashboards:v1 <span class="p">|</span> <span class="se">\
+</span></span></span><span class="line"><span class="cl">  jq <span class="s1">&#39;.layers | length&#39;</span>
+</span></span></code></pre></div><p>A result of <code>1</code> is required. Any other number means the artifact was not built
+with <code>flux push artifact</code> and will not resolve.</p>
+<h3 id="private-registries-and-amazon-ecr">Private registries and Amazon ECR</h3>
+<p>source-controller performs the pull, so registry credentials belong on the
+<code>OCIRepository</code> (or on source-controller itself) — never on the JaaS operator or a
+snippet&rsquo;s ServiceAccount. The same applies to a <code>JsonnetLibrary</code> whose <code>sourceRef</code>
+points at an <code>OCIRepository</code>.</p>
+<p>For a generic private registry, add a <code>spec.secretRef</code> to a <code>docker-registry</code>
+Secret. For <strong>Amazon ECR you need no pull Secret at all</strong>: set <code>spec.provider: aws</code>
+and source-controller authenticates with its own ambient AWS identity. On EKS that
+is an IRSA role bound to <strong>source-controller&rsquo;s</strong> ServiceAccount with ECR read
+permissions:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l">source.toolkit.fluxcd.io/v1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">OCIRepository</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">metadata</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">dashboards-source</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">default</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">spec</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">interval</span><span class="p">:</span><span class="w"> </span><span class="l">5m</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">provider</span><span class="p">:</span><span class="w"> </span><span class="l">aws</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l">oci://111122223333.dkr.ecr.eu-west-1.amazonaws.com/dashboards</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">ref</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">tag</span><span class="p">:</span><span class="w"> </span><span class="l">v1</span><span class="w">
+</span></span></span></code></pre></div><p>The IRSA role needs <code>ecr:GetAuthorizationToken</code> (resource <code>*</code>) plus
+<code>ecr:BatchGetImage</code> and <code>ecr:GetDownloadUrlForLayer</code> on the repository. Because the
+credential is source-controller&rsquo;s, one role covers every <code>OCIRepository</code> it pulls,
+and the JaaS operator stays out of the registry path entirely.</p>
+<p>This IRSA role is source-controller&rsquo;s, not the JaaS operator&rsquo;s. The JaaS operator
+uses IRSA only for its own <a href="/operator/storage-and-ha/">S3 storage backend</a>
+ — a
+separate concern from pulling sources.</p>
+<p>There is a third way to load OCI content that does not go through a <code>sourceRef</code> at
+all: the chart can mount snippets and libraries from <strong>OCI image volumes</strong>
+(<code>snippets</code> / <code>additionalLibraries</code>), read straight from a registry into the pod.
+Those volumes are pulled by the <strong>kubelet</strong>, exactly like a container image — so
+they authenticate the way images do, not through IRSA. On EKS that means the
+<strong>node&rsquo;s</strong> IAM role with ECR read (the <code>AmazonEC2ContainerRegistryReadOnly</code>
+managed policy the default node role already carries), or an <code>imagePullSecret</code> on
+the pod. Pod-level IRSA grants the <em>pod&rsquo;s</em> ServiceAccount AWS API access, which the
+kubelet does not use when pulling images, so it is not the mechanism for this path.
+With a node role that can read ECR, image-volume snippets and libraries load with
+no pull Secret. Static OCI mounts and operator mode are mutually exclusive in one
+release, so a given install uses either these mounts or the <code>sourceRef</code> path above,
+not both.</p>
+<p>The <a href="https://github.com/metio/jsonnet-oci-images">jsonnet-oci-images (JOI)</a>
+
+project enforces this same single-layer rule for every image it publishes, so
+its images are ready-made single-layer <code>OCIRepository</code> sources. Reference a JOI
+image directly when you need a shared Jsonnet library tree (grafonnet, the
+jsonnet-libs catalog) rather than building and maintaining your own OCI source.</p>
+<h2 id="bucket">Bucket</h2>
+<p>A <code>Bucket</code> source mirrors objects from an S3- or GCS-compatible bucket.
+source-controller fetches the matching objects, packs them into the tarball the
+operator fetches, and there is no layer constraint — the only requirement is
+that the objects laid out under the bucket prefix form the file tree your snippet
+expects.</p>
+<ol>
+<li>
+<p>Produce the files to upload. Either upload the individual <code>.jsonnet</code> /
+<code>.libsonnet</code> files under a prefix, or pack them into a single archive — both
+work, source-controller flattens the mirrored objects into the file tree:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-text" data-lang="text"><span class="line"><span class="cl">dashboards/
+</span></span><span class="line"><span class="cl">├── main.jsonnet
+</span></span><span class="line"><span class="cl">└── lib/
+</span></span><span class="line"><span class="cl">    └── panels.libsonnet
+</span></span></code></pre></div></li>
+<li>
+<p>Upload the files to the bucket under a prefix. With the AWS CLI against an
+S3-compatible endpoint:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">aws s3 cp dashboards/ s3://example-bucket/dashboards/ <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --recursive <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --endpoint-url<span class="o">=</span>https://s3.example.com
+</span></span></code></pre></div></li>
+<li>
+<p>Create the <code>Bucket</code> source. With the Flux CLI:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">flux create <span class="nb">source</span> bucket dashboards-source <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --bucket-name<span class="o">=</span>example-bucket <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --endpoint<span class="o">=</span>s3.example.com <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --provider<span class="o">=</span>generic <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --secret-ref<span class="o">=</span>bucket-credentials <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --interval<span class="o">=</span>5m <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --namespace<span class="o">=</span>default <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --export
+</span></span></code></pre></div><p>The equivalent CR YAML, which is authoritative:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l">source.toolkit.fluxcd.io/v1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">Bucket</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">metadata</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">dashboards-source</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">default</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">spec</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">interval</span><span class="p">:</span><span class="w"> </span><span class="l">5m</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">provider</span><span class="p">:</span><span class="w"> </span><span class="l">generic</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">bucketName</span><span class="p">:</span><span class="w"> </span><span class="l">example-bucket</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">endpoint</span><span class="p">:</span><span class="w"> </span><span class="l">s3.example.com</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">secretRef</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">bucket-credentials</span><span class="w">
+</span></span></span></code></pre></div><p>The referenced Secret carries the bucket credentials (<code>accesskey</code> /
+<code>secretkey</code>). See the <a href="https://fluxcd.io/">Flux documentation</a>
+ for the Secret
+layout and provider-specific fields.</p>
+</li>
+<li>
+<p>Point a snippet&rsquo;s <code>spec.sourceRef</code> at the source with <code>kind: Bucket</code>. Use
+<code>path:</code> to extract only the prefix that holds your Jsonnet:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l">jaas.metio.wtf/v1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">JsonnetSnippet</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">metadata</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">api-latency-dashboard</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">default</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">spec</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">serviceAccountName</span><span class="p">:</span><span class="w"> </span><span class="l">dashboards-tenant</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">entryFile</span><span class="p">:</span><span class="w"> </span><span class="l">main.jsonnet</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">sourceRef</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">Bucket</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">dashboards-source</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l">dashboards/</span><span class="w">
+</span></span></span></code></pre></div></li>
+</ol>
+<h2 id="which-source-should-i-use">Which source should I use?</h2>
+<table>
+	<thead>
+			<tr>
+					<th>Source</th>
+					<th>Use when</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><code>GitRepository</code></td>
+					<td>Your Jsonnet is human-authored configuration living in a version-controlled git repository.</td>
+			</tr>
+			<tr>
+					<td><code>OCIRepository</code></td>
+					<td>You want an immutable, content-addressed artifact; must be a single layer, and pairs with JOI images.</td>
+			</tr>
+			<tr>
+					<td><code>Bucket</code></td>
+					<td>Your artifacts already live in S3- or GCS-compatible object storage.</td>
+			</tr>
+	</tbody>
+</table>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/operator" term="operator" label="operator"/><category scheme="https://jaas.projects.metio.wtf/tags/sources" term="sources" label="sources"/><category scheme="https://jaas.projects.metio.wtf/tags/oci" term="oci" label="oci"/><category scheme="https://jaas.projects.metio.wtf/tags/flux" term="flux" label="flux"/></entry><entry><title type="html">JOI images</title><link href="https://jaas.projects.metio.wtf/rendering/joi-images/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/reference/configuration/?utm_source=atom_feed" rel="related" type="text/html" title="Configuration reference"/><link href="https://jaas.projects.metio.wtf/operator/creating-sources/?utm_source=atom_feed" rel="related" type="text/html" title="Creating source artifacts"/><link href="https://jaas.projects.metio.wtf/reference/helm-values/?utm_source=atom_feed" rel="related" type="text/html" title="Helm chart values"/><link href="https://jaas.projects.metio.wtf/rendering/jsonnet-libraries/?utm_source=atom_feed" rel="related" type="text/html" title="Jsonnet libraries"/><link href="https://jaas.projects.metio.wtf/api/jsonnetlibrary/?utm_source=atom_feed" rel="related" type="text/html" title="JsonnetLibrary"/><id>https://jaas.projects.metio.wtf/rendering/joi-images/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-26T15:54:29+02:00</updated><content type="html"><![CDATA[<blockquote>The catalog of prebuilt Jsonnet OCI Images (JOI) — every published library, its image reference, upstream source, and description — ready to import into snippets.</blockquote><p><a href="https://github.com/metio/jsonnet-oci-images">Jsonnet OCI Images</a>
+ (JOI) package
+popular Jsonnet libraries as single-layer OCI images, one per upstream library,
+published at <code>ghcr.io/metio/joi-&lt;org&gt;-&lt;repo&gt;</code>. Because each image is a single
+layer, the same artifact serves two roles: a container <strong>image volume</strong> mounted
+into jaas, and a Flux <strong><code>OCIRepository</code></strong> source the operator fetches — so a
+snippet imports a vendored library without bundling it.</p>
+<p>Deploy them with the <a href="/reference/helm-values/#joi-library-chart">JOI Helm chart</a>
+,
+which renders a <code>JsonnetLibrary</code> + <code>OCIRepository</code> pair for each enabled library.
+With Flux, install it via a <code>HelmRelease</code> and enable the libraries you need under
+<code>values.libraries</code>:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l">source.toolkit.fluxcd.io/v1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">OCIRepository</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">metadata</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">joi</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">jaas-system</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">spec</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">interval</span><span class="p">:</span><span class="w"> </span><span class="l">1h</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l">oci://ghcr.io/metio/helm-charts/joi</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">ref</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c"># Latest released chart; pin to a tag for production (Renovate can bump it).</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">semver</span><span class="p">:</span><span class="w"> </span><span class="s2">&#34;&gt;=0.0.0&#34;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nn">---</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l">helm.toolkit.fluxcd.io/v2</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">HelmRelease</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">metadata</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">joi</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">jaas-system</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">spec</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">interval</span><span class="p">:</span><span class="w"> </span><span class="l">1h</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">chartRef</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">OCIRepository</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">joi</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">values</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">libraries</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">k8s-libsonnet</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">grafonnet</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
+</span></span></span></code></pre></div><p>Install it in the namespace where your snippets live: a <code>JsonnetLibrary</code> is
+namespaced, and a snippet references one in its own namespace. (<code>helm upgrade --install joi oci://ghcr.io/metio/helm-charts/joi --set libraries.grafonnet.enabled=true</code> does the same from the command line.)</p>
+<p>A snippet then imports a library by its alias, choosing the version in the import
+path:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-jsonnet" data-lang="jsonnet"><span class="line"><span class="cl"><span class="k">import</span><span class="w"> </span><span class="s">&#39;github.com/jsonnet-libs/k8s-libsonnet/1.34/main.libsonnet&#39;</span><span class="w">
+</span></span></span></code></pre></div><p>The catalog below is generated from the
+<a href="https://github.com/metio/jsonnet-oci-images/blob/main/libraries.json">jsonnet-oci-images manifest</a>
+,
+so it always reflects the currently published set. Pin an image with the moving
+<code>:latest</code> tag or an immutable dated <code>:&lt;YYYY.M.D&gt;</code> snapshot.</p>
+<table>
+  <thead>
+    <tr><th>Library</th><th>Image</th><th>Upstream</th><th>Description</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>actions-runner-controller-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-actions-runner-controller-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/actions-runner-controller-libsonnet" rel="noopener noreferrer">jsonnet-libs/actions-runner-controller-libsonnet</a></td>
+      <td>actions-runner-controller jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>aiven-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-aiven-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/aiven-libsonnet" rel="noopener noreferrer">jsonnet-libs/aiven-libsonnet</a></td>
+      <td>aiven jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>amazon-vpc-resource-controller-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-amazon-vpc-resource-controller-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/amazon-vpc-resource-controller-libsonnet" rel="noopener noreferrer">jsonnet-libs/amazon-vpc-resource-controller-libsonnet</a></td>
+      <td>amazon-vpc-resource-controller jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>argo-cd-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-argo-cd-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/argo-cd-libsonnet" rel="noopener noreferrer">jsonnet-libs/argo-cd-libsonnet</a></td>
+      <td>argo-cd jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>argo-rollouts-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-argo-rollouts-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/argo-rollouts-libsonnet" rel="noopener noreferrer">jsonnet-libs/argo-rollouts-libsonnet</a></td>
+      <td>argo-rollouts jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>argo-workflows-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-argo-workflows-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/argo-workflows-libsonnet" rel="noopener noreferrer">jsonnet-libs/argo-workflows-libsonnet</a></td>
+      <td>argo-workflows jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>argocd-operator-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-argocd-operator-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/argocd-operator-libsonnet" rel="noopener noreferrer">jsonnet-libs/argocd-operator-libsonnet</a></td>
+      <td>argocd-operator jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>aws-load-balancer-controller-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-aws-load-balancer-controller-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/aws-load-balancer-controller-libsonnet" rel="noopener noreferrer">jsonnet-libs/aws-load-balancer-controller-libsonnet</a></td>
+      <td>aws-load-balancer-controller jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>aws-rds-controller-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-aws-rds-controller-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/aws-rds-controller-libsonnet" rel="noopener noreferrer">jsonnet-libs/aws-rds-controller-libsonnet</a></td>
+      <td>aws-rds-controller jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>azure-load-balancer-controller-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-azure-load-balancer-controller-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/azure-load-balancer-controller-libsonnet" rel="noopener noreferrer">jsonnet-libs/azure-load-balancer-controller-libsonnet</a></td>
+      <td>azure-load-balancer-controller jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>banzai-logging-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-banzai-logging-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/banzai-logging-libsonnet" rel="noopener noreferrer">jsonnet-libs/banzai-logging-libsonnet</a></td>
+      <td>banzai-logging jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>banzaicloud-bank-vaults-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-banzaicloud-bank-vaults-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/banzaicloud-bank-vaults-libsonnet" rel="noopener noreferrer">jsonnet-libs/banzaicloud-bank-vaults-libsonnet</a></td>
+      <td>banzaicloud-bank-vaults jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>calico-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-calico-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/calico-libsonnet" rel="noopener noreferrer">jsonnet-libs/calico-libsonnet</a></td>
+      <td>calico jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>cert-manager-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-cert-manager-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/cert-manager-libsonnet" rel="noopener noreferrer">jsonnet-libs/cert-manager-libsonnet</a></td>
+      <td>cert-manager jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>cilium-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-cilium-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/cilium-libsonnet" rel="noopener noreferrer">jsonnet-libs/cilium-libsonnet</a></td>
+      <td>cilium jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>clickhouse-operator-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-clickhouse-operator-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/clickhouse-operator-libsonnet" rel="noopener noreferrer">jsonnet-libs/clickhouse-operator-libsonnet</a></td>
+      <td>clickhouse-operator jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>cloudnative-pg-barman-cloud-plugin-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-cloudnative-pg-barman-cloud-plugin-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/cloudnative-pg-barman-cloud-plugin-libsonnet" rel="noopener noreferrer">jsonnet-libs/cloudnative-pg-barman-cloud-plugin-libsonnet</a></td>
+      <td>cloudnative-pg-barman-cloud-plugin jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>cloudnative-pg-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-cloudnative-pg-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/cloudnative-pg-libsonnet" rel="noopener noreferrer">jsonnet-libs/cloudnative-pg-libsonnet</a></td>
+      <td>cloudnative-pg jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>cluster-api-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-cluster-api-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/cluster-api-libsonnet" rel="noopener noreferrer">jsonnet-libs/cluster-api-libsonnet</a></td>
+      <td>cluster-api jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>cluster-api-operator-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-cluster-api-operator-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/cluster-api-operator-libsonnet" rel="noopener noreferrer">jsonnet-libs/cluster-api-operator-libsonnet</a></td>
+      <td>cluster-api-operator jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>cluster-api-provider-aws-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-cluster-api-provider-aws-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/cluster-api-provider-aws-libsonnet" rel="noopener noreferrer">jsonnet-libs/cluster-api-provider-aws-libsonnet</a></td>
+      <td>cluster-api-provider-aws jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>cluster-api-provider-tinkerbell-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-cluster-api-provider-tinkerbell-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/cluster-api-provider-tinkerbell-libsonnet" rel="noopener noreferrer">jsonnet-libs/cluster-api-provider-tinkerbell-libsonnet</a></td>
+      <td>cluster-api-provider-tinkerbell jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>cnrm-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-cnrm-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/cnrm-libsonnet" rel="noopener noreferrer">jsonnet-libs/cnrm-libsonnet</a></td>
+      <td>cnrm jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>composable-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-composable-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/composable-libsonnet" rel="noopener noreferrer">jsonnet-libs/composable-libsonnet</a></td>
+      <td>composable jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>consul-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-consul-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/consul-libsonnet" rel="noopener noreferrer">jsonnet-libs/consul-libsonnet</a></td>
+      <td>consul jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>contour-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-contour-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/contour-libsonnet" rel="noopener noreferrer">jsonnet-libs/contour-libsonnet</a></td>
+      <td>contour jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>crossplane-core-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-crossplane-core-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/crossplane-core-libsonnet" rel="noopener noreferrer">jsonnet-libs/crossplane-core-libsonnet</a></td>
+      <td>crossplane-core jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>crossplane-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-crossplane-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/crossplane-libsonnet" rel="noopener noreferrer">jsonnet-libs/crossplane-libsonnet</a></td>
+      <td>crossplane jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>crossplane-provider-grafana-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-crossplane-provider-grafana-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/crossplane-provider-grafana-libsonnet" rel="noopener noreferrer">jsonnet-libs/crossplane-provider-grafana-libsonnet</a></td>
+      <td>crossplane-provider-grafana jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>crossplane-provider-upjet-aws-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-crossplane-provider-upjet-aws-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/crossplane-provider-upjet-aws-libsonnet" rel="noopener noreferrer">jsonnet-libs/crossplane-provider-upjet-aws-libsonnet</a></td>
+      <td>crossplane-provider-upjet-aws jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>crossplane-provider-upjet-azure-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-crossplane-provider-upjet-azure-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/crossplane-provider-upjet-azure-libsonnet" rel="noopener noreferrer">jsonnet-libs/crossplane-provider-upjet-azure-libsonnet</a></td>
+      <td>crossplane-provider-upjet-azure jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>crossplane-provider-upjet-azuread-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-crossplane-provider-upjet-azuread-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/crossplane-provider-upjet-azuread-libsonnet" rel="noopener noreferrer">jsonnet-libs/crossplane-provider-upjet-azuread-libsonnet</a></td>
+      <td>crossplane-provider-upjet-azuread jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>crossplane-provider-upjet-gcp-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-crossplane-provider-upjet-gcp-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/crossplane-provider-upjet-gcp-libsonnet" rel="noopener noreferrer">jsonnet-libs/crossplane-provider-upjet-gcp-libsonnet</a></td>
+      <td>crossplane-provider-upjet-gcp jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>crossplane-provider-upjet-github-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-crossplane-provider-upjet-github-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/crossplane-provider-upjet-github-libsonnet" rel="noopener noreferrer">jsonnet-libs/crossplane-provider-upjet-github-libsonnet</a></td>
+      <td>crossplane-provider-upjet-github jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>dapr-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-dapr-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/dapr-libsonnet" rel="noopener noreferrer">jsonnet-libs/dapr-libsonnet</a></td>
+      <td>dapr jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>datadog-operator-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-datadog-operator-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/datadog-operator-libsonnet" rel="noopener noreferrer">jsonnet-libs/datadog-operator-libsonnet</a></td>
+      <td>datadog-operator jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>docsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-docsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/docsonnet" rel="noopener noreferrer">jsonnet-libs/docsonnet</a></td>
+      <td>Experimental Jsonnet docs generator</td>
+    </tr>
+    <tr>
+      <td><code>eck-operator-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-eck-operator-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/eck-operator-libsonnet" rel="noopener noreferrer">jsonnet-libs/eck-operator-libsonnet</a></td>
+      <td>eck-operator jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>edp-keycloak-operator-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-edp-keycloak-operator-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/edp-keycloak-operator-libsonnet" rel="noopener noreferrer">jsonnet-libs/edp-keycloak-operator-libsonnet</a></td>
+      <td>edp-keycloak-operator jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>emissary-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-emissary-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/emissary-libsonnet" rel="noopener noreferrer">jsonnet-libs/emissary-libsonnet</a></td>
+      <td>emissary jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>envoy-gateway-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-envoy-gateway-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/envoy-gateway-libsonnet" rel="noopener noreferrer">jsonnet-libs/envoy-gateway-libsonnet</a></td>
+      <td>envoy-gateway jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>etcd-operator-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-etcd-operator-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/etcd-operator-libsonnet" rel="noopener noreferrer">jsonnet-libs/etcd-operator-libsonnet</a></td>
+      <td>etcd-operator jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>external-dns-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-external-dns-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/external-dns-libsonnet" rel="noopener noreferrer">jsonnet-libs/external-dns-libsonnet</a></td>
+      <td>external-dns jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>external-secrets-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-external-secrets-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/external-secrets-libsonnet" rel="noopener noreferrer">jsonnet-libs/external-secrets-libsonnet</a></td>
+      <td>external-secrets jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>flagger-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-flagger-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/flagger-libsonnet" rel="noopener noreferrer">jsonnet-libs/flagger-libsonnet</a></td>
+      <td>flagger jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>fluxcd-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-fluxcd-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/fluxcd-libsonnet" rel="noopener noreferrer">jsonnet-libs/fluxcd-libsonnet</a></td>
+      <td>fluxcd jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>gatekeeper-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-gatekeeper-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/gatekeeper-libsonnet" rel="noopener noreferrer">jsonnet-libs/gatekeeper-libsonnet</a></td>
+      <td>gatekeeper jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>gateway-api-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-gateway-api-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/gateway-api-libsonnet" rel="noopener noreferrer">jsonnet-libs/gateway-api-libsonnet</a></td>
+      <td>gateway-api jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>google-cloud-sql-proxy-operator-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-google-cloud-sql-proxy-operator-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/google-cloud-sql-proxy-operator-libsonnet" rel="noopener noreferrer">jsonnet-libs/google-cloud-sql-proxy-operator-libsonnet</a></td>
+      <td>google-cloud-sql-proxy-operator jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>grafana-agent-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-grafana-agent-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/grafana-agent-libsonnet" rel="noopener noreferrer">jsonnet-libs/grafana-agent-libsonnet</a></td>
+      <td>grafana-agent jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>grafana-alloy-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-grafana-alloy-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/grafana-alloy-libsonnet" rel="noopener noreferrer">jsonnet-libs/grafana-alloy-libsonnet</a></td>
+      <td>grafana-alloy jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>grafana-operator-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-grafana-operator-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/grafana-operator-libsonnet" rel="noopener noreferrer">jsonnet-libs/grafana-operator-libsonnet</a></td>
+      <td>grafana-operator jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>grafonnet</code></td>
+      <td><code>ghcr.io/metio/joi-grafana-grafonnet</code></td>
+      <td><a href="https://github.com/grafana/grafonnet" rel="noopener noreferrer">grafana/grafonnet</a></td>
+      <td>Jsonnet library for generating Grafana dashboards.</td>
+    </tr>
+    <tr>
+      <td><code>harbor-operator-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-harbor-operator-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/harbor-operator-libsonnet" rel="noopener noreferrer">jsonnet-libs/harbor-operator-libsonnet</a></td>
+      <td>harbor-operator jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>hcp-terraform-operator-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-hcp-terraform-operator-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/hcp-terraform-operator-libsonnet" rel="noopener noreferrer">jsonnet-libs/hcp-terraform-operator-libsonnet</a></td>
+      <td>hcp-terraform-operator jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>istio-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-istio-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/istio-libsonnet" rel="noopener noreferrer">jsonnet-libs/istio-libsonnet</a></td>
+      <td>istio jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>k8s-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-k8s-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/k8s-libsonnet" rel="noopener noreferrer">jsonnet-libs/k8s-libsonnet</a></td>
+      <td>k8s jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>kargo-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-kargo-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/kargo-libsonnet" rel="noopener noreferrer">jsonnet-libs/kargo-libsonnet</a></td>
+      <td>kargo jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>karpenter-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-karpenter-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/karpenter-libsonnet" rel="noopener noreferrer">jsonnet-libs/karpenter-libsonnet</a></td>
+      <td>karpenter jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>keda-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-keda-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/keda-libsonnet" rel="noopener noreferrer">jsonnet-libs/keda-libsonnet</a></td>
+      <td>keda jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>knative-eventing-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-knative-eventing-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/knative-eventing-libsonnet" rel="noopener noreferrer">jsonnet-libs/knative-eventing-libsonnet</a></td>
+      <td>knative-eventing jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>knative-serving-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-knative-serving-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/knative-serving-libsonnet" rel="noopener noreferrer">jsonnet-libs/knative-serving-libsonnet</a></td>
+      <td>knative-serving jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>kro-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-kro-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/kro-libsonnet" rel="noopener noreferrer">jsonnet-libs/kro-libsonnet</a></td>
+      <td>kro jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>kube-prometheus-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-kube-prometheus-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/kube-prometheus-libsonnet" rel="noopener noreferrer">jsonnet-libs/kube-prometheus-libsonnet</a></td>
+      <td>kube-prometheus jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>kubernetes-nmstate-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-kubernetes-nmstate-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/kubernetes-nmstate-libsonnet" rel="noopener noreferrer">jsonnet-libs/kubernetes-nmstate-libsonnet</a></td>
+      <td>kubernetes-nmstate jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>kubernetes-secret-generator-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-kubernetes-secret-generator-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/kubernetes-secret-generator-libsonnet" rel="noopener noreferrer">jsonnet-libs/kubernetes-secret-generator-libsonnet</a></td>
+      <td>kubernetes-secret-generator jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>kubevela-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-kubevela-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/kubevela-libsonnet" rel="noopener noreferrer">jsonnet-libs/kubevela-libsonnet</a></td>
+      <td>kubevela jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>kueue-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-kueue-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/kueue-libsonnet" rel="noopener noreferrer">jsonnet-libs/kueue-libsonnet</a></td>
+      <td>kueue jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>kyverno-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-kyverno-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/kyverno-libsonnet" rel="noopener noreferrer">jsonnet-libs/kyverno-libsonnet</a></td>
+      <td>kyverno jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>litmus-chaos-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-litmus-chaos-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/litmus-chaos-libsonnet" rel="noopener noreferrer">jsonnet-libs/litmus-chaos-libsonnet</a></td>
+      <td>litmus-chaos jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>mariadb-operator-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-mariadb-operator-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/mariadb-operator-libsonnet" rel="noopener noreferrer">jsonnet-libs/mariadb-operator-libsonnet</a></td>
+      <td>mariadb-operator jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>metacontroller-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-metacontroller-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/metacontroller-libsonnet" rel="noopener noreferrer">jsonnet-libs/metacontroller-libsonnet</a></td>
+      <td>metacontroller jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>metallb-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-metallb-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/metallb-libsonnet" rel="noopener noreferrer">jsonnet-libs/metallb-libsonnet</a></td>
+      <td>metallb jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>milvus-operator-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-milvus-operator-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/milvus-operator-libsonnet" rel="noopener noreferrer">jsonnet-libs/milvus-operator-libsonnet</a></td>
+      <td>milvus-operator jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>minio-operator-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-minio-operator-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/minio-operator-libsonnet" rel="noopener noreferrer">jsonnet-libs/minio-operator-libsonnet</a></td>
+      <td>minio-operator jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>mysql-operator-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-mysql-operator-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/mysql-operator-libsonnet" rel="noopener noreferrer">jsonnet-libs/mysql-operator-libsonnet</a></td>
+      <td>mysql-operator jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>nats-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-nats-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/nats-libsonnet" rel="noopener noreferrer">jsonnet-libs/nats-libsonnet</a></td>
+      <td>nats jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>node-feature-discovery-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-node-feature-discovery-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/node-feature-discovery-libsonnet" rel="noopener noreferrer">jsonnet-libs/node-feature-discovery-libsonnet</a></td>
+      <td>node-feature-discovery jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>openshift-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-openshift-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/openshift-libsonnet" rel="noopener noreferrer">jsonnet-libs/openshift-libsonnet</a></td>
+      <td>openshift jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>prometheus-operator-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-prometheus-operator-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/prometheus-operator-libsonnet" rel="noopener noreferrer">jsonnet-libs/prometheus-operator-libsonnet</a></td>
+      <td>prometheus-operator jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>pyrra-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-pyrra-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/pyrra-libsonnet" rel="noopener noreferrer">jsonnet-libs/pyrra-libsonnet</a></td>
+      <td>pyrra jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>rabbitmq-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-rabbitmq-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/rabbitmq-libsonnet" rel="noopener noreferrer">jsonnet-libs/rabbitmq-libsonnet</a></td>
+      <td>rabbitmq jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>rabbitmq-messaging-topology-operator-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-rabbitmq-messaging-topology-operator-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/rabbitmq-messaging-topology-operator-libsonnet" rel="noopener noreferrer">jsonnet-libs/rabbitmq-messaging-topology-operator-libsonnet</a></td>
+      <td>rabbitmq-messaging-topology-operator jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>secrets-store-csi-driver-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-secrets-store-csi-driver-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/secrets-store-csi-driver-libsonnet" rel="noopener noreferrer">jsonnet-libs/secrets-store-csi-driver-libsonnet</a></td>
+      <td>secrets-store-csi-driver jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>securecodebox-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-securecodebox-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/securecodebox-libsonnet" rel="noopener noreferrer">jsonnet-libs/securecodebox-libsonnet</a></td>
+      <td>securecodebox jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>spicedb-operator-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-spicedb-operator-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/spicedb-operator-libsonnet" rel="noopener noreferrer">jsonnet-libs/spicedb-operator-libsonnet</a></td>
+      <td>spicedb-operator jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>strimzi-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-strimzi-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/strimzi-libsonnet" rel="noopener noreferrer">jsonnet-libs/strimzi-libsonnet</a></td>
+      <td>strimzi jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>tailscale-operator-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-tailscale-operator-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/tailscale-operator-libsonnet" rel="noopener noreferrer">jsonnet-libs/tailscale-operator-libsonnet</a></td>
+      <td>tailscale-operator jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>tektoncd-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-tektoncd-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/tektoncd-libsonnet" rel="noopener noreferrer">jsonnet-libs/tektoncd-libsonnet</a></td>
+      <td>tektoncd jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>teleport-operator-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-teleport-operator-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/teleport-operator-libsonnet" rel="noopener noreferrer">jsonnet-libs/teleport-operator-libsonnet</a></td>
+      <td>teleport-operator jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>testonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-testonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/testonnet" rel="noopener noreferrer">jsonnet-libs/testonnet</a></td>
+      <td>A unit testing framework for Jsonnet.</td>
+    </tr>
+    <tr>
+      <td><code>tinkerbell-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-tinkerbell-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/tinkerbell-libsonnet" rel="noopener noreferrer">jsonnet-libs/tinkerbell-libsonnet</a></td>
+      <td>tinkerbell jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>traefik-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-traefik-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/traefik-libsonnet" rel="noopener noreferrer">jsonnet-libs/traefik-libsonnet</a></td>
+      <td>traefik jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>triggermesh-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-triggermesh-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/triggermesh-libsonnet" rel="noopener noreferrer">jsonnet-libs/triggermesh-libsonnet</a></td>
+      <td>triggermesh jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>trust-manager-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-trust-manager-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/trust-manager-libsonnet" rel="noopener noreferrer">jsonnet-libs/trust-manager-libsonnet</a></td>
+      <td>trust-manager jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>upbound-provider-opentofu-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-upbound-provider-opentofu-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/upbound-provider-opentofu-libsonnet" rel="noopener noreferrer">jsonnet-libs/upbound-provider-opentofu-libsonnet</a></td>
+      <td>upbound-provider-opentofu jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>vault-secrets-operator-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-vault-secrets-operator-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/vault-secrets-operator-libsonnet" rel="noopener noreferrer">jsonnet-libs/vault-secrets-operator-libsonnet</a></td>
+      <td>vault-secrets-operator jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>vertical-pod-autoscaler-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-vertical-pod-autoscaler-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/vertical-pod-autoscaler-libsonnet" rel="noopener noreferrer">jsonnet-libs/vertical-pod-autoscaler-libsonnet</a></td>
+      <td>vertical-pod-autoscaler jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>victoria-metrics-operator-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-victoria-metrics-operator-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/victoria-metrics-operator-libsonnet" rel="noopener noreferrer">jsonnet-libs/victoria-metrics-operator-libsonnet</a></td>
+      <td>victoria-metrics-operator jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>xtd</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-xtd</code></td>
+      <td><a href="https://github.com/jsonnet-libs/xtd" rel="noopener noreferrer">jsonnet-libs/xtd</a></td>
+      <td>Extended Jsonnet standard library</td>
+    </tr>
+    <tr>
+      <td><code>zalando-postgres-operator-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-zalando-postgres-operator-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/zalando-postgres-operator-libsonnet" rel="noopener noreferrer">jsonnet-libs/zalando-postgres-operator-libsonnet</a></td>
+      <td>zalando-postgres-operator jsonnet library</td>
+    </tr>
+  </tbody>
+</table>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/jsonnet" term="jsonnet" label="jsonnet"/><category scheme="https://jaas.projects.metio.wtf/tags/libraries" term="libraries" label="libraries"/><category scheme="https://jaas.projects.metio.wtf/tags/oci" term="oci" label="oci"/><category scheme="https://jaas.projects.metio.wtf/tags/joi" term="joi" label="joi"/><category scheme="https://jaas.projects.metio.wtf/tags/reference" term="reference" label="reference"/></entry></feed>

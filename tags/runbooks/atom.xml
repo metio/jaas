@@ -1,0 +1,887 @@
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en"><generator uri="https://gohugo.io/" version="0.163.3">Hugo</generator><title type="html">Runbooks on Jsonnet-as-a-Service</title><link href="https://jaas.projects.metio.wtf/tags/runbooks/" rel="alternate" type="text/html" title="html"/><link href="https://jaas.projects.metio.wtf/tags/runbooks/index.xml" rel="alternate" type="application/rss+xml" title="rss"/><link href="https://jaas.projects.metio.wtf/tags/runbooks/atom.xml" rel="self" type="application/atom+xml" title="atom"/><updated>2026-07-02T07:56:37+00:00</updated><author><name>metio.wtf</name></author><id>https://jaas.projects.metio.wtf/tags/runbooks/</id><entry><title type="html">ArtifactTooLarge</title><link href="https://jaas.projects.metio.wtf/runbooks/artifacttoolarge/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/runbooks/storage-recovery/?utm_source=atom_feed" rel="related" type="text/html" title="Storage backend recovery"/><link href="https://jaas.projects.metio.wtf/runbooks/crd-watch-engagement/?utm_source=atom_feed" rel="related" type="text/html" title="CRD watch engagement failing"/><link href="https://jaas.projects.metio.wtf/runbooks/crossnamespacerefrejected/?utm_source=atom_feed" rel="related" type="text/html" title="CrossNamespaceRefRejected"/><link href="https://jaas.projects.metio.wtf/runbooks/dependencycycle/?utm_source=atom_feed" rel="related" type="text/html" title="DependencyCycle"/><link href="https://jaas.projects.metio.wtf/runbooks/eval-saturation/?utm_source=atom_feed" rel="related" type="text/html" title="Eval-concurrency saturation"/><id>https://jaas.projects.metio.wtf/runbooks/artifacttoolarge/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-16T20:48:39+02:00</updated><content type="html"><![CDATA[<blockquote>The snippet&rsquo;s rendered output exceeds the operator&rsquo;s per-artifact byte cap</blockquote><h2 id="symptom">Symptom</h2>
+<p><code>READY=False</code>, <code>REASON=ArtifactTooLarge</code>. The Message states the rendered byte count and the configured cap.</p>
+<h2 id="cause">Cause</h2>
+<p>The snippet&rsquo;s rendered output exceeds the operator&rsquo;s <code>--max-artifact-bytes</code> (Helm: <code>operator.storage.maxArtifactBytes</code>). The cap is a defense-in-depth control — one runaway snippet shouldn&rsquo;t fill a shared storage volume.</p>
+<p>Common triggers:</p>
+<ul>
+<li>a snippet generating massive arrays via <code>std.range(n)</code> with a much larger <code>n</code> than intended</li>
+<li>accidentally inlining a large data fixture via <code>importstr</code></li>
+<li>forgetting to project / filter when fanning out per-tenant configs</li>
+</ul>
+<h2 id="diagnosis">Diagnosis</h2>
+<p>Check the rendered size locally:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">jsonnet /tmp/snippet/&lt;entry-file&gt; <span class="p">|</span> wc -c
+</span></span></code></pre></div><h2 id="remediation">Remediation</h2>
+<p>Two paths:</p>
+<ol>
+<li><strong>Shrink the output.</strong> Inspect the snippet for unintended fan-out; project only the fields downstream consumers actually need.</li>
+<li><strong>Raise the cap.</strong> <code>--max-artifact-bytes=10485760</code> (10 MiB) gives more headroom. Pair with PVC sizing in the chart so the volume can hold N rev&rsquo;s worth of the new max.</li>
+</ol>
+<p>If many snippets are bumping against the cap, the cap itself may be too low for the workload — review the cluster-wide ratio of total storage to per-snippet rev count.</p>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/runbooks" term="runbooks" label="runbooks"/><category scheme="https://jaas.projects.metio.wtf/tags/troubleshooting" term="troubleshooting" label="troubleshooting"/><category scheme="https://jaas.projects.metio.wtf/tags/storage" term="storage" label="storage"/></entry><entry><title type="html">CRD watch engagement failing</title><link href="https://jaas.projects.metio.wtf/runbooks/crd-watch-engagement/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/runbooks/invalidspec/?utm_source=atom_feed" rel="related" type="text/html" title="InvalidSpec"/><link href="https://jaas.projects.metio.wtf/runbooks/operator-pod-down/?utm_source=atom_feed" rel="related" type="text/html" title="Operator pod not ready"/><link href="https://jaas.projects.metio.wtf/runbooks/pending/?utm_source=atom_feed" rel="related" type="text/html" title="Pending"/><link href="https://jaas.projects.metio.wtf/runbooks/suspended/?utm_source=atom_feed" rel="related" type="text/html" title="Suspended"/><link href="https://jaas.projects.metio.wtf/runbooks/synced/?utm_source=atom_feed" rel="related" type="text/html" title="Synced"/><id>https://jaas.projects.metio.wtf/runbooks/crd-watch-engagement/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-18T20:07:20+02:00</updated><content type="html"><![CDATA[<blockquote>A runtime watch on a Flux source CRD failed to engage, so snippets referencing that kind no longer re-render on upstream changes</blockquote><p>Fires when <code>jaas_crd_watch_engagement_failures_total{gvk=...}</code> has increased above the per-hour threshold for the alert window. The operator lazy-watches Flux source CRDs: at boot, only the CRDs already installed get a watch; when a previously-missing CRD becomes <code>Established=True</code> (you installed source-controller after the operator, say), the <code>crdWatcher</code> engages a runtime watch on it via <code>Controller.Watch</code>. <strong>When that engagement fails, the apiextensions informer fires no further events on a stable CRD</strong> — so the watch stays un-engaged until either the CRD object&rsquo;s metadata/status is changed by something else, or the operator restarts.</p>
+<p>The visible symptom is that snippets with <code>spec.sourceRef.Kind=&lt;the affected kind&gt;</code> stop re-rendering on upstream source updates. There is no per-snippet status signal — they sit at their last-rendered revision, drifting from upstream.</p>
+<h2 id="symptom">Symptom</h2>
+<ul>
+<li><code>JaaSCRDWatchEngagementFailing</code> alert is firing with <code>gvk</code> labelling the affected kind.</li>
+<li><code>kubectl describe jsonnetsnippet</code> on snippets referencing that GVK shows a Ready condition that hasn&rsquo;t moved in hours/days.</li>
+<li>Upstream Flux source CRs (GitRepository, OCIRepository, Bucket, ExternalArtifact) show recent <code>status.artifact.revision</code> changes that the jaas snippets aren&rsquo;t picking up.</li>
+</ul>
+<h2 id="diagnosis">Diagnosis</h2>
+<h3 id="step-1--confirm-the-crd-is-actually-installed-and-established">Step 1 — confirm the CRD is actually installed and Established</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl get crd &lt;plural&gt;.source.toolkit.fluxcd.io <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --output <span class="nv">jsonpath</span><span class="o">=</span><span class="s1">&#39;{.status.conditions[?(@.type==&#34;Established&#34;)].status}{&#34;\n&#34;}&#39;</span>
+</span></span></code></pre></div><p>Expect <code>True</code>. If the CRD is not installed or not yet Established, the watcher is correct to skip; install / wait.</p>
+<h3 id="step-2--check-the-operators-rbac-on-the-source-kind">Step 2 — check the operator&rsquo;s RBAC on the source kind</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl auth can-i list &lt;plural&gt;.source.toolkit.fluxcd.io <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --as<span class="o">=</span>system:serviceaccount:&lt;ns&gt;:&lt;operator-sa&gt;
+</span></span><span class="line"><span class="cl">kubectl auth can-i watch &lt;plural&gt;.source.toolkit.fluxcd.io <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --as<span class="o">=</span>system:serviceaccount:&lt;ns&gt;:&lt;operator-sa&gt;
+</span></span></code></pre></div><p>If either is &ldquo;no&rdquo;, the chart&rsquo;s <code>operator-tenants</code> ClusterRole (or per-namespace RoleBinding when <code>watchNamespaces</code> is set) is missing the <code>get/list/watch</code> verbs on this kind. Update the chart&rsquo;s <code>FluxSourceKinds</code> mapping or add the verb manually.</p>
+<h3 id="step-3--check-controller-runtime-cache-state">Step 3 — check controller-runtime cache state</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace &lt;ns&gt; logs &lt;operator-pod&gt; <span class="p">|</span> grep -E <span class="s1">&#39;engage|Failed to watch|cache&#39;</span> <span class="p">|</span> tail -20
+</span></span></code></pre></div><p>Look for <code>cache reconnect</code>, <code>informer failed</code>, or <code>Watch failed: forbidden</code>. A transient cache reconnect during a heavy load period can trip engagement once; the bounded-retry mechanism re-engages automatically. Sustained failures point at RBAC or a misconfigured <code>MetricsBindAddress</code>.</p>
+<h2 id="remediation">Remediation</h2>
+<ol>
+<li>
+<p><strong>Fix the verb / kind / RBAC</strong> issue identified above.</p>
+</li>
+<li>
+<p><strong>Roll the operator pod</strong> to force a fresh <code>SetupWithManager</code> pass, which re-detects every Flux CRD and re-engages watches that succeed on first try:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace &lt;ns&gt; rollout restart deployment &lt;operator-deployment&gt;
+</span></span></code></pre></div></li>
+<li>
+<p><strong>Verify</strong> the counter stops increasing and the alert clears.</p>
+</li>
+</ol>
+<h2 id="when-the-alert-is-noisy">When the alert is noisy</h2>
+<p>If <code>jaas_crd_watch_engagement_failures_total</code> ticks once at boot but never again, that&rsquo;s the expected bounded-retry behavior: the first attempt failed (transient race during cache start), the retry succeeded. Raise <code>crdWatchEngagementFailuresPerHour</code> if the boot-time blip is noisy enough to page.</p>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/runbooks" term="runbooks" label="runbooks"/><category scheme="https://jaas.projects.metio.wtf/tags/troubleshooting" term="troubleshooting" label="troubleshooting"/><category scheme="https://jaas.projects.metio.wtf/tags/lifecycle" term="lifecycle" label="lifecycle"/></entry><entry><title type="html">CrossNamespaceRefRejected</title><link href="https://jaas.projects.metio.wtf/runbooks/crossnamespacerefrejected/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/runbooks/librarynotfound/?utm_source=atom_feed" rel="related" type="text/html" title="LibraryNotFound"/><link href="https://jaas.projects.metio.wtf/runbooks/rbacdenied/?utm_source=atom_feed" rel="related" type="text/html" title="RBACDenied"/><link href="https://jaas.projects.metio.wtf/runbooks/serviceaccountmissing/?utm_source=atom_feed" rel="related" type="text/html" title="ServiceAccountMissing"/><link href="https://jaas.projects.metio.wtf/runbooks/operator-watch-silent/?utm_source=atom_feed" rel="related" type="text/html" title="Watch-layer silent failure"/><link href="https://jaas.projects.metio.wtf/runbooks/artifacttoolarge/?utm_source=atom_feed" rel="related" type="text/html" title="ArtifactTooLarge"/><id>https://jaas.projects.metio.wtf/runbooks/crossnamespacerefrejected/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-17T10:56:50+02:00</updated><content type="html"><![CDATA[<blockquote>The snippet references a library or Flux source in a different namespace and cross-namespace refs are disabled</blockquote><h2 id="symptom">Symptom</h2>
+<p><code>READY=False</code>, <code>REASON=CrossNamespaceRefRejected</code>. The Message names the offending reference (a library or a sourceRef).</p>
+<h2 id="cause">Cause</h2>
+<p>The operator is running with <code>--no-cross-namespace-refs=true</code> (the chart default) and the snippet references a library or Flux source in a different namespace.</p>
+<p>This is a deliberate isolation control — it mirrors Flux&rsquo;s <code>--no-cross-namespace-refs</code> and stops a tenant in namespace A from reaching libraries / sources in namespace B without an explicit relationship.</p>
+<h2 id="diagnosis">Diagnosis</h2>
+<p>Inspect the spec and identify which reference points outside the snippet&rsquo;s namespace:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace &lt;ns&gt; get jsonnetsnippet &lt;name&gt; --output yaml <span class="p">|</span> grep -E <span class="s2">&#34;namespace:|sourceRef:|libraries:&#34;</span>
+</span></span></code></pre></div><h2 id="remediation">Remediation</h2>
+<p>Three options, by isolation strength:</p>
+<ol>
+<li><strong>(recommended)</strong> Duplicate the library / source CR into the snippet&rsquo;s namespace.</li>
+<li>Promote the library to an OCI volume — mount via the chart&rsquo;s <code>additionalLibraries</code> map. Becomes part of the operator&rsquo;s filesystem, available to every snippet without a cross-namespace CR ref.</li>
+<li><strong>(loosen isolation, cluster-wide)</strong> Set <code>--no-cross-namespace-refs=false</code> on the operator. Affects every tenant in the cluster — only do this when tenants are mutually trusting.</li>
+</ol>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/runbooks" term="runbooks" label="runbooks"/><category scheme="https://jaas.projects.metio.wtf/tags/troubleshooting" term="troubleshooting" label="troubleshooting"/><category scheme="https://jaas.projects.metio.wtf/tags/rbac" term="rbac" label="rbac"/></entry><entry><title type="html">DependencyCycle</title><link href="https://jaas.projects.metio.wtf/runbooks/dependencycycle/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/runbooks/sourcefetchfailed/?utm_source=atom_feed" rel="related" type="text/html" title="SourceFetchFailed"/><link href="https://jaas.projects.metio.wtf/runbooks/sourcenotready/?utm_source=atom_feed" rel="related" type="text/html" title="SourceNotReady"/><link href="https://jaas.projects.metio.wtf/runbooks/sourcerefnotyetsupported/?utm_source=atom_feed" rel="related" type="text/html" title="SourceRefNotYetSupported"/><link href="https://jaas.projects.metio.wtf/runbooks/artifacttoolarge/?utm_source=atom_feed" rel="related" type="text/html" title="ArtifactTooLarge"/><link href="https://jaas.projects.metio.wtf/runbooks/crd-watch-engagement/?utm_source=atom_feed" rel="related" type="text/html" title="CRD watch engagement failing"/><id>https://jaas.projects.metio.wtf/runbooks/dependencycycle/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-18T20:07:20+02:00</updated><content type="html"><![CDATA[<blockquote>The snippet&rsquo;s sourceRef or library chain loops back to itself, which would cause infinite re-render</blockquote><h2 id="symptom">Symptom</h2>
+<p><code>READY=False</code>, <code>REASON=DependencyCycle</code>. The Message names the snippet that closes the cycle.</p>
+<h2 id="cause">Cause</h2>
+<p>The snippet&rsquo;s <code>spec.sourceRef</code> chain transitively points back at the snippet itself. The reconciler detects this and refuses to publish so chained snippets don&rsquo;t loop forever (each republish would trigger every downstream snippet to re-render, which would re-trigger the upstream, and so on).</p>
+<p>Two cycle shapes:</p>
+<ol>
+<li><strong>Direct sourceRef cycle:</strong> <code>A.spec.sourceRef → ExternalArtifact/A</code>. A snippet sourcing from its own published artifact.</li>
+<li><strong>Library-mediated cycle:</strong> <code>A.spec.libraries → JsonnetLibrary/L</code>, where <code>L.spec.sourceRef → ExternalArtifact/A</code> (or a longer chain back to A).</li>
+</ol>
+<p>The validating webhook (<code>--enable-webhook</code>) rejects new CRs that introduce a cycle at admission; the reconciler check is a fallback for when admission is bypassed or the cycle is introduced retroactively (e.g., adding a new library that closes a loop with existing snippets).</p>
+<h2 id="diagnosis">Diagnosis</h2>
+<p>Walk the chain manually:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace &lt;ns&gt; get jsonnetsnippet &lt;name&gt; --output <span class="nv">jsonpath</span><span class="o">=</span><span class="s1">&#39;{.spec.sourceRef}&#39;</span> <span class="o">&amp;&amp;</span> <span class="nb">echo</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># Then inspect what that sourceRef points at, and what it sources from in turn.</span>
+</span></span></code></pre></div><p>For library-mediated cycles, the chain is:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-text" data-lang="text"><span class="line"><span class="cl">snippet A.spec.libraries[i] → JsonnetLibrary L → L.spec.sourceRef → ExternalArtifact X → snippet that publishes X
+</span></span></code></pre></div><p>If the publishing snippet at the end is A, you have a cycle.</p>
+<h2 id="remediation">Remediation</h2>
+<p>Break the cycle by removing the back-edge. Common fixes:</p>
+<ul>
+<li>detach a library from its sourceRef (inline its files instead, if small)</li>
+<li>have the upstream snippet publish a smaller artifact the downstream doesn&rsquo;t need to re-consume</li>
+<li>restructure so the shared data lives in a static ConfigMap referenced as a sourceRef-equivalent, not in a snippet output</li>
+</ul>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/runbooks" term="runbooks" label="runbooks"/><category scheme="https://jaas.projects.metio.wtf/tags/troubleshooting" term="troubleshooting" label="troubleshooting"/><category scheme="https://jaas.projects.metio.wtf/tags/sources" term="sources" label="sources"/></entry><entry><title type="html">Eval-concurrency saturation</title><link href="https://jaas.projects.metio.wtf/runbooks/eval-saturation/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/runbooks/evaluationfailed/?utm_source=atom_feed" rel="related" type="text/html" title="EvaluationFailed"/><link href="https://jaas.projects.metio.wtf/runbooks/evaluationtimeout/?utm_source=atom_feed" rel="related" type="text/html" title="EvaluationTimeout"/><link href="https://jaas.projects.metio.wtf/runbooks/externalvariableconflict/?utm_source=atom_feed" rel="related" type="text/html" title="ExternalVariableConflict"/><link href="https://jaas.projects.metio.wtf/runbooks/artifacttoolarge/?utm_source=atom_feed" rel="related" type="text/html" title="ArtifactTooLarge"/><link href="https://jaas.projects.metio.wtf/runbooks/crd-watch-engagement/?utm_source=atom_feed" rel="related" type="text/html" title="CRD watch engagement failing"/><id>https://jaas.projects.metio.wtf/runbooks/eval-saturation/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-18T20:07:20+02:00</updated><content type="html"><![CDATA[<blockquote>The global concurrent-eval cap is full and the operator is shedding new evaluations, typically because a runaway snippet is holding slots past its deadline</blockquote><p>The global concurrent-eval cap (<code>--max-concurrent-evals</code>, default <code>max(GOMAXPROCS*4, 16)</code>) is full and new evaluations are being shed. The cap exists because the synchronous go-jsonnet API has no context-aware cancellation: once an eval starts it runs to natural completion, so an unbounded queue lets a runaway snippet pile up goroutines that outlive every caller&rsquo;s deadline. This state is not tied to a single status <code>Reason</code>.</p>
+<h2 id="symptom">Symptom</h2>
+<p>One or more of:</p>
+<ul>
+<li><code>JaaSEvalSaturation</code> is firing — <code>jaas_eval_in_flight / jaas_eval_max_concurrent</code> has been above the threshold (default <code>0.9</code>) for the alert window.</li>
+<li><code>JaaSEvalRejected</code> is firing — <code>rate(jaas_eval_unavailable_total[5m])</code> has been above the threshold.</li>
+<li>HTTP clients see <code>503 Service Unavailable</code> with body <code>{&quot;error&quot;: &quot;evaluation_unavailable&quot;, &quot;message&quot;: &quot;concurrent-eval cap is full; retry after backoff&quot;}</code>.</li>
+<li><code>kubectl describe jsonnetsnippet</code> shows recurring <code>Warning EvalUnavailable</code> events with message <code>reconcile deferred for 1s by --max-concurrent-evals</code>. The Ready condition is untouched — backpressure is not failure.</li>
+<li><code>jaas_eval_outstanding_timed_out</code> is also elevated — confirms the runaway-snippet diagnosis: orphaned evals are pinning slots while their parents have already given up.</li>
+</ul>
+<h2 id="diagnosis-why-is-the-cap-full">Diagnosis: why is the cap full?</h2>
+<p>The cap fills for two distinct reasons. The right remediation depends on which.</p>
+<h3 id="path-a--runaway-snippet-goroutines-outliving-their-ctx">Path A — runaway snippet (goroutines outliving their ctx)</h3>
+<p>Read the leak gauge. If it&rsquo;s non-zero and trending up, evaluations are starting but not finishing — almost always a single snippet whose work dwarfs <code>--evaluation-timeout</code>.</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl"><span class="c1"># Live count of evals whose parent reconcile already timed out:</span>
+</span></span><span class="line"><span class="cl">kubectl --namespace &lt;jaas-ns&gt; <span class="nb">exec</span> deploy/jaas -- <span class="se">\
+</span></span></span><span class="line"><span class="cl">  wget -qO- http://localhost:8083/metrics <span class="p">|</span> grep jaas_eval_outstanding_timed_out
+</span></span></code></pre></div><p>To find the culprit, scan recent reconcile logs for <code>Jsonnet evaluation timed out</code> followed by repeated <code>EvalUnavailable</code> warnings on the same snippet:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace &lt;jaas-ns&gt; logs deploy/jaas --since<span class="o">=</span>15m <span class="se">\
+</span></span></span><span class="line"><span class="cl">  <span class="p">|</span> grep -E <span class="s1">&#39;EvaluationTimeout|EvalUnavailable&#39;</span> <span class="se">\
+</span></span></span><span class="line"><span class="cl">  <span class="p">|</span> sort <span class="p">|</span> uniq -c <span class="p">|</span> sort -rn <span class="p">|</span> head
+</span></span></code></pre></div><p>The snippet whose name dominates that list is the culprit. Common causes:</p>
+<ul>
+<li>Deep recursion that takes seconds-to-minutes to complete naturally even after the parent deadline fires.</li>
+<li>Pathological library import that triggers go-jsonnet&rsquo;s worst-case eval order.</li>
+<li>A <code>std.foldl</code> over a generated array of millions of entries.</li>
+</ul>
+<h3 id="path-b--genuine-load-above-the-cap">Path B — genuine load above the cap</h3>
+<p>Leak gauge is at zero (or steady, not growing), <code>jaas_eval_in_flight</code> is pegged near the cap, and many distinct snippets show <code>EvalUnavailable</code> events. The cap is sized too small for the workload.</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl"><span class="c1"># Distribution of which snippets are seeing rejections — a flat</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># distribution across many snippets is path B; a single dominant</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># snippet is path A.</span>
+</span></span><span class="line"><span class="cl">kubectl --namespace &lt;jaas-ns&gt; <span class="nb">exec</span> deploy/jaas -- <span class="se">\
+</span></span></span><span class="line"><span class="cl">  wget -qO- http://localhost:8083/metrics <span class="se">\
+</span></span></span><span class="line"><span class="cl">  <span class="p">|</span> grep jaas_snippet_eval_unavailable_total
+</span></span></code></pre></div><h2 id="remediation">Remediation</h2>
+<h3 id="path-a--runaway-snippet">Path A — runaway snippet</h3>
+<ol>
+<li>
+<p><strong>Suspend the offender</strong> to stop new evals while you fix the snippet:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace &lt;ns&gt; patch jsonnetsnippet &lt;name&gt; --type merge <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --patch <span class="s1">&#39;{&#34;spec&#34;:{&#34;suspend&#34;:true}}&#39;</span>
+</span></span></code></pre></div></li>
+<li>
+<p><strong>Inspect the snippet</strong> to understand the cost. Lower <code>--max-stack</code> is a blunt clamp that rejects pathological recursion before it can leak. The chart&rsquo;s <code>operator.maxStack</code> defaults to 500; pull it down to ~200 if the snippet doesn&rsquo;t legitimately need deeper recursion.</p>
+</li>
+<li>
+<p><strong>Tighten <code>--evaluation-timeout</code></strong> if the snippet&rsquo;s natural completion time is the load-bearing factor. A 5s default lets a 60s pathological eval leak for nearly a minute; dropping to 1s shrinks the worst-case leak window.</p>
+</li>
+<li>
+<p><strong>Re-enable</strong> after the snippet spec is fixed:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace &lt;ns&gt; patch jsonnetsnippet &lt;name&gt; --type merge <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --patch <span class="s1">&#39;{&#34;spec&#34;:{&#34;suspend&#34;:false}}&#39;</span>
+</span></span></code></pre></div></li>
+</ol>
+<h3 id="path-b--genuine-load">Path B — genuine load</h3>
+<ol>
+<li>
+<p><strong>Raise the cap</strong> if the operator has CPU headroom. The default is <code>max(GOMAXPROCS*4, 16)</code>; double it via the chart:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">helm upgrade &lt;release&gt; &lt;chart&gt; --reuse-values <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --set arguments.maxConcurrentEvals<span class="o">=</span><span class="m">64</span>
+</span></span></code></pre></div><p>Each in-flight eval pins roughly one CPU when actively running, so the practical ceiling is bounded by node CPU. Past 2-3× GOMAXPROCS the gains drop sharply — more contention, same throughput.</p>
+</li>
+<li>
+<p><strong>Tune the per-snippet rate limiter</strong> if a small number of snippets dominate the request rate. <code>--rerender-rate</code> + <code>--rerender-burst</code> cap each snippet&rsquo;s reconcile frequency independent of the global eval cap.</p>
+</li>
+<li>
+<p><strong>Scale horizontally</strong> if a single replica can&rsquo;t keep up even at the raised cap. The chart&rsquo;s <code>replicas.max</code> controls the HPA ceiling; combined with the storage layer&rsquo;s leader election (S3 backend) you get multi-replica HA where every replica reads but only the lease-holder writes.</p>
+</li>
+</ol>
+<h2 id="when-not-to-raise-the-cap">When NOT to raise the cap</h2>
+<p>If the leak gauge is non-zero AND growing, raising the cap lets more goroutines pile up before the next saturation event. Diagnose path A first. The cap is a backpressure boundary, not a throughput knob.</p>
+<h2 id="disable-the-gate-not-recommended">Disable the gate (not recommended)</h2>
+<p><code>--max-concurrent-evals=0</code> disables the gate entirely. The leak gauge keeps working, but rejections never fire — a single runaway snippet can OOM the pod. Use only if you&rsquo;ve sized the workload precisely and want to surface saturation purely via the leak gauge.</p>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/runbooks" term="runbooks" label="runbooks"/><category scheme="https://jaas.projects.metio.wtf/tags/troubleshooting" term="troubleshooting" label="troubleshooting"/><category scheme="https://jaas.projects.metio.wtf/tags/evaluation" term="evaluation" label="evaluation"/></entry><entry><title type="html">EvaluationFailed</title><link href="https://jaas.projects.metio.wtf/runbooks/evaluationfailed/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/runbooks/eval-saturation/?utm_source=atom_feed" rel="related" type="text/html" title="Eval-concurrency saturation"/><link href="https://jaas.projects.metio.wtf/runbooks/evaluationtimeout/?utm_source=atom_feed" rel="related" type="text/html" title="EvaluationTimeout"/><link href="https://jaas.projects.metio.wtf/runbooks/externalvariableconflict/?utm_source=atom_feed" rel="related" type="text/html" title="ExternalVariableConflict"/><link href="https://jaas.projects.metio.wtf/runbooks/artifacttoolarge/?utm_source=atom_feed" rel="related" type="text/html" title="ArtifactTooLarge"/><link href="https://jaas.projects.metio.wtf/runbooks/crd-watch-engagement/?utm_source=atom_feed" rel="related" type="text/html" title="CRD watch engagement failing"/><id>https://jaas.projects.metio.wtf/runbooks/evaluationfailed/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-18T20:07:20+02:00</updated><content type="html"><![CDATA[<blockquote>The Jsonnet snippet failed to evaluate due to a syntax error, runtime error, or unresolved import</blockquote><h2 id="symptom">Symptom</h2>
+<p><code>READY=False</code>, <code>REASON=EvaluationFailed</code>. The Message contains the raw go-jsonnet diagnostic — file name, line, column, and the underlying error.</p>
+<h2 id="cause">Cause</h2>
+<p>The snippet failed to evaluate. Three broad categories:</p>
+<ul>
+<li><strong>Syntax error</strong> — unclosed brace, missing comma, bad indent.</li>
+<li><strong>Runtime error</strong> — <code>std.extVar('missing')</code> for an unset variable, division by zero, <code>error '...'</code> thrown explicitly.</li>
+<li><strong>Import error</strong> — <code>import 'missing.libsonnet'</code> resolves to nothing in the snippet&rsquo;s file map or library imports.</li>
+</ul>
+<h2 id="diagnosis">Diagnosis</h2>
+<p>Read the Message — it names the file and line. Reproduce locally:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl"><span class="c1"># Pull the snippet&#39;s files into a tempdir, then evaluate.</span>
+</span></span><span class="line"><span class="cl">kubectl --namespace &lt;ns&gt; get jsonnetsnippet &lt;name&gt; --output json <span class="p">|</span> jq -r <span class="s1">&#39;.spec.files[&#34;main.jsonnet&#34;]&#39;</span> &gt; /tmp/main.jsonnet
+</span></span><span class="line"><span class="cl">jsonnet /tmp/main.jsonnet
+</span></span></code></pre></div><p>For sourceRef-based snippets, fetch the tarball:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl"><span class="nv">SOURCE_URL</span><span class="o">=</span><span class="k">$(</span>kubectl --namespace &lt;ns&gt; get gitrepository &lt;name&gt; --output <span class="nv">jsonpath</span><span class="o">=</span><span class="s1">&#39;{.status.artifact.url}&#39;</span><span class="k">)</span>
+</span></span><span class="line"><span class="cl">curl -sL <span class="s2">&#34;</span><span class="nv">$SOURCE_URL</span><span class="s2">&#34;</span> <span class="p">|</span> tar -xz -C /tmp/snippet
+</span></span><span class="line"><span class="cl">jsonnet /tmp/snippet/&lt;entry-file&gt;
+</span></span></code></pre></div><h2 id="remediation">Remediation</h2>
+<p>Fix the snippet (or its libraries / source) and re-apply.</p>
+<p>The diagnostic message can include the on-disk path of the snippet. This is acceptable in-cluster; treat it as sensitive if the condition is exposed to untrusted callers.</p>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/runbooks" term="runbooks" label="runbooks"/><category scheme="https://jaas.projects.metio.wtf/tags/troubleshooting" term="troubleshooting" label="troubleshooting"/><category scheme="https://jaas.projects.metio.wtf/tags/evaluation" term="evaluation" label="evaluation"/></entry><entry><title type="html">EvaluationTimeout</title><link href="https://jaas.projects.metio.wtf/runbooks/evaluationtimeout/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/runbooks/eval-saturation/?utm_source=atom_feed" rel="related" type="text/html" title="Eval-concurrency saturation"/><link href="https://jaas.projects.metio.wtf/runbooks/evaluationfailed/?utm_source=atom_feed" rel="related" type="text/html" title="EvaluationFailed"/><link href="https://jaas.projects.metio.wtf/runbooks/externalvariableconflict/?utm_source=atom_feed" rel="related" type="text/html" title="ExternalVariableConflict"/><link href="https://jaas.projects.metio.wtf/runbooks/artifacttoolarge/?utm_source=atom_feed" rel="related" type="text/html" title="ArtifactTooLarge"/><link href="https://jaas.projects.metio.wtf/runbooks/crd-watch-engagement/?utm_source=atom_feed" rel="related" type="text/html" title="CRD watch engagement failing"/><id>https://jaas.projects.metio.wtf/runbooks/evaluationtimeout/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-16T20:48:39+02:00</updated><content type="html"><![CDATA[<blockquote>The snippet&rsquo;s evaluation exceeded the operator&rsquo;s wall-clock deadline and was abandoned</blockquote><h2 id="symptom">Symptom</h2>
+<p><code>READY=False</code>, <code>REASON=EvaluationTimeout</code>. The snippet&rsquo;s eval ran longer than the operator&rsquo;s <code>--evaluation-timeout</code>.</p>
+<h2 id="cause">Cause</h2>
+<p>Snippets are evaluated synchronously per reconcile. The deadline is wall-clock, not CPU — but go-jsonnet has no mid-evaluation cancellation, so a snippet that runs over the deadline still keeps consuming CPU on the operator pod until it returns naturally.</p>
+<p>Common triggers:</p>
+<ul>
+<li>a snippet recursing deeper than necessary (try lowering <code>--max-stack</code> to surface this as a stack-limit error instead, then optimize)</li>
+<li>a snippet that loads a huge sourceRef tarball and walks it</li>
+<li>a snippet that calls <code>std.set</code> / <code>std.uniq</code> over a very large array</li>
+</ul>
+<h2 id="diagnosis">Diagnosis</h2>
+<p>Time it locally:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl"><span class="nb">time</span> jsonnet /tmp/snippet/&lt;entry-file&gt;
+</span></span></code></pre></div><p>If it takes seconds locally, the operator&rsquo;s bound is too tight. If it takes minutes locally, the snippet itself is the problem.</p>
+<h2 id="remediation">Remediation</h2>
+<p>Two paths:</p>
+<ol>
+<li><strong>Optimize the snippet.</strong> Memoize repeated work into <code>local</code> bindings, narrow the input set, avoid <code>std.flattenDeepArrays</code> over deep trees.</li>
+<li><strong>Raise the operator&rsquo;s bound.</strong> <code>--evaluation-timeout=30s</code> (default <code>5s</code>) gives more headroom. Pair with <code>resources.cpu</code> headroom in the chart so the slow snippet doesn&rsquo;t starve other reconciles.</li>
+</ol>
+<p>For pathological inputs, consider splitting the snippet — render the slow part less often via a separate snippet others source from (see <code>examples/operator/chained-snippets.yaml</code>).</p>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/runbooks" term="runbooks" label="runbooks"/><category scheme="https://jaas.projects.metio.wtf/tags/troubleshooting" term="troubleshooting" label="troubleshooting"/><category scheme="https://jaas.projects.metio.wtf/tags/evaluation" term="evaluation" label="evaluation"/></entry><entry><title type="html">ExternalVariableConflict</title><link href="https://jaas.projects.metio.wtf/runbooks/externalvariableconflict/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/runbooks/eval-saturation/?utm_source=atom_feed" rel="related" type="text/html" title="Eval-concurrency saturation"/><link href="https://jaas.projects.metio.wtf/runbooks/evaluationfailed/?utm_source=atom_feed" rel="related" type="text/html" title="EvaluationFailed"/><link href="https://jaas.projects.metio.wtf/runbooks/evaluationtimeout/?utm_source=atom_feed" rel="related" type="text/html" title="EvaluationTimeout"/><link href="https://jaas.projects.metio.wtf/runbooks/artifacttoolarge/?utm_source=atom_feed" rel="related" type="text/html" title="ArtifactTooLarge"/><link href="https://jaas.projects.metio.wtf/runbooks/crd-watch-engagement/?utm_source=atom_feed" rel="related" type="text/html" title="CRD watch engagement failing"/><id>https://jaas.projects.metio.wtf/runbooks/externalvariableconflict/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-17T10:56:50+02:00</updated><content type="html"><![CDATA[<blockquote>The snippet declares an external variable key already claimed by the operator via &ndash;ext-var</blockquote><h2 id="symptom">Symptom</h2>
+<p><code>READY=False</code>, <code>REASON=ExternalVariableConflict</code>. The Message names the conflicting key.</p>
+<h2 id="cause">Cause</h2>
+<p>The snippet&rsquo;s <code>spec.externalVariables</code> declares a key that the operator already owns via <code>--ext-var</code> (cluster operator-level). Operator keys win by design — they&rsquo;re how the cluster admin pins cluster-scoped values like <code>cluster</code>, <code>region</code>, <code>environment</code> so a tenant snippet can&rsquo;t override them.</p>
+<h2 id="diagnosis">Diagnosis</h2>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl"><span class="c1"># Which keys does the operator own?</span>
+</span></span><span class="line"><span class="cl">kubectl --namespace &lt;jaas-ns&gt; get pod --selector app.kubernetes.io/name<span class="o">=</span>jaas --output yaml <span class="p">|</span> grep -A1 <span class="s2">&#34;\--ext-var=&#34;</span>
+</span></span></code></pre></div><p>Cross-reference with the snippet&rsquo;s <code>spec.externalVariables</code>.</p>
+<h2 id="remediation">Remediation</h2>
+<p>Rename the conflicting key in the snippet, or remove it from the snippet entirely (the operator-level value flows through automatically).</p>
+<p>If the snippet legitimately needs a different value, that&rsquo;s a structural problem — the snippet shouldn&rsquo;t ship with an opinion that overrides a cluster-wide invariant. Re-discuss with the cluster admin.</p>
+<p>The validating webhook (<code>--enable-webhook</code>) catches this at admission so <code>kubectl apply</code> rejects it before it lands. The reconciler enforcing the same rule is a fallback for when admission is bypassed.</p>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/runbooks" term="runbooks" label="runbooks"/><category scheme="https://jaas.projects.metio.wtf/tags/troubleshooting" term="troubleshooting" label="troubleshooting"/><category scheme="https://jaas.projects.metio.wtf/tags/evaluation" term="evaluation" label="evaluation"/></entry><entry><title type="html">High reconcile latency</title><link href="https://jaas.projects.metio.wtf/runbooks/reconcile-latency/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/runbooks/workqueue-saturation/?utm_source=atom_feed" rel="related" type="text/html" title="Workqueue saturation"/><link href="https://jaas.projects.metio.wtf/runbooks/artifacttoolarge/?utm_source=atom_feed" rel="related" type="text/html" title="ArtifactTooLarge"/><link href="https://jaas.projects.metio.wtf/runbooks/crd-watch-engagement/?utm_source=atom_feed" rel="related" type="text/html" title="CRD watch engagement failing"/><link href="https://jaas.projects.metio.wtf/runbooks/crossnamespacerefrejected/?utm_source=atom_feed" rel="related" type="text/html" title="CrossNamespaceRefRejected"/><link href="https://jaas.projects.metio.wtf/runbooks/dependencycycle/?utm_source=atom_feed" rel="related" type="text/html" title="DependencyCycle"/><id>https://jaas.projects.metio.wtf/runbooks/reconcile-latency/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-18T20:07:20+02:00</updated><content type="html"><![CDATA[<blockquote>Individual reconcile calls are taking longer than the configured p99 threshold, indicating slow source fetches, heavy evaluation, or a sluggish storage backend</blockquote><p>Linked from the <code>JaaSReconcileLatencyHigh</code> alert. Fires when the controller-runtime <code>controller_runtime_reconcile_time_seconds</code> histogram p99 exceeds the configured threshold (default 30s) for the alert window.</p>
+<h2 id="symptom">Symptom</h2>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-text" data-lang="text"><span class="line"><span class="cl">ALERTS{alertname=&#34;JaaSReconcileLatencyHigh&#34;, controller=&#34;jsonnetsnippet&#34;}
+</span></span></code></pre></div><ul>
+<li><code>kubectl get jsonnetsnippet</code> shows status updates trickling in well after spec changes.</li>
+<li>Operator pod CPU is moderate-to-high but the queue is draining (distinguishes this from <a href="/runbooks/workqueue-saturation/">workqueue-saturation</a>
+, where the queue itself is growing).</li>
+</ul>
+<h2 id="cause">Cause</h2>
+<p>Reconcile latency is the wall-clock cost of one <code>Reconcile()</code> call. Inside the call, JaaS does (in order):</p>
+<ol>
+<li><code>Get</code> the snippet from the cache.</li>
+<li>Run the dependency-cycle BFS (one Get per touched node).</li>
+<li>Resolve the source (inline files, or sourceRef → Fetcher: source-CR Get + tarball HTTP fetch + tar extract).</li>
+<li>Resolve libraries (one Get per <code>LibraryRef</code>).</li>
+<li>Evaluate the snippet via go-jsonnet.</li>
+<li>Publish via the storage backend (<code>Put</code>).</li>
+<li>Status update + ExternalArtifact upsert.</li>
+</ol>
+<p>Slow reconciles are almost always one of:</p>
+<ul>
+<li><strong>Slow <code>Fetcher</code></strong> — a large tarball over a slow network, or a misbehaving source-controller (digest mismatch retries).</li>
+<li><strong>Heavy jsonnet evaluation</strong> — a snippet that imports lots of large libraries or runs unbounded recursion below the stack limit.</li>
+<li><strong>Slow <code>Publisher</code></strong> — S3 throttling, a slow PVC, or large rendered output (close to <code>--max-artifact-bytes</code>).</li>
+<li><strong>Cycle-detection blowup</strong> — a dense graph of snippets cross-referencing via <code>sourceRef</code>. The BFS is O(V+E) but each visit is a <code>Get</code>.</li>
+</ul>
+<h2 id="diagnosis">Diagnosis</h2>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl"><span class="c1"># Where is the time going? OTel spans break Reconcile into sub-stages.</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># Requires --tracing-endpoint set on the operator.</span>
+</span></span><span class="line"><span class="cl">kubectl --namespace &lt;jaas-ns&gt; get deploy jaas <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --output <span class="nv">jsonpath</span><span class="o">=</span><span class="s1">&#39;{.spec.template.spec.containers[0].args}&#39;</span> <span class="se">\
+</span></span></span><span class="line"><span class="cl">  <span class="p">|</span> tr <span class="s1">&#39;,&#39;</span> <span class="s1">&#39;\n&#39;</span> <span class="p">|</span> grep tracing
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># Without tracing: the histograms expose enough to triangulate.</span>
+</span></span><span class="line"><span class="cl">kubectl --namespace &lt;jaas-ns&gt; port-forward svc/jaas-metrics 8083:8083 <span class="p">&amp;</span>
+</span></span><span class="line"><span class="cl">curl -s localhost:8083/metrics <span class="p">|</span> grep -E <span class="s1">&#39;reconcile_time|rendered_bytes&#39;</span>
+</span></span></code></pre></div><p>The <code>jaas_snippet_rendered_bytes</code> histogram tells you whether a slow Publisher is the cause (large outputs) vs. a slow Fetcher (small outputs but the histogram is dominated by upstream IO).</p>
+<p>For a single suspect snippet, force a reconcile under load and observe:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace &lt;ns&gt; annotate jsonnetsnippet &lt;name&gt; <span class="se">\
+</span></span></span><span class="line"><span class="cl">  jaas.metio.wtf/reconcile-at<span class="o">=</span><span class="k">$(</span>date -u +%FT%TZ<span class="k">)</span> --overwrite
+</span></span><span class="line"><span class="cl">kubectl --namespace &lt;jaas-ns&gt; logs deploy/jaas --tail<span class="o">=</span><span class="m">50</span> <span class="p">|</span> grep &lt;name&gt;
+</span></span></code></pre></div><h2 id="remediation">Remediation</h2>
+<ul>
+<li><strong>Slow Fetcher.</strong> Narrow <code>spec.sourceRef.path</code> to the subdirectory the snippet actually needs. Tarballs balloon when an entire monorepo is published; the filter trims what JaaS has to download.</li>
+<li><strong>Heavy eval.</strong> Cap <code>--max-stack</code> to bound runaway recursion. Profile the snippet locally via <code>jsonnet</code> (the CLI) — the operator&rsquo;s evaluation is identical.</li>
+<li><strong>Slow Publisher.</strong> See <a href="/runbooks/storage-recovery/">storage-recovery</a>
+ for backend-specific tuning.</li>
+<li><strong>Cycle-detection blowup.</strong> Reorganize snippets so the cross-reference graph is shallow; cycle detection visits every reachable node, so a fan-out of N snippets multiplies the cost.</li>
+<li><strong>OTel for forensics.</strong> Enable <code>--tracing-endpoint</code> and the per-stage spans turn this from guessing into measurement. The chart values key is <code>operator.tracing.endpoint</code>.</li>
+</ul>
+<h2 id="prevention">Prevention</h2>
+<ul>
+<li>Pair the alert with <code>JaaSSnippetArtifactGrowing</code> (<a href="/runbooks/artifacttoolarge/">artifacttoolarge</a>
+). A snippet whose rendered bytes are climbing is almost always headed for a latency spike too.</li>
+<li>For multi-replica HA, leader election keeps only one replica in the reconcile loop — sustained latency on the lease-holder is what matters; standby latency is not measured.</li>
+</ul>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/runbooks" term="runbooks" label="runbooks"/><category scheme="https://jaas.projects.metio.wtf/tags/troubleshooting" term="troubleshooting" label="troubleshooting"/><category scheme="https://jaas.projects.metio.wtf/tags/metrics" term="metrics" label="metrics"/></entry><entry><title type="html">InvalidSpec</title><link href="https://jaas.projects.metio.wtf/runbooks/invalidspec/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/runbooks/crd-watch-engagement/?utm_source=atom_feed" rel="related" type="text/html" title="CRD watch engagement failing"/><link href="https://jaas.projects.metio.wtf/runbooks/operator-pod-down/?utm_source=atom_feed" rel="related" type="text/html" title="Operator pod not ready"/><link href="https://jaas.projects.metio.wtf/runbooks/pending/?utm_source=atom_feed" rel="related" type="text/html" title="Pending"/><link href="https://jaas.projects.metio.wtf/runbooks/suspended/?utm_source=atom_feed" rel="related" type="text/html" title="Suspended"/><link href="https://jaas.projects.metio.wtf/runbooks/synced/?utm_source=atom_feed" rel="related" type="text/html" title="Synced"/><id>https://jaas.projects.metio.wtf/runbooks/invalidspec/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-18T20:07:20+02:00</updated><content type="html"><![CDATA[<blockquote>The snippet&rsquo;s spec contains a field combination the reconciler cannot process, such as a missing entryFile or conflicting source fields</blockquote><h2 id="symptom">Symptom</h2>
+<p><code>READY=False</code>, <code>REASON=InvalidSpec</code>. The condition Message names which field is at fault.</p>
+<h2 id="cause">Cause</h2>
+<p>Spec-level validation that admission should have caught but the reconciler is enforcing as a fallback:</p>
+<ul>
+<li><code>spec.entryFile</code> is empty</li>
+<li>both <code>spec.files</code> and <code>spec.sourceRef</code> are set (mutually exclusive)</li>
+<li>neither <code>spec.files</code> nor <code>spec.sourceRef</code> is set</li>
+<li><code>spec.entryFile</code> does not match any key in the resolved file map</li>
+</ul>
+<h2 id="diagnosis">Diagnosis</h2>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace &lt;ns&gt; describe jsonnetsnippet &lt;name&gt;
+</span></span></code></pre></div><p>Read the Message — it names the field.</p>
+<h2 id="remediation">Remediation</h2>
+<p>Fix the spec and reapply. If the validating webhook is enabled (<code>--enable-webhook</code>), <code>kubectl apply</code> rejects the invalid spec at admission instead of letting it land and fail later.</p>
+<p>If you&rsquo;re seeing <code>InvalidSpec</code> on apply through the webhook, that&rsquo;s a bug — file an issue with the rejected manifest.</p>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/runbooks" term="runbooks" label="runbooks"/><category scheme="https://jaas.projects.metio.wtf/tags/troubleshooting" term="troubleshooting" label="troubleshooting"/><category scheme="https://jaas.projects.metio.wtf/tags/lifecycle" term="lifecycle" label="lifecycle"/></entry><entry><title type="html">LibraryNotFound</title><link href="https://jaas.projects.metio.wtf/runbooks/librarynotfound/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/runbooks/crossnamespacerefrejected/?utm_source=atom_feed" rel="related" type="text/html" title="CrossNamespaceRefRejected"/><link href="https://jaas.projects.metio.wtf/runbooks/rbacdenied/?utm_source=atom_feed" rel="related" type="text/html" title="RBACDenied"/><link href="https://jaas.projects.metio.wtf/runbooks/serviceaccountmissing/?utm_source=atom_feed" rel="related" type="text/html" title="ServiceAccountMissing"/><link href="https://jaas.projects.metio.wtf/runbooks/operator-watch-silent/?utm_source=atom_feed" rel="related" type="text/html" title="Watch-layer silent failure"/><link href="https://jaas.projects.metio.wtf/runbooks/artifacttoolarge/?utm_source=atom_feed" rel="related" type="text/html" title="ArtifactTooLarge"/><id>https://jaas.projects.metio.wtf/runbooks/librarynotfound/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-18T20:07:20+02:00</updated><content type="html"><![CDATA[<blockquote>A JsonnetLibrary CR referenced in spec.libraries does not exist or is unreachable by the tenant ServiceAccount</blockquote><h2 id="symptom">Symptom</h2>
+<p><code>READY=False</code>, <code>REASON=LibraryNotFound</code>. The Message names the missing library.</p>
+<h2 id="cause">Cause</h2>
+<p>A <code>spec.libraries[*]</code> entry references a <code>JsonnetLibrary</code> CR that the operator cannot Get. Common reasons:</p>
+<ul>
+<li>the library CR doesn&rsquo;t exist (typo, wrong namespace, not yet applied)</li>
+<li>the tenant ServiceAccount doesn&rsquo;t have <code>get</code> on the library kind in the library&rsquo;s namespace</li>
+<li>the library is in a different namespace and <code>--no-cross-namespace-refs=true</code></li>
+</ul>
+<h2 id="diagnosis">Diagnosis</h2>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl"><span class="c1"># Confirm the library exists.</span>
+</span></span><span class="line"><span class="cl">kubectl --namespace &lt;ns&gt; get jsonnetlibrary &lt;name&gt;
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># Test the tenant&#39;s RBAC.</span>
+</span></span><span class="line"><span class="cl">kubectl --namespace &lt;library-ns&gt; auth can-i get jsonnetlibrary &lt;name&gt; <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --as<span class="o">=</span>system:serviceaccount:&lt;ns&gt;:&lt;tenant-sa&gt;
+</span></span></code></pre></div><p>If <code>can-i</code> returns <code>no</code>, RBAC is the gap.</p>
+<h2 id="remediation">Remediation</h2>
+<ul>
+<li>create the library CR if it doesn&rsquo;t exist</li>
+<li>grant <code>get</code> on <code>jsonnetlibraries.jaas.metio.wtf</code> to the tenant SA via a Role + RoleBinding</li>
+<li>if cross-namespace is intended, either move the library into the snippet&rsquo;s namespace or set <code>--no-cross-namespace-refs=false</code> cluster-wide</li>
+</ul>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/runbooks" term="runbooks" label="runbooks"/><category scheme="https://jaas.projects.metio.wtf/tags/troubleshooting" term="troubleshooting" label="troubleshooting"/><category scheme="https://jaas.projects.metio.wtf/tags/rbac" term="rbac" label="rbac"/></entry><entry><title type="html">Operator pod not ready</title><link href="https://jaas.projects.metio.wtf/runbooks/operator-pod-down/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/runbooks/crd-watch-engagement/?utm_source=atom_feed" rel="related" type="text/html" title="CRD watch engagement failing"/><link href="https://jaas.projects.metio.wtf/runbooks/invalidspec/?utm_source=atom_feed" rel="related" type="text/html" title="InvalidSpec"/><link href="https://jaas.projects.metio.wtf/runbooks/pending/?utm_source=atom_feed" rel="related" type="text/html" title="Pending"/><link href="https://jaas.projects.metio.wtf/runbooks/suspended/?utm_source=atom_feed" rel="related" type="text/html" title="Suspended"/><link href="https://jaas.projects.metio.wtf/runbooks/synced/?utm_source=atom_feed" rel="related" type="text/html" title="Synced"/><id>https://jaas.projects.metio.wtf/runbooks/operator-pod-down/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-18T20:07:20+02:00</updated><content type="html"><![CDATA[<blockquote>At least one jaas pod has been Ready=False for the configured alert window, so new snippets are not being reconciled</blockquote><p>Linked from the <code>JaaSOperatorPodDown</code> alert. Fires when at least one jaas pod has been <code>Ready=False</code> for the alert window (default 5m).</p>
+<h2 id="symptom">Symptom</h2>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-text" data-lang="text"><span class="line"><span class="cl">ALERTS{alertname=&#34;JaaSOperatorPodDown&#34;, namespace=&#34;&lt;jaas-ns&gt;&#34;}
+</span></span></code></pre></div><ul>
+<li>New JsonnetSnippets stay <code>Ready=Unknown</code> indefinitely (no controller reconciling them).</li>
+<li>Existing snippets keep serving stale <code>ExternalArtifact</code> content (the storage HTTP server may still respond; reconciliation is the part that stopped).</li>
+</ul>
+<h2 id="cause">Cause</h2>
+<p>One of the chart&rsquo;s two probes is failing:</p>
+<ul>
+<li><strong>Liveness</strong> (<code>/live</code>) is unconditional 200 — a failure here means the pod&rsquo;s HTTP server itself isn&rsquo;t responding (deadlock, OOM, panic).</li>
+<li><strong>Readiness</strong> (<code>/ready</code>) consults <code>HealthState</code>, which goes <code>false</code> during <code>drainBeforeShutdown</code> or before the listeners bind.</li>
+<li><strong>Startup</strong> (<code>/start</code>) returns 503 until <code>MarkStarted()</code> is called — bind failures (port already in use, permission denied) keep the pod stuck here forever.</li>
+</ul>
+<p>Frequent causes:</p>
+<ol>
+<li><strong>Bind failure</strong> on one of the HTTP servers (jsonnet, management, storage, metrics, webhook). The pod logs a clear &ldquo;listen tcp: address already in use&rdquo; or similar at boot.</li>
+<li><strong>OOMKilled</strong> — a pathological snippet allocated a huge object; the kubelet killed the pod. <code>kubectl describe pod</code> shows <code>Last State: Terminated, Reason: OOMKilled</code>.</li>
+<li><strong>Image pull failure</strong> — registry rate limit, wrong tag, missing pull secret.</li>
+<li><strong>TLS cert missing or unreadable</strong> when <code>operator.webhook.enabled=true</code> and the cert-manager Secret hasn&rsquo;t materialized.</li>
+<li><strong>Lease contention</strong> that leaves no replica as leader (every replica reconnecting to renew, never holding the lease).</li>
+</ol>
+<h2 id="diagnosis">Diagnosis</h2>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl"><span class="c1"># Which probes are failing? Events tell you.</span>
+</span></span><span class="line"><span class="cl">kubectl --namespace &lt;jaas-ns&gt; describe pod --selector app.kubernetes.io/name<span class="o">=</span>jaas
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># Pod logs — the boot sequence prints every listener it binds.</span>
+</span></span><span class="line"><span class="cl">kubectl --namespace &lt;jaas-ns&gt; logs --selector app.kubernetes.io/name<span class="o">=</span>jaas --tail<span class="o">=</span><span class="m">300</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># Compare against the expected listener set.</span>
+</span></span><span class="line"><span class="cl">kubectl --namespace &lt;jaas-ns&gt; get svc --selector app.kubernetes.io/name<span class="o">=</span>jaas
+</span></span></code></pre></div><p>For OOM:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace &lt;jaas-ns&gt; top pod --selector app.kubernetes.io/name<span class="o">=</span>jaas
+</span></span><span class="line"><span class="cl">kubectl --namespace &lt;jaas-ns&gt; get pod --selector app.kubernetes.io/name<span class="o">=</span>jaas --output yaml <span class="se">\
+</span></span></span><span class="line"><span class="cl">  <span class="p">|</span> grep -A3 lastState
+</span></span></code></pre></div><p>For lease problems (multi-replica only):</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace &lt;jaas-ns&gt; get lease &lt;release-name&gt;-operator --output yaml
+</span></span></code></pre></div><p><code>holderIdentity</code> flipping every renewal interval is a sign of network flake or apiserver pressure — the replicas can&rsquo;t keep the lease stable.</p>
+<h2 id="remediation">Remediation</h2>
+<ul>
+<li><strong>Bind failure.</strong> Free the colliding port (often <code>8080</code>, when the controller-runtime metrics endpoint defaults conflict with the jsonnet HTTP port — confirm <code>--metrics-bind-address</code> is <code>:8083</code>).</li>
+<li><strong>OOMKilled.</strong> Raise <code>resources.memory</code>, then identify the runaway snippet — it is usually obvious from <code>jaas_snippet_rendered_bytes</code>.</li>
+<li><strong>Image pull.</strong> Standard k8s drill: check secrets, registry, tag.</li>
+<li><strong>TLS cert.</strong> With <code>certMode=cert-manager</code>, confirm the Issuer / Certificate are ready. With <code>certMode=self-signed</code>, the operator regenerates on boot — a permission error on the cert-dir mount blocks it.</li>
+<li><strong>Lease flap.</strong> Try <code>kubectl --namespace &lt;jaas-ns&gt; delete lease &lt;release-name&gt;-operator</code> to force a fresh election. If it keeps flapping, the cluster has bigger problems than JaaS.</li>
+</ul>
+<h2 id="prevention">Prevention</h2>
+<ul>
+<li>Pin <code>replicas.max: 1</code> and <code>LeaderElectionReleaseOnCancel: true</code> (chart defaults). Multi-replica is only worth it for storage-backed HA — single-replica is the simpler operational story.</li>
+<li>Run the cleanup Job (<code>operator.cleanupOnDelete.enabled: true</code>, chart default) so a <code>helm uninstall</code> of a wedged operator unwinds the finalizers instead of leaving orphaned snippets.</li>
+<li>Pair this alert with <code>JaaSControllerWorkqueueDepthHigh</code> (<a href="/runbooks/workqueue-saturation/">workqueue-saturation</a>
+). A pod-down event almost always coincides with a saturated queue from snippets piling up.</li>
+</ul>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/runbooks" term="runbooks" label="runbooks"/><category scheme="https://jaas.projects.metio.wtf/tags/troubleshooting" term="troubleshooting" label="troubleshooting"/><category scheme="https://jaas.projects.metio.wtf/tags/lifecycle" term="lifecycle" label="lifecycle"/></entry><entry><title type="html">Pending</title><link href="https://jaas.projects.metio.wtf/runbooks/pending/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/runbooks/crd-watch-engagement/?utm_source=atom_feed" rel="related" type="text/html" title="CRD watch engagement failing"/><link href="https://jaas.projects.metio.wtf/runbooks/invalidspec/?utm_source=atom_feed" rel="related" type="text/html" title="InvalidSpec"/><link href="https://jaas.projects.metio.wtf/runbooks/operator-pod-down/?utm_source=atom_feed" rel="related" type="text/html" title="Operator pod not ready"/><link href="https://jaas.projects.metio.wtf/runbooks/suspended/?utm_source=atom_feed" rel="related" type="text/html" title="Suspended"/><link href="https://jaas.projects.metio.wtf/runbooks/synced/?utm_source=atom_feed" rel="related" type="text/html" title="Synced"/><id>https://jaas.projects.metio.wtf/runbooks/pending/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-18T20:07:20+02:00</updated><content type="html"><![CDATA[<blockquote>The snippet has been observed by the operator but its first reconcile pass has not yet completed</blockquote><h2 id="symptom">Symptom</h2>
+<p><code>kubectl get jsonnetsnippet</code> shows <code>READY=Unknown</code> (or <code>False</code> with <code>REASON=Pending</code>) immediately after the snippet was created or its spec was updated.</p>
+<h2 id="cause">Cause</h2>
+<p>The operator has observed the CR but hasn&rsquo;t completed its first reconcile pass yet. Transient by design.</p>
+<h2 id="diagnosis">Diagnosis</h2>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace &lt;ns&gt; describe jsonnetsnippet &lt;name&gt;
+</span></span></code></pre></div><p>If the timestamp on the <code>Pending</code> condition is older than ~30 seconds, the operator is either:</p>
+<ul>
+<li>not running (<code>kubectl --namespace &lt;jaas-namespace&gt; get pods</code>)</li>
+<li>backed up on its work queue (check <code>kubectl --namespace &lt;jaas-namespace&gt; logs deploy/jaas</code> and the <code>workqueue_depth</code> metric)</li>
+<li>not the leader (multi-replica install, <code>kubectl --namespace &lt;jaas-namespace&gt; get lease</code> shows the holder)</li>
+</ul>
+<h2 id="remediation">Remediation</h2>
+<p>If transient, wait. If persistent:</p>
+<ul>
+<li>restart the operator: <code>kubectl --namespace &lt;jaas-namespace&gt; rollout restart deploy/jaas</code></li>
+<li>inspect the operator&rsquo;s logs for errors</li>
+</ul>
+<p>If the snippet is stuck in <code>Pending</code> because the work queue is saturated, increase replicas (with leader election ON) or raise the rate-limiter budget (<code>--rerender-rate</code>, <code>--rerender-burst</code>).</p>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/runbooks" term="runbooks" label="runbooks"/><category scheme="https://jaas.projects.metio.wtf/tags/troubleshooting" term="troubleshooting" label="troubleshooting"/><category scheme="https://jaas.projects.metio.wtf/tags/lifecycle" term="lifecycle" label="lifecycle"/></entry><entry><title type="html">RBACDenied</title><link href="https://jaas.projects.metio.wtf/runbooks/rbacdenied/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/runbooks/crossnamespacerefrejected/?utm_source=atom_feed" rel="related" type="text/html" title="CrossNamespaceRefRejected"/><link href="https://jaas.projects.metio.wtf/runbooks/librarynotfound/?utm_source=atom_feed" rel="related" type="text/html" title="LibraryNotFound"/><link href="https://jaas.projects.metio.wtf/runbooks/serviceaccountmissing/?utm_source=atom_feed" rel="related" type="text/html" title="ServiceAccountMissing"/><link href="https://jaas.projects.metio.wtf/runbooks/operator-watch-silent/?utm_source=atom_feed" rel="related" type="text/html" title="Watch-layer silent failure"/><link href="https://jaas.projects.metio.wtf/runbooks/artifacttoolarge/?utm_source=atom_feed" rel="related" type="text/html" title="ArtifactTooLarge"/><id>https://jaas.projects.metio.wtf/runbooks/rbacdenied/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-26T15:54:29+02:00</updated><content type="html"><![CDATA[<blockquote>The apiserver returned Forbidden on a call the reconciler made with the tenant ServiceAccount&rsquo;s impersonated identity</blockquote><h2 id="symptom">Symptom</h2>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-text" data-lang="text"><span class="line"><span class="cl">kubectl --namespace &lt;ns&gt; describe jsonnetsnippet &lt;name&gt;
+</span></span><span class="line"><span class="cl">...
+</span></span><span class="line"><span class="cl">Status:
+</span></span><span class="line"><span class="cl">  Conditions:
+</span></span><span class="line"><span class="cl">    Reason:  RBACDenied
+</span></span><span class="line"><span class="cl">    Status:  False
+</span></span><span class="line"><span class="cl">    Type:    Ready
+</span></span><span class="line"><span class="cl">    Message: RBAC denied reading the source CR — grant the tenant ServiceAccount get on the source kind ...
+</span></span></code></pre></div><p>Or for a missing CRD:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-text" data-lang="text"><span class="line"><span class="cl">    Message: source CR&#39;s kind is not registered with the apiserver — install the corresponding CRD ...
+</span></span></code></pre></div><p>The reconciler logs at warn level and stops engaging backoff for this snippet. The next reconcile happens only when the snippet&rsquo;s spec changes, a referenced library / source CR&rsquo;s status flips, or <code>spec.interval</code> ticks — so the workqueue isn&rsquo;t burning cycles on a permanently-failing call.</p>
+<h2 id="cause">Cause</h2>
+<p>The apiserver returned <code>Forbidden</code> on a call the reconciler had to make. Three call sites can surface this:</p>
+<ol>
+<li><strong>Source-CR read.</strong> The tenant ServiceAccount lacks <code>get</code> on the kind named by <code>spec.sourceRef.kind</code>. The fix is on the tenant&rsquo;s <code>Role</code> / <code>RoleBinding</code>.</li>
+<li><strong>Library-CR read.</strong> The tenant SA lacks <code>get</code> (and typically <code>list</code>) on <code>jsonnetlibraries</code> in the snippet&rsquo;s namespace.</li>
+<li><strong>ExternalArtifact write.</strong> The tenant SA lacks <code>create</code> / <code>update</code> / <code>patch</code> on <code>externalartifacts</code>. This is the publish step — the rendered bytes are computed but the operator can&rsquo;t write them back as the impersonating client.</li>
+</ol>
+<p>The <code>NoMatchError</code> variant means the apiserver doesn&rsquo;t know about the resource kind at all — typically because the corresponding CRD (usually Flux&rsquo;s source-controller) isn&rsquo;t installed in the cluster.</p>
+<h2 id="diagnosis">Diagnosis</h2>
+<p><code>kubectl describe</code> shows the operator&rsquo;s classified message. The verbatim apiserver error (<code>forbidden: ServiceAccount X cannot get resource Y in namespace Z</code>) is appended after the operator&rsquo;s classification, so you can read off:</p>
+<ul>
+<li>Which SA tried the call (<code>system:serviceaccount:&lt;namespace&gt;:&lt;sa-name&gt;</code>)</li>
+<li>Which verb it lacked (<code>cannot get</code>, <code>cannot create</code>, <code>cannot patch</code>)</li>
+<li>Which resource (<code>gitrepositories.source.toolkit.fluxcd.io</code>, <code>jsonnetlibraries.jaas.metio.wtf</code>, <code>externalartifacts.source.toolkit.fluxcd.io</code>)</li>
+</ul>
+<p>Verify the SA exists and inspect its current permissions:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace &lt;tenant-namespace&gt; get sa &lt;sa-name&gt;
+</span></span><span class="line"><span class="cl">kubectl auth can-i --as<span class="o">=</span>system:serviceaccount:&lt;tenant-namespace&gt;:&lt;sa-name&gt; <span class="se">\
+</span></span></span><span class="line"><span class="cl">    --namespace &lt;tenant-namespace&gt; <span class="se">\
+</span></span></span><span class="line"><span class="cl">    &lt;verb&gt; &lt;resource&gt;
+</span></span></code></pre></div><p>For the <code>NoMatchError</code> variant:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl"><span class="c1"># Verify the CRD is actually installed:</span>
+</span></span><span class="line"><span class="cl">kubectl get crd <span class="p">|</span> grep -E <span class="s1">&#39;source.toolkit.fluxcd.io|jaas.metio.wtf&#39;</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># If source-controller&#39;s CRDs are missing, install Flux:</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># https://fluxcd.io/flux/get-started/</span>
+</span></span></code></pre></div><h2 id="remediation">Remediation</h2>
+<p>Grant the missing verb to the tenant SA. The minimum verbs JaaS expects are documented in the <a href="https://jaas.projects.metio.wtf/security/tenancy-and-rbac/#the-tenant-role">Tenancy and RBAC</a>
+ guide. Typical fix:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l">rbac.authorization.k8s.io/v1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">Role</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">metadata</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">&lt;tenant-namespace&gt;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">jaas-tenant</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">rules</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span>- <span class="nt">apiGroups</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="l">source.toolkit.fluxcd.io]</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">resources</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="l">externalartifacts]</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">verbs</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="l">get, create, update, patch]</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span>- <span class="nt">apiGroups</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="l">source.toolkit.fluxcd.io]</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">resources</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="l">gitrepositories, ocirepositories, buckets, externalartifacts]</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">verbs</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="l">get]</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span>- <span class="nt">apiGroups</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="l">jaas.metio.wtf]</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">resources</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="l">jsonnetlibraries]</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">verbs</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="l">get, list]</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nn">---</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l">rbac.authorization.k8s.io/v1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">RoleBinding</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">metadata</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">&lt;tenant-namespace&gt;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">jaas-tenant</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">subjects</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span>- <span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">ServiceAccount</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">&lt;sa-name&gt;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">&lt;tenant-namespace&gt;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">roleRef</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">apiGroup</span><span class="p">:</span><span class="w"> </span><span class="l">rbac.authorization.k8s.io</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">Role</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">jaas-tenant</span><span class="w">
+</span></span></span></code></pre></div><p>After the RBAC change, force the next reconcile (the snippet&rsquo;s last spec edit doesn&rsquo;t auto-retrigger because the failure was non-transient):</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace &lt;ns&gt; annotate jsonnetsnippet &lt;name&gt; jaas.metio.wtf/reconcile-at<span class="o">=</span><span class="k">$(</span>date -u +%FT%TZ<span class="k">)</span> --overwrite
+</span></span></code></pre></div><p>For the missing-CRD case, installing the CRD fires the operator&rsquo;s <code>crdWatcher</code>, which engages the watch automatically — no manual nudge needed.</p>
+<h2 id="why-this-is-non-transient">Why this is non-transient</h2>
+<p><code>Forbidden</code> doesn&rsquo;t recover by retry. The cluster operator (or whoever owns the tenant&rsquo;s RBAC) has to grant the verb. Retrying every 16 minutes would pile up wasted API calls and obscure the workqueue&rsquo;s signal. The non-transient classification lets the workqueue depth metric remain meaningful — anything on it is genuinely live work.</p>
+<p><code>NoMatchError</code> is the same shape: until the CRD is installed, the kind doesn&rsquo;t exist. Retry can&rsquo;t conjure it.</p>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/runbooks" term="runbooks" label="runbooks"/><category scheme="https://jaas.projects.metio.wtf/tags/troubleshooting" term="troubleshooting" label="troubleshooting"/><category scheme="https://jaas.projects.metio.wtf/tags/rbac" term="rbac" label="rbac"/></entry><entry><title type="html">Runbooks</title><link href="https://jaas.projects.metio.wtf/runbooks/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/runbooks/artifacttoolarge/?utm_source=atom_feed" rel="related" type="text/html" title="ArtifactTooLarge"/><link href="https://jaas.projects.metio.wtf/runbooks/crd-watch-engagement/?utm_source=atom_feed" rel="related" type="text/html" title="CRD watch engagement failing"/><link href="https://jaas.projects.metio.wtf/runbooks/crossnamespacerefrejected/?utm_source=atom_feed" rel="related" type="text/html" title="CrossNamespaceRefRejected"/><link href="https://jaas.projects.metio.wtf/runbooks/dependencycycle/?utm_source=atom_feed" rel="related" type="text/html" title="DependencyCycle"/><link href="https://jaas.projects.metio.wtf/runbooks/eval-saturation/?utm_source=atom_feed" rel="related" type="text/html" title="Eval-concurrency saturation"/><id>https://jaas.projects.metio.wtf/runbooks/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-17T16:04:27+02:00</updated><content type="html"><![CDATA[<blockquote>Per-reason remediation pages for every Ready-condition the JaaS operator sets, plus cross-cutting incident guides.</blockquote><p>One page per Ready-condition <code>Reason</code> the operator sets, plus cross-cutting
+incident guides. Each page covers the symptom, the cause, how to diagnose it, and
+how to remediate.</p>
+<p>The operator automatically appends a link to the matching page on each actionable
+Ready-condition message — <code>(runbook: https://jaas.projects.metio.wtf/runbooks/&lt;reason&gt;/)</code> —
+so <code>kubectl describe</code> points straight at the remediation page. Healthy reasons
+(<code>Synced</code>, <code>Suspended</code>, <code>Pending</code>) get no link.</p>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/runbooks" term="runbooks" label="runbooks"/><category scheme="https://jaas.projects.metio.wtf/tags/troubleshooting" term="troubleshooting" label="troubleshooting"/></entry><entry><title type="html">Self-signed webhook cert renewal failing</title><link href="https://jaas.projects.metio.wtf/runbooks/webhook-cert-renewal/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/runbooks/artifacttoolarge/?utm_source=atom_feed" rel="related" type="text/html" title="ArtifactTooLarge"/><link href="https://jaas.projects.metio.wtf/runbooks/crd-watch-engagement/?utm_source=atom_feed" rel="related" type="text/html" title="CRD watch engagement failing"/><link href="https://jaas.projects.metio.wtf/runbooks/crossnamespacerefrejected/?utm_source=atom_feed" rel="related" type="text/html" title="CrossNamespaceRefRejected"/><link href="https://jaas.projects.metio.wtf/runbooks/dependencycycle/?utm_source=atom_feed" rel="related" type="text/html" title="DependencyCycle"/><link href="https://jaas.projects.metio.wtf/runbooks/eval-saturation/?utm_source=atom_feed" rel="related" type="text/html" title="Eval-concurrency saturation"/><id>https://jaas.projects.metio.wtf/runbooks/webhook-cert-renewal/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-18T20:07:20+02:00</updated><content type="html"><![CDATA[<blockquote>The Renewer goroutine cannot rotate the webhook TLS material; if uncorrected the cert will expire and every JsonnetSnippet admission will fail</blockquote><p>Fires when <code>jaas_webhook_cert_renewal_failures_total</code> has increased above the configured per-hour threshold. The <code>Renewer</code> background goroutine rotates the self-signed TLS material every <code>Validity / 3</code> (typically every few months for a year-long cert). When it can&rsquo;t, the existing cert keeps working until its natural expiry — at which point the apiserver stops trusting the chain and <strong>every JsonnetSnippet admission fails cluster-wide with <code>x509</code> errors</strong>.</p>
+<h2 id="symptom">Symptom</h2>
+<ul>
+<li><code>JaaSWebhookCertRenewalFailing</code> alert is firing (severity: critical).</li>
+<li>Operator pod logs carry repeated <code>Self-signed webhook cert renewal failed</code> warnings at the <code>Renewer.Interval</code> cadence.</li>
+<li><code>kubectl describe validatingwebhookconfiguration &lt;name&gt;</code> shows a <code>caBundle</code> that hasn&rsquo;t rotated since the failures started.</li>
+<li>The pod stays <code>Ready=True</code> — the renewer&rsquo;s failures don&rsquo;t gate the readiness probe.</li>
+</ul>
+<h2 id="diagnosis">Diagnosis</h2>
+<p>The most common causes, in order of frequency:</p>
+<h3 id="cause-a--rbac-drift-on-the-named-vwc">Cause A — RBAC drift on the named VWC</h3>
+<p>The operator&rsquo;s ClusterRole pins <code>resourceNames: [&lt;VWCName&gt;]</code> on the <code>validatingwebhookconfigurations</code> patch verb. A chart upgrade that changes <code>operator.webhook.vwcName</code> (or a manual chart edit) leaves the running pod patching a name it no longer has permission for.</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl auth can-i patch validatingwebhookconfiguration/&lt;vwc-name&gt; <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --as<span class="o">=</span>system:serviceaccount:&lt;namespace&gt;:&lt;operator-sa&gt;
+</span></span></code></pre></div><p>If the answer is &ldquo;no&rdquo;, the chart&rsquo;s <code>operator-cluster</code> ClusterRole needs the current VWC name added to <code>resourceNames</code> (or the running pod restarted to pick up the new name).</p>
+<h3 id="cause-b--vwc-renamed-out-from-under-the-operator">Cause B — VWC renamed out from under the operator</h3>
+<p>A separate controller (admission policy automation, GitOps drift correction) renamed the VWC. The operator is patching a stale name.</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl get validatingwebhookconfigurations <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --selector <span class="s1">&#39;app.kubernetes.io/instance=&lt;release-name&gt;&#39;</span>
+</span></span></code></pre></div><p>If the live name differs from the operator&rsquo;s <code>--webhook-validating-config-name</code> flag, redeploy the operator with the correct flag or rename the VWC back.</p>
+<h3 id="cause-c--certdir-gone-read-only">Cause C — <code>CertDir</code> gone read-only</h3>
+<p>The chart mounts <code>CertDir</code> as an <code>emptyDir</code> by default. A <code>kubectl apply</code> that adds a <code>readOnlyRootFilesystem: true</code> security context or a sidecar that re-mounts the volume can break writes.</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace &lt;ns&gt; <span class="nb">exec</span> &lt;operator-pod&gt; -- ls -l /tmp/k8s-webhook-server/serving-certs/
+</span></span><span class="line"><span class="cl">kubectl --namespace &lt;ns&gt; <span class="nb">exec</span> &lt;operator-pod&gt; -- touch /tmp/k8s-webhook-server/serving-certs/.write-probe
+</span></span></code></pre></div><p>If the touch fails, the security-context or volume mount needs fixing.</p>
+<h2 id="remediation">Remediation</h2>
+<ol>
+<li>
+<p><strong>Fix the root cause</strong> (RBAC, name, or mount).</p>
+</li>
+<li>
+<p><strong>Roll the operator pod</strong> to force a fresh bootstrap of the cert and a re-patch of the VWC:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace &lt;ns&gt; rollout restart deployment &lt;operator-deployment&gt;
+</span></span></code></pre></div><p>The new pod&rsquo;s bootstrap path merges its CA into the VWC&rsquo;s existing CA set rather than replacing it, so existing replicas stay trusted across the rotation.</p>
+</li>
+<li>
+<p><strong>Verify renewal is healthy</strong> after the bounce — the <code>jaas_webhook_cert_renewal_failures_total</code> counter should stop increasing, and the alert clears once the <code>for:</code> window passes.</p>
+</li>
+</ol>
+<h2 id="when-to-consider-switching-to-cert-manager">When to consider switching to cert-manager</h2>
+<p>If the self-signed renewer keeps tripping over your environment&rsquo;s RBAC story or pod-security policies, the chart supports <code>operator.webhook.certMode: cert-manager</code> — cert-manager handles the rotation and the operator mounts the resulting secret. Trade-off: requires cert-manager installed and an Issuer configured.</p>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/runbooks" term="runbooks" label="runbooks"/><category scheme="https://jaas.projects.metio.wtf/tags/troubleshooting" term="troubleshooting" label="troubleshooting"/><category scheme="https://jaas.projects.metio.wtf/tags/webhook" term="webhook" label="webhook"/></entry><entry><title type="html">ServiceAccountMissing</title><link href="https://jaas.projects.metio.wtf/runbooks/serviceaccountmissing/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/runbooks/crossnamespacerefrejected/?utm_source=atom_feed" rel="related" type="text/html" title="CrossNamespaceRefRejected"/><link href="https://jaas.projects.metio.wtf/runbooks/librarynotfound/?utm_source=atom_feed" rel="related" type="text/html" title="LibraryNotFound"/><link href="https://jaas.projects.metio.wtf/runbooks/rbacdenied/?utm_source=atom_feed" rel="related" type="text/html" title="RBACDenied"/><link href="https://jaas.projects.metio.wtf/runbooks/operator-watch-silent/?utm_source=atom_feed" rel="related" type="text/html" title="Watch-layer silent failure"/><link href="https://jaas.projects.metio.wtf/runbooks/artifacttoolarge/?utm_source=atom_feed" rel="related" type="text/html" title="ArtifactTooLarge"/><id>https://jaas.projects.metio.wtf/runbooks/serviceaccountmissing/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-18T20:07:20+02:00</updated><content type="html"><![CDATA[<blockquote>The snippet specifies no ServiceAccount and the operator has no &ndash;default-service-account configured</blockquote><h2 id="symptom">Symptom</h2>
+<p><code>READY=False</code>, <code>REASON=ServiceAccountMissing</code>.</p>
+<h2 id="cause">Cause</h2>
+<p>The snippet omitted <code>spec.serviceAccountName</code> AND the operator was started without <code>--default-service-account</code>. The operator refuses to reconcile a snippet with no effective ServiceAccount because every reconcile mints a tenant token from that SA — without one, there&rsquo;s nothing to impersonate.</p>
+<h2 id="diagnosis">Diagnosis</h2>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace &lt;ns&gt; get jsonnetsnippet &lt;name&gt; --output <span class="nv">jsonpath</span><span class="o">=</span><span class="s1">&#39;{.spec.serviceAccountName}&#39;</span>
+</span></span></code></pre></div><p>Empty? Either the snippet must set it, or the cluster operator must configure a default.</p>
+<h2 id="remediation">Remediation</h2>
+<p>Pick one:</p>
+<ol>
+<li><strong>Snippet-side (preferred for multi-tenant setups):</strong> set <code>spec.serviceAccountName: &lt;existing-sa&gt;</code> on every snippet. Each tenant uses its own SA → least-privilege impersonation.</li>
+<li><strong>Cluster-side (single-tenant clusters):</strong> start the operator with <code>--default-service-account=&lt;sa-name&gt;</code>. Every snippet without an explicit SA impersonates this one. The default SA must exist in <strong>every snippet&rsquo;s namespace</strong> — the operator looks it up per-reconcile.</li>
+</ol>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/runbooks" term="runbooks" label="runbooks"/><category scheme="https://jaas.projects.metio.wtf/tags/troubleshooting" term="troubleshooting" label="troubleshooting"/><category scheme="https://jaas.projects.metio.wtf/tags/rbac" term="rbac" label="rbac"/></entry><entry><title type="html">SourceFetchFailed</title><link href="https://jaas.projects.metio.wtf/runbooks/sourcefetchfailed/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/runbooks/dependencycycle/?utm_source=atom_feed" rel="related" type="text/html" title="DependencyCycle"/><link href="https://jaas.projects.metio.wtf/runbooks/sourcenotready/?utm_source=atom_feed" rel="related" type="text/html" title="SourceNotReady"/><link href="https://jaas.projects.metio.wtf/runbooks/sourcerefnotyetsupported/?utm_source=atom_feed" rel="related" type="text/html" title="SourceRefNotYetSupported"/><link href="https://jaas.projects.metio.wtf/runbooks/artifacttoolarge/?utm_source=atom_feed" rel="related" type="text/html" title="ArtifactTooLarge"/><link href="https://jaas.projects.metio.wtf/runbooks/crd-watch-engagement/?utm_source=atom_feed" rel="related" type="text/html" title="CRD watch engagement failing"/><id>https://jaas.projects.metio.wtf/runbooks/sourcefetchfailed/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-18T20:07:20+02:00</updated><content type="html"><![CDATA[<blockquote>The operator resolved the source CR but the artifact download failed due to an HTTP error, digest mismatch, or oversized tarball</blockquote><h2 id="symptom">Symptom</h2>
+<p><code>READY=False</code>, <code>REASON=SourceFetchFailed</code>. The Message describes what went wrong (HTTP error, digest mismatch, tarball too large, etc.).</p>
+<h2 id="cause">Cause</h2>
+<p>The Fetcher resolved the source CR and started downloading the artifact, but the download itself failed. Three subcategories:</p>
+<ul>
+<li><strong>HTTP failure</strong> — connection refused, 5xx from the source-controller endpoint, TLS handshake error</li>
+<li><strong>Digest mismatch</strong> — the bytes don&rsquo;t hash to <code>status.artifact.digest</code>. Possible truncation or in-flight tampering</li>
+<li><strong>Tarball oversized</strong> — extracted bytes exceed <code>MaxArchiveBytes</code> (default 64 MiB)</li>
+</ul>
+<h2 id="diagnosis">Diagnosis</h2>
+<p>Check the source CR&rsquo;s <code>status.artifact.url</code> is reachable from the operator pod:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace &lt;jaas-ns&gt; <span class="nb">exec</span> deploy/jaas -- wget -O- &lt;status.artifact.url&gt; <span class="p">|</span> wc -c
+</span></span></code></pre></div><p>A connection refused means the storage endpoint of source-controller (or another publisher) is unreachable — usually a NetworkPolicy issue.</p>
+<p>For digest mismatches, the source CR has likely been republished mid-fetch — the next reconcile typically succeeds.</p>
+<p>For oversized tarballs, the snippet&rsquo;s <code>spec.sourceRef.path</code> filter is too broad — narrow it so only the files the snippet actually <code>import</code>s come through.</p>
+<h2 id="remediation">Remediation</h2>
+<ul>
+<li><strong>Network</strong>: fix the NetworkPolicy / DNS / TLS that&rsquo;s blocking the fetch</li>
+<li><strong>Digest</strong>: re-reconcile (manual: <code>kubectl --namespace &lt;ns&gt; annotate jsonnetsnippet &lt;name&gt; jaas.metio.wtf/reconcile-at=$(date -u +%FT%TZ) --overwrite</code>)</li>
+<li><strong>Oversized</strong>: narrow <code>spec.sourceRef.path</code> to the subdirectory the snippet needs, or split the source repo</li>
+</ul>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/runbooks" term="runbooks" label="runbooks"/><category scheme="https://jaas.projects.metio.wtf/tags/troubleshooting" term="troubleshooting" label="troubleshooting"/><category scheme="https://jaas.projects.metio.wtf/tags/sources" term="sources" label="sources"/></entry><entry><title type="html">SourceNotReady</title><link href="https://jaas.projects.metio.wtf/runbooks/sourcenotready/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/runbooks/dependencycycle/?utm_source=atom_feed" rel="related" type="text/html" title="DependencyCycle"/><link href="https://jaas.projects.metio.wtf/runbooks/sourcefetchfailed/?utm_source=atom_feed" rel="related" type="text/html" title="SourceFetchFailed"/><link href="https://jaas.projects.metio.wtf/runbooks/sourcerefnotyetsupported/?utm_source=atom_feed" rel="related" type="text/html" title="SourceRefNotYetSupported"/><link href="https://jaas.projects.metio.wtf/runbooks/artifacttoolarge/?utm_source=atom_feed" rel="related" type="text/html" title="ArtifactTooLarge"/><link href="https://jaas.projects.metio.wtf/runbooks/crd-watch-engagement/?utm_source=atom_feed" rel="related" type="text/html" title="CRD watch engagement failing"/><id>https://jaas.projects.metio.wtf/runbooks/sourcenotready/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-18T20:07:20+02:00</updated><content type="html"><![CDATA[<blockquote>The referenced Flux source CR exists but has not yet reported Ready=True or has no published artifact</blockquote><h2 id="symptom">Symptom</h2>
+<p><code>READY=False</code>, <code>REASON=SourceNotReady</code>. The Message names the source CR (<code>GitRepository/foo</code>, <code>ExternalArtifact/bar</code>, etc.).</p>
+<h2 id="cause">Cause</h2>
+<p>The Flux source CR the snippet references exists but its own <code>status.conditions[Ready]</code> is not yet True (or <code>status.artifact</code> is empty). The operator refuses to fetch from a source it can&rsquo;t trust as ready.</p>
+<p>For chained snippets specifically: the upstream snippet may have failed reconciliation, so its ExternalArtifact is stale or unpopulated.</p>
+<h2 id="diagnosis">Diagnosis</h2>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace &lt;ns&gt; describe &lt;kind&gt; &lt;source-name&gt;
+</span></span><span class="line"><span class="cl"><span class="c1"># Look for the Ready condition and any error messages.</span>
+</span></span></code></pre></div><p>For Flux sources, also check the source-controller logs:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace flux-system logs deploy/source-controller <span class="p">|</span> grep &lt;source-name&gt;
+</span></span></code></pre></div><h2 id="remediation">Remediation</h2>
+<p>Fix the upstream source. The operator watches Flux source kinds and will re-reconcile the snippet automatically when the source flips to Ready=True — no manual nudge required.</p>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/runbooks" term="runbooks" label="runbooks"/><category scheme="https://jaas.projects.metio.wtf/tags/troubleshooting" term="troubleshooting" label="troubleshooting"/><category scheme="https://jaas.projects.metio.wtf/tags/sources" term="sources" label="sources"/></entry><entry><title type="html">SourceRefNotYetSupported</title><link href="https://jaas.projects.metio.wtf/runbooks/sourcerefnotyetsupported/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/runbooks/dependencycycle/?utm_source=atom_feed" rel="related" type="text/html" title="DependencyCycle"/><link href="https://jaas.projects.metio.wtf/runbooks/sourcefetchfailed/?utm_source=atom_feed" rel="related" type="text/html" title="SourceFetchFailed"/><link href="https://jaas.projects.metio.wtf/runbooks/sourcenotready/?utm_source=atom_feed" rel="related" type="text/html" title="SourceNotReady"/><link href="https://jaas.projects.metio.wtf/runbooks/artifacttoolarge/?utm_source=atom_feed" rel="related" type="text/html" title="ArtifactTooLarge"/><link href="https://jaas.projects.metio.wtf/runbooks/crd-watch-engagement/?utm_source=atom_feed" rel="related" type="text/html" title="CRD watch engagement failing"/><id>https://jaas.projects.metio.wtf/runbooks/sourcerefnotyetsupported/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-18T20:07:20+02:00</updated><content type="html"><![CDATA[<blockquote>The snippet uses spec.sourceRef but the running binary was built without a Fetcher wired in</blockquote><h2 id="symptom">Symptom</h2>
+<p><code>READY=False</code>, <code>REASON=SourceRefNotYetSupported</code>.</p>
+<h2 id="cause">Cause</h2>
+<p>The snippet sets <code>spec.sourceRef</code> but the operator was built without a Fetcher wired in. This is a mis-deployment in practice — production binary always wires <code>sources.New()</code>. Seeing this in a real cluster means you&rsquo;re running:</p>
+<ul>
+<li>a test/dev binary</li>
+<li>a custom build where <code>defaultBuilder</code> was modified</li>
+</ul>
+<h2 id="diagnosis">Diagnosis</h2>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace &lt;jaas-ns&gt; logs deploy/jaas <span class="p">|</span> grep -i <span class="s2">&#34;fetcher&#34;</span>
+</span></span></code></pre></div><p>If the operator logs no Fetcher initialization, the binary is incomplete.</p>
+<h2 id="remediation">Remediation</h2>
+<p>Use a release binary, or convert the snippet to <code>spec.files</code> inline as a temporary workaround.</p>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/runbooks" term="runbooks" label="runbooks"/><category scheme="https://jaas.projects.metio.wtf/tags/troubleshooting" term="troubleshooting" label="troubleshooting"/><category scheme="https://jaas.projects.metio.wtf/tags/sources" term="sources" label="sources"/></entry><entry><title type="html">Storage backend recovery</title><link href="https://jaas.projects.metio.wtf/runbooks/storage-recovery/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/runbooks/artifacttoolarge/?utm_source=atom_feed" rel="related" type="text/html" title="ArtifactTooLarge"/><link href="https://jaas.projects.metio.wtf/runbooks/crd-watch-engagement/?utm_source=atom_feed" rel="related" type="text/html" title="CRD watch engagement failing"/><link href="https://jaas.projects.metio.wtf/runbooks/crossnamespacerefrejected/?utm_source=atom_feed" rel="related" type="text/html" title="CrossNamespaceRefRejected"/><link href="https://jaas.projects.metio.wtf/runbooks/dependencycycle/?utm_source=atom_feed" rel="related" type="text/html" title="DependencyCycle"/><link href="https://jaas.projects.metio.wtf/runbooks/eval-saturation/?utm_source=atom_feed" rel="related" type="text/html" title="Eval-concurrency saturation"/><id>https://jaas.projects.metio.wtf/runbooks/storage-recovery/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-26T15:54:29+02:00</updated><content type="html"><![CDATA[<blockquote>The artifact store is degraded (PVC lost, S3 endpoint down, or storage HTTP server unreachable) and downstream Flux consumers can no longer fetch tarballs</blockquote><p>The artifact store itself is degraded — a PVC was lost, the S3 endpoint is unavailable, or the storage HTTP server is down. Downstream Flux consumers (kustomize-controller, helm-controller, grafana-operator) dereference <code>ExternalArtifact.status.artifact.url</code> to fetch tarballs; when that URL stops returning bytes, dependent resources stall. This state is not tied to a single status <code>Reason</code>.</p>
+<h2 id="symptom">Symptom</h2>
+<p>One or more of:</p>
+<ul>
+<li>Downstream Flux consumers report <code>404 Not Found</code> or <code>connection refused</code> against the JaaS storage URL.</li>
+<li><code>kubectl get externalartifact --all-namespaces</code> shows resources whose URL is unreachable from the consumer pods.</li>
+<li>The operator pod is healthy (Ready=True on snippets), but the storage Service is unresponsive.</li>
+<li><code>helm upgrade</code> of the chart from <code>persistence.enabled: false</code> to <code>true</code> — or vice versa — caused a gap.</li>
+</ul>
+<h2 id="triage-which-backend-are-you-running">Triage: which backend are you running?</h2>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace &lt;jaas-ns&gt; get deploy jaas <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --output <span class="nv">jsonpath</span><span class="o">=</span><span class="s1">&#39;{.spec.template.spec.containers[0].args}&#39;</span> <span class="se">\
+</span></span></span><span class="line"><span class="cl">  <span class="p">|</span> tr <span class="s1">&#39;,&#39;</span> <span class="s1">&#39;\n&#39;</span> <span class="p">|</span> grep -E <span class="s1">&#39;storage-backend|storage-path|s3-endpoint&#39;</span>
+</span></span></code></pre></div><ul>
+<li><code>--storage-backend=local</code> → filesystem behind <code>--storage-path</code>. Either an emptyDir (chart default) or a PVC.</li>
+<li><code>--storage-backend=s3</code> → an external S3-compatible bucket; the storage HTTP server in-pod is a thin streaming proxy over <code>minio-go</code>.</li>
+</ul>
+<h2 id="filesystem-backend">Filesystem backend</h2>
+<h3 id="pvc-lost-or-replaced">PVC lost or replaced</h3>
+<p>Symptom: every <code>ExternalArtifact</code> URL returns 404 even though the snippet&rsquo;s Ready=True. The Publisher writes idempotently on every reconcile, so making the operator re-render every snippet is the fix:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl"><span class="c1"># Roll the operator — the cache is rebuilt from the apiserver and every</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># snippet is reconciled. Each reconcile re-runs the Publisher, which</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># writes the tarball back to disk. With a clean PVC, the gap closes in</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># one reconcile loop.</span>
+</span></span><span class="line"><span class="cl">kubectl --namespace &lt;jaas-ns&gt; rollout restart deploy/jaas
+</span></span></code></pre></div><p>If reconciles do not produce tarballs again, force a reconcile per snippet:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl annotate --all-namespaces jsonnetsnippet --all <span class="se">\
+</span></span></span><span class="line"><span class="cl">  jaas.metio.wtf/reconcile-at<span class="o">=</span><span class="k">$(</span>date -u +%FT%TZ<span class="k">)</span> --overwrite
+</span></span></code></pre></div><p>The window between PVC loss and the first re-render is the only outage downstream consumers see. With <code>replicas.max: 1</code> (chart default) that window is bounded by the rollout time; with multi-replica HA + RWX PVC, the lease-holder writes immediately and the gap is sub-second.</p>
+<h3 id="emptydir-reset-pod-restart">emptyDir reset (pod restart)</h3>
+<p><code>persistence.enabled: false</code> is fine for low-stakes deployments but every pod restart re-renders every snippet. The &ldquo;fix&rdquo; is to enable persistence:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">helm --namespace &lt;jaas-ns&gt; upgrade jaas oci://ghcr.io/metio/helm-charts/jaas <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --reuse-values <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --set operator.storage.persistence.enabled<span class="o">=</span><span class="nb">true</span> <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --set operator.storage.persistence.size<span class="o">=</span>10Gi
+</span></span></code></pre></div><p>After the upgrade, follow the PVC-lost steps above to repopulate the new volume.</p>
+<h3 id="storage-http-server-unreachable-but-operator-healthy">Storage HTTP server unreachable but operator healthy</h3>
+<p>Diagnose:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace &lt;jaas-ns&gt; port-forward svc/jaas-storage &lt;port&gt;:8082 <span class="p">&amp;</span>
+</span></span><span class="line"><span class="cl">curl -fsSL http://localhost:&lt;port&gt;/&lt;namespace&gt;/&lt;snippet&gt;/&lt;rev&gt;.tar.gz <span class="p">|</span> wc -c
+</span></span></code></pre></div><p>If port-forward works but in-cluster fetches fail, look at NetworkPolicy:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl get networkpolicy --all-namespaces <span class="p">|</span> grep -i jaas
+</span></span></code></pre></div><p>The chart&rsquo;s optional NetworkPolicy locks the storage port to a single source-controller selector. If your Flux install lives elsewhere or carries different labels, the NetworkPolicy will silently drop the traffic. Either widen <code>networkPolicy.fromSourceControllerSelector</code> or disable the NetworkPolicy on this chart and rely on a cluster-wide policy.</p>
+<h2 id="s3-backend">S3 backend</h2>
+<h3 id="endpoint-unreachable--5xx-from-the-provider">Endpoint unreachable / 5xx from the provider</h3>
+<p>The pod-side storage HTTP server is a proxy. When the upstream S3 endpoint is down, the proxy returns 502/504 and downstream Flux consumers retry with backoff. Operator pod health is unaffected.</p>
+<p>Diagnose:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl"><span class="c1"># Pull a recent tarball directly to confirm it&#39;s the upstream</span>
+</span></span><span class="line"><span class="cl">kubectl --namespace &lt;jaas-ns&gt; <span class="nb">exec</span> deploy/jaas -- <span class="se">\
+</span></span></span><span class="line"><span class="cl">  wget -O- http://localhost:8082/&lt;namespace&gt;/&lt;snippet&gt;/&lt;rev&gt;.tar.gz <span class="p">|</span> wc -c
+</span></span></code></pre></div><p>If the in-pod fetch fails too, check the operator logs for <code>minio-go</code> errors. Auth problems (expired session token, rotated access key) show up here distinctly from network problems.</p>
+<h3 id="bucket-gone-or-wrong-prefix">Bucket gone or wrong prefix</h3>
+<p>If the bucket was emptied or the <code>--s3-prefix</code> changed, the proxy returns 404 even though the snippet is Ready. Re-render every snippet to repopulate:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl annotate --all-namespaces jsonnetsnippet --all <span class="se">\
+</span></span></span><span class="line"><span class="cl">  jaas.metio.wtf/reconcile-at<span class="o">=</span><span class="k">$(</span>date -u +%FT%TZ<span class="k">)</span> --overwrite
+</span></span></code></pre></div><p>The Publisher writes idempotently — running this against a working bucket is safe.</p>
+<h3 id="credentials-rotated">Credentials rotated</h3>
+<p>With static credentials (<code>--s3-access-key</code> / <code>--s3-secret-key</code> / inline chart values), a rotation requires a Deployment restart for <code>minio-go</code> to pick up the new values. With IAM/IRSA, the discovery chain re-reads at request time — the operator picks the new identity up automatically.</p>
+<p>Force the new keys to take effect:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace &lt;jaas-ns&gt; rollout restart deploy/jaas
+</span></span></code></pre></div><h2 id="disk-full-enospc">Disk full (<code>ENOSPC</code>)</h2>
+<p>When the volume backing <code>--storage-path</code> fills up, <code>Store.Put</code> returns the kernel&rsquo;s <code>ENOSPC</code> verbatim → <code>Publisher.Publish</code> wraps it → no specific sentinel matches → classified as transient <code>ReasonSourceFetchFailed</code> → controller-runtime backoff retries forever at the ~16 min cap. The operator pod stays healthy; every snippet using local storage starts looping.</p>
+<h3 id="symptom-1">Symptom</h3>
+<ul>
+<li>Multiple snippets simultaneously flip to <code>Ready=False</code> with messages mentioning <code>no space left on device</code>.</li>
+<li><code>JaaSControllerWorkqueueDepthHigh</code> alert fires (the backoff queue saturates).</li>
+<li><code>kubectl --namespace &lt;jaas-ns&gt; exec deploy/jaas -- df -h /var/lib/jaas/artifacts</code> shows the volume at 100%.</li>
+</ul>
+<h3 id="recovery">Recovery</h3>
+<ol>
+<li>
+<p><strong>Free space.</strong> Either resize the PVC (if <code>operator.storage.persistence.enabled: true</code>), increase <code>operator.storage.sizeLimit</code> (emptyDir), or prune retained revisions:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl"><span class="c1"># Lower spec.history on noisy snippets so the next reconcile prunes</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># older revisions. The Publisher&#39;s Prune step removes everything</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># outside the keep-set, freeing space proportional to the change.</span>
+</span></span><span class="line"><span class="cl">kubectl --namespace &lt;ns&gt; patch jsonnetsnippet &lt;name&gt; --type<span class="o">=</span>merge --patch <span class="s1">&#39;{&#34;spec&#34;:{&#34;history&#34;:1}}&#39;</span>
+</span></span></code></pre></div><p>For an immediate flush, force-prune by removing the artifact directory of a snippet you&rsquo;re certain doesn&rsquo;t need its history:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace &lt;jaas-ns&gt; <span class="nb">exec</span> deploy/jaas -- <span class="se">\
+</span></span></span><span class="line"><span class="cl">    rm -rf /var/lib/jaas/artifacts/&lt;namespace&gt;/&lt;expendable-snippet&gt;
+</span></span></code></pre></div></li>
+<li>
+<p><strong>Drive reconciliation.</strong> The backoff cap is ~16 min, so failing snippets retry within that window automatically. To force immediate re-render:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl"><span class="c1"># Annotate every snippet that flipped to Ready=False:</span>
+</span></span><span class="line"><span class="cl">kubectl get jsonnetsnippets --all-namespaces <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --output <span class="nv">jsonpath</span><span class="o">=</span><span class="s1">&#39;{range .items[?(@.status.conditions[?(@.type==&#34;Ready&#34;)].status==&#34;False&#34;)]}{.metadata.namespace}/{.metadata.name}{&#34;\n&#34;}{end}&#39;</span> <span class="se">\
+</span></span></span><span class="line"><span class="cl">  <span class="p">|</span> xargs -n1 -I <span class="o">{}</span> sh -c <span class="s1">&#39;ns=$(echo &#34;{}&#34; | cut -d/ -f1); n=$(echo &#34;{}&#34; | cut -d/ -f2); \
+</span></span></span><span class="line"><span class="cl"><span class="s1">      kubectl --namespace &#34;$ns&#34; annotate jsonnetsnippet &#34;$n&#34; \
+</span></span></span><span class="line"><span class="cl"><span class="s1">      jaas.metio.wtf/reconcile-at=$(date -u +%FT%TZ) --overwrite&#39;</span>
+</span></span></code></pre></div></li>
+<li>
+<p><strong>Prevention.</strong> Set <code>operator.storage.maxArtifactBytes</code> to cap individual snippet renders before they hit the disk. Use <code>JaaSSnippetArtifactGrowing</code> (opt-in PrometheusRule alert) to catch creep before saturation.</p>
+</li>
+</ol>
+<h2 id="oom-during-render-kubelet-kills-the-operator-pod-mid-publish">OOM during render (kubelet kills the operator pod mid-publish)</h2>
+<p>A snippet that evaluates into a multi-MB JSON tree can push the operator past its <code>resources.memory</code> limit. The kubelet SIGKILLs the pod. Effects:</p>
+<ul>
+<li>The pod restarts cleanly. Probes flip back to Ready within seconds.</li>
+<li>The leader-election lease is dropped on the killed pod&rsquo;s process death; the next replica picks it up immediately (or, on single-replica installs, the new pod re-acquires).</li>
+<li><strong>Mid-write <code>.tmp</code> files</strong> in the local store are orphaned because the <code>Store.Put</code> was interrupted between <code>Create</code> and the atomic <code>Rename</code>. The background <code>Sweep</code> (default every 10 min, configurable via <code>operator.storage.sweep.interval</code>) cleans them up once their <code>ModTime</code> falls outside the <code>maxTmpAge</code> window.</li>
+<li><strong>The snippet that triggered the OOM</strong> keeps failing in the same way on the next reconcile because its rendered output is what blew memory in the first place. The pod loop-restarts until either the snippet is fixed or its memory cost falls below the limit.</li>
+</ul>
+<h3 id="symptom-2">Symptom</h3>
+<ul>
+<li>Operator pod restarts every few minutes; <code>kubectl describe pod</code> shows <code>Last State: Terminated, Reason: OOMKilled</code>.</li>
+<li><code>JaaSOperatorPodDown</code> alert fires (the restart window is shorter than the recovery, so probes flap).</li>
+<li>One specific snippet correlates with each restart.</li>
+</ul>
+<h3 id="diagnose">Diagnose</h3>
+<p>The killing snippet is whichever the operator was reconciling when memory peaked. Easiest way to identify:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace &lt;jaas-ns&gt; logs deploy/jaas --previous --tail<span class="o">=</span><span class="m">200</span> <span class="se">\
+</span></span></span><span class="line"><span class="cl">    <span class="p">|</span> grep -B2 -i <span class="s1">&#39;reconcil\|publish&#39;</span> <span class="p">|</span> tail -30
+</span></span></code></pre></div><p>The last <code>Reconcile</code> log line before the kill names the snippet. Confirm via <code>jaas_snippet_rendered_bytes</code> if the operator&rsquo;s metrics endpoint was reachable before the kill (the histogram captures bytes per Synced reconcile; a runaway snippet stands out).</p>
+<h3 id="remediate">Remediate</h3>
+<ol>
+<li>
+<p><strong>Cap the runaway snippet.</strong> Set <code>operator.storage.maxArtifactBytes</code> cluster-wide to refuse renders past a threshold (e.g., <code>16777216</code> for 16 MiB). The Publisher fails the snippet with <code>ReasonArtifactTooLarge</code> instead of attempting the write. The operator pod stops OOM-restarting.</p>
+</li>
+<li>
+<p><strong>Raise operator memory.</strong> The chart&rsquo;s <code>resources.memory</code> default is conservative (<code>64Mi</code>); a cluster with large rendered artifacts may need <code>256Mi</code> or more. Update via:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">helm --namespace &lt;jaas-ns&gt; upgrade jaas oci://ghcr.io/metio/helm-charts/jaas <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --reuse-values --set resources.memory<span class="o">=</span>256Mi
+</span></span></code></pre></div></li>
+<li>
+<p><strong>Wait for <code>Sweep</code>.</strong> The orphan <code>.tar.gz.tmp</code> files clear automatically once the surrounding issue is fixed and <code>maxTmpAge</code> (default 30 min) elapses. <code>jaas_storage_sweep_failures_total</code> flags any persistent issue.</p>
+</li>
+</ol>
+<p>For S3 backends, OOM during a multipart upload leaves an incomplete upload at the S3 endpoint — most providers expire these automatically (AWS S3: 7-day default). No JaaS-side action needed.</p>
+<h2 id="multi-replica-considerations">Multi-replica considerations</h2>
+<p>With leader election on (the chart default when operator mode is enabled), only the lease-holder writes to storage. A storage-incident on the lease-holder is the worst case: the standby reads but cannot fill the gap until the lease transfers. To force a handover during a storage incident on one replica:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace &lt;jaas-ns&gt; delete lease &lt;release-name&gt;-operator
+</span></span></code></pre></div><p>The next replica acquires the lease within <code>LeaseDuration</code> (15s default), and its Publisher writes against its own (presumably healthy) view of the backend.</p>
+<h2 id="prevention">Prevention</h2>
+<ul>
+<li>Use <code>persistence.enabled: true</code> in production. Default-off is for quick demos.</li>
+<li>Run the chart&rsquo;s opt-in PrometheusRule (<code>operator.metrics.prometheusRule.enabled: true</code>) — <code>JaaSSnippetArtifactGrowing</code> catches runaway tarballs before they fill the PVC.</li>
+<li>Set <code>operator.storage.maxArtifactBytes</code> to cap pathological snippets at admission time, not after they&rsquo;ve written to disk.</li>
+<li>For S3, configure a bucket lifecycle policy that does not delete tarballs the operator still considers live. The Publisher&rsquo;s <code>Prune</code> only deletes revisions the snippet&rsquo;s <code>status.history</code> no longer references.</li>
+</ul>
+<h2 id="jaasstoragesweepfailures-alert"><code>JaaSStorageSweepFailures</code> alert</h2>
+<p>Linked from the alert by name. The sweep is a background GC that removes orphaned <code>.tar.gz.tmp</code> residue left by Puts whose process died after the tmpfile landed but before the rename. The reconcile hot path is unaffected — Put still works — but stale <code>.tmp</code> files accumulate until the underlying issue is fixed.</p>
+<p><strong>Symptom:</strong> <code>jaas_storage_sweep_failures_total</code> increases over time; <code>JaaSStorageSweepFailures</code> alert fires after &gt;3 failures/hour (configurable).</p>
+<p><strong>Diagnose:</strong></p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl"><span class="c1"># Operator logs carry the underlying sweep error:</span>
+</span></span><span class="line"><span class="cl">kubectl --namespace &lt;jaas-ns&gt; logs deploy/jaas --tail<span class="o">=</span><span class="m">200</span> <span class="p">|</span> grep <span class="s2">&#34;Storage sweep failed&#34;</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># For local backend: check the volume&#39;s free space + permissions.</span>
+</span></span><span class="line"><span class="cl">kubectl --namespace &lt;jaas-ns&gt; <span class="nb">exec</span> deploy/jaas -- df -h /var/lib/jaas/artifacts
+</span></span><span class="line"><span class="cl">kubectl --namespace &lt;jaas-ns&gt; <span class="nb">exec</span> deploy/jaas -- ls -la /var/lib/jaas/artifacts
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># For S3 backend: sweep is a no-op (Put is atomic, no .tmp residue),</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># so this alert firing on S3 is a wiring bug. Confirm backend:</span>
+</span></span><span class="line"><span class="cl">kubectl --namespace &lt;jaas-ns&gt; get deploy jaas --output <span class="nv">jsonpath</span><span class="o">=</span><span class="s1">&#39;{.spec.template.spec.containers[0].args}&#39;</span> <span class="p">|</span> tr <span class="s1">&#39;,&#39;</span> <span class="s1">&#39;\n&#39;</span> <span class="p">|</span> grep storage-backend
+</span></span></code></pre></div><p><strong>Remediate:</strong></p>
+<ul>
+<li>Disk full → increase the PVC size or shrink <code>operator.storage.maxArtifactBytes</code>.</li>
+<li>Permission errors → ensure the operator&rsquo;s <code>securityContext.runAsUser</code> matches the PVC&rsquo;s filesystem ownership; reset with <code>chown</code> on a one-shot Job.</li>
+<li>Sustained S3 listing throttling → unlikely on the local backend; for S3 this alert shouldn&rsquo;t fire at all because Sweep is a no-op there.</li>
+</ul>
+<p>Manual cleanup once the underlying issue is fixed:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace &lt;jaas-ns&gt; <span class="nb">exec</span> deploy/jaas -- find /var/lib/jaas/artifacts -name <span class="s1">&#39;*.tar.gz.tmp&#39;</span> -mmin +30 -delete
+</span></span></code></pre></div><h2 id="withdrawforced-event-on-snippet-deletion"><code>WithdrawForced</code> event on snippet deletion</h2>
+<p>If a snippet stuck in <code>Terminating</code> carries a <code>Warning WithdrawForced</code> Kubernetes Event, the operator has already done what it could — the finalizer was dropped after <code>--max-withdraw-wait</code> (default 1h) of failing Withdraws against the backend, and the snippet itself is GC&rsquo;d. The tarball it owned is now orphaned in storage. To clean up:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl"><span class="c1"># Read the elapsed time + last backend error from the event message:</span>
+</span></span><span class="line"><span class="cl">kubectl --namespace &lt;ns&gt; describe jsonnetsnippet &lt;name&gt;
+</span></span><span class="line"><span class="cl"><span class="c1"># Locate the orphan in the configured backend:</span>
+</span></span><span class="line"><span class="cl"><span class="c1">#   local:  &lt;--storage-path&gt;/&lt;namespace&gt;/&lt;name&gt;/&lt;rev&gt;.tar.gz</span>
+</span></span><span class="line"><span class="cl"><span class="c1">#   s3:     &lt;--s3-prefix&gt;/&lt;namespace&gt;/&lt;name&gt;/&lt;rev&gt;.tar.gz</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># Remove it once the backend is reachable again.</span>
+</span></span></code></pre></div><p>A force-drop should be rare — it means the backend was broken for the full wait window. Investigate <strong>why</strong> before lowering <code>maxWithdrawWait</code>: aggressive timeouts make transient apiserver/S3 incidents cause orphans you&rsquo;d otherwise have recovered from naturally.</p>
+<h2 id="related-pages">Related pages</h2>
+<ul>
+<li><a href="/running/disaster-recovery/">Backup and disaster recovery</a>
+ — the full cluster-rebuild story: what to back up (your GitOps repository, not the store) and the restore order after total loss</li>
+<li><a href="/runbooks/artifacttoolarge/">artifacttoolarge</a>
+ — one snippet&rsquo;s output exceeds the cap (different symptom: snippet Ready=False, not &ldquo;URL unreachable&rdquo;)</li>
+<li><a href="/runbooks/sourcefetchfailed/">sourcefetchfailed</a>
+ — the operator <em>consuming</em> an upstream artifact, not its own storage</li>
+</ul>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/runbooks" term="runbooks" label="runbooks"/><category scheme="https://jaas.projects.metio.wtf/tags/troubleshooting" term="troubleshooting" label="troubleshooting"/><category scheme="https://jaas.projects.metio.wtf/tags/storage" term="storage" label="storage"/></entry><entry><title type="html">Suspended</title><link href="https://jaas.projects.metio.wtf/runbooks/suspended/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/runbooks/crd-watch-engagement/?utm_source=atom_feed" rel="related" type="text/html" title="CRD watch engagement failing"/><link href="https://jaas.projects.metio.wtf/runbooks/invalidspec/?utm_source=atom_feed" rel="related" type="text/html" title="InvalidSpec"/><link href="https://jaas.projects.metio.wtf/runbooks/operator-pod-down/?utm_source=atom_feed" rel="related" type="text/html" title="Operator pod not ready"/><link href="https://jaas.projects.metio.wtf/runbooks/pending/?utm_source=atom_feed" rel="related" type="text/html" title="Pending"/><link href="https://jaas.projects.metio.wtf/runbooks/synced/?utm_source=atom_feed" rel="related" type="text/html" title="Synced"/><id>https://jaas.projects.metio.wtf/runbooks/suspended/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-18T20:07:20+02:00</updated><content type="html"><![CDATA[<blockquote>Reconciliation is intentionally paused because spec.suspend is true; the last published artifact remains intact</blockquote><h2 id="symptom">Symptom</h2>
+<p><code>READY=False</code>, <code>REASON=Suspended</code>. The snippet&rsquo;s <code>spec.suspend</code> is set to <code>true</code>.</p>
+<h2 id="cause">Cause</h2>
+<p>An operator (or automation) paused reconciliation for this snippet, typically to investigate a downstream issue without the artifact being rewritten underneath them. The last-published <code>ExternalArtifact</code> and its on-disk tarball stay intact — downstream Flux consumers keep serving the last successful render.</p>
+<p>This is a normal, intentional state. It is not a failure.</p>
+<h2 id="diagnosis">Diagnosis</h2>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace &lt;ns&gt; get jsonnetsnippet &lt;name&gt; --output <span class="nv">jsonpath</span><span class="o">=</span><span class="s1">&#39;{.spec.suspend}&#39;</span>
+</span></span></code></pre></div><p>If the value is <code>true</code>, the suspension is set on the spec. Check <code>kubectl describe</code> for the last condition transition timestamp to see when it happened.</p>
+<h2 id="remediation">Remediation</h2>
+<p>To resume reconciliation:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace &lt;ns&gt; patch jsonnetsnippet &lt;name&gt; --type<span class="o">=</span>merge --patch <span class="s1">&#39;{&#34;spec&#34;:{&#34;suspend&#34;:false}}&#39;</span>
+</span></span></code></pre></div><p>Or remove the field entirely:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace &lt;ns&gt; edit jsonnetsnippet &lt;name&gt;
+</span></span><span class="line"><span class="cl"><span class="c1"># delete the `suspend: true` line under spec</span>
+</span></span></code></pre></div><p>The next reconcile picks up the snippet&rsquo;s current spec and republishes if anything has drifted.</p>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/runbooks" term="runbooks" label="runbooks"/><category scheme="https://jaas.projects.metio.wtf/tags/troubleshooting" term="troubleshooting" label="troubleshooting"/><category scheme="https://jaas.projects.metio.wtf/tags/lifecycle" term="lifecycle" label="lifecycle"/></entry><entry><title type="html">Synced</title><link href="https://jaas.projects.metio.wtf/runbooks/synced/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/runbooks/crd-watch-engagement/?utm_source=atom_feed" rel="related" type="text/html" title="CRD watch engagement failing"/><link href="https://jaas.projects.metio.wtf/runbooks/invalidspec/?utm_source=atom_feed" rel="related" type="text/html" title="InvalidSpec"/><link href="https://jaas.projects.metio.wtf/runbooks/operator-pod-down/?utm_source=atom_feed" rel="related" type="text/html" title="Operator pod not ready"/><link href="https://jaas.projects.metio.wtf/runbooks/pending/?utm_source=atom_feed" rel="related" type="text/html" title="Pending"/><link href="https://jaas.projects.metio.wtf/runbooks/suspended/?utm_source=atom_feed" rel="related" type="text/html" title="Suspended"/><id>https://jaas.projects.metio.wtf/runbooks/synced/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-18T20:07:20+02:00</updated><content type="html"><![CDATA[<blockquote>The snippet reconciled end-to-end and its ExternalArtifact is current; no action is required</blockquote><h2 id="symptom">Symptom</h2>
+<p><code>kubectl get jsonnetsnippet</code> shows <code>READY=True</code> with <code>REASON=Synced</code>. This is the healthy state — no action required.</p>
+<h2 id="cause">Cause</h2>
+<p>The most recent reconcile pass completed end-to-end: source resolved, libraries resolved, eval succeeded, tarball published, ExternalArtifact upserted.</p>
+<h2 id="diagnosis">Diagnosis</h2>
+<p>To inspect the published artifact:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace &lt;ns&gt; get externalartifact &lt;snippet-name&gt; --output yaml
+</span></span></code></pre></div><p>The <code>status.artifact.url</code> points at the operator&rsquo;s storage HTTP server. Curl it from a pod in the cluster to confirm the bytes match:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace &lt;ns&gt; run --rm --stdin --tty --restart<span class="o">=</span>Never tmp --image<span class="o">=</span>docker.io/library/curlimages/curl -- <span class="se">\
+</span></span></span><span class="line"><span class="cl">  curl -sL &lt;status.artifact.url&gt; <span class="p">|</span> tar tzv
+</span></span></code></pre></div><h2 id="remediation">Remediation</h2>
+<p>None — this is the healthy state.</p>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/runbooks" term="runbooks" label="runbooks"/><category scheme="https://jaas.projects.metio.wtf/tags/troubleshooting" term="troubleshooting" label="troubleshooting"/><category scheme="https://jaas.projects.metio.wtf/tags/lifecycle" term="lifecycle" label="lifecycle"/></entry><entry><title type="html">Watch-layer silent failure</title><link href="https://jaas.projects.metio.wtf/runbooks/operator-watch-silent/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/runbooks/crossnamespacerefrejected/?utm_source=atom_feed" rel="related" type="text/html" title="CrossNamespaceRefRejected"/><link href="https://jaas.projects.metio.wtf/runbooks/librarynotfound/?utm_source=atom_feed" rel="related" type="text/html" title="LibraryNotFound"/><link href="https://jaas.projects.metio.wtf/runbooks/rbacdenied/?utm_source=atom_feed" rel="related" type="text/html" title="RBACDenied"/><link href="https://jaas.projects.metio.wtf/runbooks/serviceaccountmissing/?utm_source=atom_feed" rel="related" type="text/html" title="ServiceAccountMissing"/><link href="https://jaas.projects.metio.wtf/runbooks/artifacttoolarge/?utm_source=atom_feed" rel="related" type="text/html" title="ArtifactTooLarge"/><id>https://jaas.projects.metio.wtf/runbooks/operator-watch-silent/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-18T20:07:20+02:00</updated><content type="html"><![CDATA[<blockquote>The operator&rsquo;s own ClusterRole is missing a verb on a watched kind, so controller-runtime&rsquo;s informer retries silently and no snippet status reflects the problem</blockquote><p>The one RBAC-denial path the reconciler cannot surface itself: when the <strong>operator&rsquo;s own</strong> ClusterRole is missing a verb on a watched resource kind, controller-runtime&rsquo;s informer fails to start its watch, logs warnings, and retries silently. The reconciler never sees the failure, and no snippet&rsquo;s status condition reflects it. This is not tied to a per-snippet <code>Reason</code>.</p>
+<p>If a per-snippet runbook (<a href="/runbooks/rbacdenied/">rbacdenied</a>
+, <a href="/runbooks/sourcefetchfailed/">sourcefetchfailed</a>
+, <a href="/runbooks/sourcenotready/">sourcenotready</a>
+) doesn&rsquo;t match the symptoms, this is where to look next.</p>
+<h2 id="symptom">Symptom</h2>
+<ul>
+<li>Snippets that worked yesterday stop receiving watch-driven re-renders. They still reconcile on edits or <code>spec.interval</code> ticks, but not on upstream source changes.</li>
+<li><code>kubectl describe jsonnetsnippet</code> shows healthy or stale state — never <code>Reason=RBACDenied</code> or any other failure.</li>
+<li>Operator pod is <code>Ready=True</code>, all probes pass.</li>
+<li>A <code>Flux GitRepository</code> (or <code>OCIRepository</code> / <code>Bucket</code> / <code>ExternalArtifact</code> / <code>JsonnetLibrary</code>) advances its <code>status.artifact</code> but no JaaS reconcile fires.</li>
+</ul>
+<h2 id="why-no-status-condition-surfaces-this">Why no status condition surfaces this</h2>
+<p>controller-runtime&rsquo;s informer is what watches resource kinds at the apiserver. If the operator SA lacks <code>list</code>/<code>watch</code> on a kind:</p>
+<ol>
+<li>The informer&rsquo;s initial LIST returns <code>Forbidden</code>.</li>
+<li>controller-runtime logs <code>Failed to watch *v1.X: forbidden: ...</code> at error level.</li>
+<li>The informer retries with exponential backoff — forever.</li>
+<li>The reconciler&rsquo;s reconcile loop never gets events from that kind.</li>
+<li>The reconciler itself is unaware that the watch is non-functional. The &ldquo;no events arriving&rdquo; condition is indistinguishable from &ldquo;no actual changes upstream.&rdquo;</li>
+</ol>
+<p>This is the one diagnostic surface the operator can&rsquo;t unify with its other RBAC-denial paths (Fetcher / library Get / Publisher write — all per-reconcile and surfaced via <code>Reason=RBACDenied</code>; see <a href="/runbooks/rbacdenied/">rbacdenied</a>
+).</p>
+<h2 id="diagnosis">Diagnosis</h2>
+<p>The smoking gun is in the operator&rsquo;s logs:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace &lt;jaas-ns&gt; logs deploy/jaas --tail<span class="o">=</span><span class="m">2000</span> <span class="se">\
+</span></span></span><span class="line"><span class="cl">  <span class="p">|</span> grep -E <span class="s1">&#39;Failed to watch|&#34;reflector.go&#34;&#39;</span> <span class="se">\
+</span></span></span><span class="line"><span class="cl">  <span class="p">|</span> head -30
+</span></span></code></pre></div><p>Expected output if the watch layer is healthy: nothing.</p>
+<p>If broken, you&rsquo;ll see lines like:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-text" data-lang="text"><span class="line"><span class="cl">E0610 12:34:56.789  reflector.go:227 &#34;Failed to watch&#34; err=&#34;failed to list *v1.GitRepository: ... forbidden: ServiceAccount \&#34;jaas\&#34; cannot list resource \&#34;gitrepositories\&#34; in API group \&#34;source.toolkit.fluxcd.io\&#34; at the cluster scope&#34; type=&#34;*v1.GitRepository&#34;
+</span></span></code></pre></div><p>The error names the SA, verb, resource, and API group — that&rsquo;s the exact gap to close.</p>
+<p>Check what the operator SA can actually do:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl auth can-i list gitrepositories.source.toolkit.fluxcd.io <span class="se">\
+</span></span></span><span class="line"><span class="cl">    --as<span class="o">=</span>system:serviceaccount:&lt;jaas-ns&gt;:jaas
+</span></span></code></pre></div><p>Compare against the chart-rendered ClusterRole:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl get clusterrole &lt;release&gt;-operator --output yaml <span class="p">|</span> grep -A2 source.toolkit.fluxcd.io
+</span></span></code></pre></div><h2 id="remediation">Remediation</h2>
+<p>The operator&rsquo;s ClusterRole verbs are defined in the chart&rsquo;s <code>templates/clusterrole-operator.yaml</code> (in the metio/helm-charts repo, under <code>charts/jaas/</code>). Three causes warrant separate fixes:</p>
+<h3 id="1-chart-upgraded-with-rbaccreate-false">1. Chart upgraded with <code>rbac.create: false</code></h3>
+<p>Someone disabled chart-rendered RBAC (<code>operator.rbac.create: false</code>) and the external RBAC source missed a verb. Either re-enable chart-rendered RBAC, or update whatever owns the ClusterRole to grant the missing verbs.</p>
+<h3 id="2-manual-chart-edit-removed-verbs">2. Manual chart edit removed verbs</h3>
+<p>A <code>kubectl edit clusterrole &lt;release&gt;-operator</code> or a hand-rolled overlay removed verbs the chart originally rendered. Restore via <code>helm upgrade --install</code> (idempotent for an installed chart).</p>
+<h3 id="3-new-source-kind-added-but-charts-drift-gate-didnt-catch-it">3. New source kind added but chart&rsquo;s drift gate didn&rsquo;t catch it</h3>
+<p>The drift-gate test in the chart&rsquo;s <code>tests/clusterrole-operator_test.yaml</code> (metio/helm-charts, under <code>charts/jaas/</code>) — the &ldquo;ClusterRole drift gate&rdquo; case — is supposed to fail at PR time if <code>operator.FluxSourceKinds</code> adds a kind without a matching ClusterRole entry. If you reach this runbook page because of a new kind, <strong>it means the test passed but production RBAC is still missing it</strong> — investigate why (test bypassed, chart drift, etc.). Add the verb manually as a hotfix, then file a bug against the drift gate.</p>
+<p>After granting the verb, restart the operator pod so a fresh informer picks up the new ServiceAccount-token permissions:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace &lt;jaas-ns&gt; rollout restart deploy/jaas
+</span></span></code></pre></div><p>Watch-driven re-renders resume within seconds.</p>
+<h2 id="why-no-automatic-detection">Why no automatic detection</h2>
+<p>The operator does not pre-flight a test <code>LIST</code> per kind at boot and refuse to start on Forbidden:</p>
+<ul>
+<li>It would block startup on transient apiserver flakes during deploys.</li>
+<li>The <code>crdWatcher</code> already handles the missing-CRD case gracefully — it engages a watch dynamically when the CRD becomes <code>Established=True</code>. Adding &ldquo;and also fail on Forbidden&rdquo; complicates that contract.</li>
+<li>A misconfigured cluster surfaces the issue via the operator logs and the <code>kubectl auth can-i</code> workflow above, the standard Kubernetes troubleshooting path.</li>
+</ul>
+<h2 id="related-runbooks">Related runbooks</h2>
+<ul>
+<li><a href="/runbooks/rbacdenied/">rbacdenied</a>
+ — per-reconcile RBAC denials the reconciler CAN surface (tenant SA can&rsquo;t read a source CR / library, can&rsquo;t write ExternalArtifact). If a snippet&rsquo;s status says <code>Reason=RBACDenied</code>, start there instead.</li>
+<li><a href="/runbooks/storage-recovery/">storage-recovery</a>
+ — a different failure surface (storage backend rather than apiserver), same graceful-degradation shape diagnosed via logs and metrics.</li>
+</ul>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/runbooks" term="runbooks" label="runbooks"/><category scheme="https://jaas.projects.metio.wtf/tags/troubleshooting" term="troubleshooting" label="troubleshooting"/><category scheme="https://jaas.projects.metio.wtf/tags/rbac" term="rbac" label="rbac"/></entry><entry><title type="html">Workqueue saturation</title><link href="https://jaas.projects.metio.wtf/runbooks/workqueue-saturation/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/runbooks/reconcile-latency/?utm_source=atom_feed" rel="related" type="text/html" title="High reconcile latency"/><link href="https://jaas.projects.metio.wtf/runbooks/artifacttoolarge/?utm_source=atom_feed" rel="related" type="text/html" title="ArtifactTooLarge"/><link href="https://jaas.projects.metio.wtf/runbooks/crd-watch-engagement/?utm_source=atom_feed" rel="related" type="text/html" title="CRD watch engagement failing"/><link href="https://jaas.projects.metio.wtf/runbooks/crossnamespacerefrejected/?utm_source=atom_feed" rel="related" type="text/html" title="CrossNamespaceRefRejected"/><link href="https://jaas.projects.metio.wtf/runbooks/dependencycycle/?utm_source=atom_feed" rel="related" type="text/html" title="DependencyCycle"/><id>https://jaas.projects.metio.wtf/runbooks/workqueue-saturation/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-18T20:07:20+02:00</updated><content type="html"><![CDATA[<blockquote>The reconciler&rsquo;s workqueue depth exceeds the threshold because the operator is dequeuing reconciles slower than the apiserver enqueues them</blockquote><p>Linked from the <code>JaaSControllerWorkqueueDepthHigh</code> alert. Fires when the reconciler&rsquo;s workqueue holds more items than the configured threshold (default 50) for the alert window. Not tied to a <code>Reason</code> constant — workqueue depth is a controller-runtime signal, not a per-snippet status.</p>
+<h2 id="symptom">Symptom</h2>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-text" data-lang="text"><span class="line"><span class="cl">ALERTS{alertname=&#34;JaaSControllerWorkqueueDepthHigh&#34;, controller=&#34;jsonnetsnippet&#34;}
+</span></span></code></pre></div><ul>
+<li>New snippet writes settle slowly (status takes minutes to flip, not seconds).</li>
+<li>Existing snippets re-render later than <code>spec.interval</code> would suggest.</li>
+<li><code>kubectl describe jsonnetsnippet</code> shows a stale <code>ObservedGeneration</code>.</li>
+</ul>
+<h2 id="cause">Cause</h2>
+<p>The operator is dequeuing reconciles slower than the API server enqueues them. Common causes, in observed-frequency order:</p>
+<ol>
+<li><strong>Slow Publisher backend.</strong> S3 throttling, a slow PVC, or a stalled object-store transaction — each reconcile blocks on the storage <code>Put</code>.</li>
+<li><strong>API server pressure.</strong> The cluster&rsquo;s apiserver is slow on <code>GET</code> / <code>UPDATE</code> (often during a control-plane upgrade or under heavy general load).</li>
+<li><strong>Per-snippet rate-limiter exhaustion.</strong> A flapping snippet eats its token-bucket budget; the controller&rsquo;s exponential backoff stretches the queue.</li>
+<li><strong>A large fan-out from a single source watch.</strong> One Flux source republishes and 100 snippets reference it; every snippet&rsquo;s reconcile lands in the queue at once.</li>
+<li><strong>Webhook latency.</strong> When <code>--enable-webhook</code> is on, every snippet write traverses the validating webhook. A wedged webhook (cert issue, slow tenant client) holds the apiserver&rsquo;s call open and indirectly enlarges the queue.</li>
+</ol>
+<h2 id="diagnosis">Diagnosis</h2>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl"><span class="c1"># Per-controller queue depth — confirm which controller is saturated</span>
+</span></span><span class="line"><span class="cl">kubectl --namespace &lt;jaas-ns&gt; port-forward svc/jaas-metrics 8083:8083 <span class="p">&amp;</span>
+</span></span><span class="line"><span class="cl">curl -s localhost:8083/metrics <span class="p">|</span> grep -E <span class="s1">&#39;workqueue_depth|workqueue_adds_total&#39;</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># Reconcile-time histogram — separates &#34;lots of queued items&#34; (fan-out)</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># from &#34;each reconcile is slow&#34; (storage / apiserver).</span>
+</span></span><span class="line"><span class="cl">curl -s localhost:8083/metrics <span class="p">|</span> grep <span class="s1">&#39;controller_runtime_reconcile_time_seconds&#39;</span>
+</span></span></code></pre></div><p>Cross-reference operator logs for the slow path:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace &lt;jaas-ns&gt; logs deploy/jaas --tail<span class="o">=</span><span class="m">500</span> <span class="se">\
+</span></span></span><span class="line"><span class="cl">  <span class="p">|</span> grep -E <span class="s1">&#39;reconcile|publisher|s3|webhook&#39;</span>
+</span></span></code></pre></div><p>If <code>controller_runtime_reconcile_time_seconds</code> p99 is also high, the alert is the symptom — <code>JaaSReconcileLatencyHigh</code> is the more useful page; see <a href="/runbooks/reconcile-latency/">reconcile-latency</a>
+.</p>
+<h2 id="remediation">Remediation</h2>
+<ul>
+<li><strong>Storage backend slow.</strong> Switch from <code>local</code> (PVC) to <code>s3</code> for higher write throughput, or vice versa if S3 is throttled. See <a href="/runbooks/storage-recovery/">storage-recovery</a>
+.</li>
+<li><strong>Apiserver slow.</strong> Pause spec-update churn (<code>spec.interval</code> longer on hot snippets), then wait for control-plane health to return.</li>
+<li><strong>Rate-limiter exhaustion.</strong> Increase <code>operator.rerenderBurst</code> to absorb the spike, then investigate why a snippet is flapping (typically a <code>Reason*</code> other than <code>Synced</code> keeps firing — check <code>kubectl get events</code>).</li>
+<li><strong>Fan-out from a single source.</strong> Stagger snippet intervals so their watch events don&rsquo;t all settle at once. The controller serializes per-snippet; concurrency across snippets is bounded by <code>MaxConcurrentReconciles</code> (set high enough at chart default — 5 — that drag from a single fan-out is unusual).</li>
+<li><strong>Webhook latency.</strong> <code>kubectl get validatingwebhookconfiguration jaas-jsonnetsnippet --output yaml</code> and confirm the <code>caBundle</code> is current; restart the operator if the cert was rotated externally.</li>
+</ul>
+<h2 id="prevention">Prevention</h2>
+<ul>
+<li>Run <code>operator.metrics.prometheusRule.enabled: true</code> so this alert fires <em>before</em> downstream consumers notice.</li>
+<li>Cap <code>--max-artifact-bytes</code> so a runaway snippet can&rsquo;t slow every Publisher write behind it.</li>
+<li>For multi-replica HA, leader election keeps only one replica reconciling — workqueue depth on the lease-holder is the only one that matters.</li>
+</ul>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/runbooks" term="runbooks" label="runbooks"/><category scheme="https://jaas.projects.metio.wtf/tags/troubleshooting" term="troubleshooting" label="troubleshooting"/><category scheme="https://jaas.projects.metio.wtf/tags/metrics" term="metrics" label="metrics"/></entry></feed>

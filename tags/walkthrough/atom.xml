@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en"><generator uri="https://gohugo.io/" version="0.163.3">Hugo</generator><title type="html">Walkthrough on Jsonnet-as-a-Service</title><link href="https://jaas.projects.metio.wtf/tags/walkthrough/" rel="alternate" type="text/html" title="html"/><link href="https://jaas.projects.metio.wtf/tags/walkthrough/index.xml" rel="alternate" type="application/rss+xml" title="rss"/><link href="https://jaas.projects.metio.wtf/tags/walkthrough/atom.xml" rel="self" type="application/atom+xml" title="atom"/><updated>2026-07-02T07:56:37+00:00</updated><author><name>metio.wtf</name></author><id>https://jaas.projects.metio.wtf/tags/walkthrough/</id><entry><title type="html">Guides</title><link href="https://jaas.projects.metio.wtf/guides/?utm_source=atom_feed" rel="alternate" type="text/html"/><id>https://jaas.projects.metio.wtf/guides/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-26T15:54:29+02:00</updated><content type="html"><![CDATA[<blockquote>End-to-end walkthroughs — publishing Grafana dashboards and deploying rendered manifests with StageSet.</blockquote><p>Task-focused walkthroughs that stitch several pieces together. For a single
+feature in isolation, see <a href="/rendering/">Rendering Jsonnet</a>
+ and
+<a href="/operator/">Operator mode</a>
+.</p>
+<ul>
+<li><strong><a href="/guides/grafana-dashboards/">Grafana dashboards</a>
+</strong> — render grafonnet
+dashboards through JaaS and hand them to the grafana-operator.</li>
+<li><strong><a href="/guides/deploying-manifests/">Deploying manifests with StageSet</a>
+</strong> — feed a
+rendered artifact into a gated <a href="https://stageset.projects.metio.wtf/">StageSet</a>
+
+rollout.</li>
+</ul>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/guides" term="guides" label="guides"/><category scheme="https://jaas.projects.metio.wtf/tags/tutorials" term="tutorials" label="tutorials"/><category scheme="https://jaas.projects.metio.wtf/tags/walkthrough" term="walkthrough" label="walkthrough"/></entry></feed>

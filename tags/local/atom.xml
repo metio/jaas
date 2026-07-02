@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en"><generator uri="https://gohugo.io/" version="0.163.3">Hugo</generator><title type="html">Local on Jsonnet-as-a-Service</title><link href="https://jaas.projects.metio.wtf/tags/local/" rel="alternate" type="text/html" title="html"/><link href="https://jaas.projects.metio.wtf/tags/local/index.xml" rel="alternate" type="application/rss+xml" title="rss"/><link href="https://jaas.projects.metio.wtf/tags/local/atom.xml" rel="self" type="application/atom+xml" title="atom"/><updated>2026-07-02T07:56:37+00:00</updated><author><name>metio.wtf</name></author><id>https://jaas.projects.metio.wtf/tags/local/</id><entry><title type="html">Local rendering</title><link href="https://jaas.projects.metio.wtf/get-started/local-rendering/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/rendering/rendering-endpoint/?utm_source=atom_feed" rel="related" type="text/html" title="Rendering endpoint"/><id>https://jaas.projects.metio.wtf/get-started/local-rendering/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-26T15:54:29+02:00</updated><content type="html"><![CDATA[<blockquote>Run JaaS as a cluster-free Jsonnet renderer over HTTP, with snippet directories, library paths, TLAs, and external variables.</blockquote><p>JaaS runs as a cluster-free Jsonnet renderer: point it at a directory of
+snippets and a directory of libraries, then <code>GET</code> a snippet name to receive the
+evaluated JSON. No Kubernetes, no operator mode, no Flux. The evaluation core is
+the same one the operator uses, so a snippet that renders correctly here renders
+identically in-cluster.</p>
+<p>This tutorial runs against this repository&rsquo;s <code>examples/</code> layout, so clone the
+repo first:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">git clone https://github.com/metio/jaas
+</span></span><span class="line"><span class="cl"><span class="nb">cd</span> jaas
+</span></span></code></pre></div><h2 id="step-1--get-the-binary-or-container-image">Step 1 — Get the binary or container image</h2>
+<p>Pre-built binaries are attached to each
+<a href="https://github.com/metio/jaas/releases">GitHub release</a>
+. Download the archive
+for your platform, unpack it, and the <code>jaas</code> binary is inside.</p>
+<p>A container image is published at <code>ghcr.io/metio/jaas:latest</code>:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">docker pull ghcr.io/metio/jaas:latest
+</span></span></code></pre></div><p>The examples below use a <code>jaas</code> binary on your <code>PATH</code>. To run the container
+instead, mount <code>examples/</code> and map the port — for example
+<code>docker run --rm -p 8080:8080 -v &quot;$PWD/examples:/examples&quot; ghcr.io/metio/jaas:latest</code>
+with the flags adjusted to the in-container <code>/examples</code> paths, and
+<code>--listen-address 0.0.0.0</code> so the port is reachable from the host.</p>
+<h2 id="step-2--run-jaas-over-the-examples-directory">Step 2 — Run JaaS over the examples directory</h2>
+<p>Start JaaS with one snippet directory and one library path:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">jaas <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --snippet-directory examples/snippets/dashboards <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --library-path examples/libraries
+</span></span></code></pre></div><p><code>--snippet-directory</code> exposes each subdirectory as a snippet whose name is the
+directory name and whose entry file is <code>main.jsonnet</code>. <code>--library-path</code> makes the
+libraries under <code>examples/libraries</code> importable by alias. Both flags repeat, so
+you can pass several of each. The Jsonnet server binds <code>127.0.0.1:8080</code> by
+default.</p>
+<p>Confirm it started by hitting the readiness probe on the management server:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">curl -i http://127.0.0.1:8081/ready
+</span></span><span class="line"><span class="cl"><span class="c1"># HTTP/1.1 200 OK</span>
+</span></span></code></pre></div><h2 id="step-3--render-a-snippet">Step 3 — Render a snippet</h2>
+<p><code>examples/snippets/dashboards/inheritance</code> is a self-contained snippet. Request
+it by directory name:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">curl http://127.0.0.1:8080/jsonnet/inheritance
+</span></span></code></pre></div><p>JaaS returns the evaluated Jsonnet as JSON with <code>Content-Type: application/json</code>. The <code>library-precedence</code> snippet imports the <code>examplonet</code>
+library you exposed with <code>--library-path</code>:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">curl http://127.0.0.1:8080/jsonnet/library-precedence
+</span></span></code></pre></div><p>A snippet name that resolves to no file returns a <code>404</code> with a JSON error body; a
+Jsonnet error returns a <code>400</code> whose body is a generic <code>evaluation_failed</code>. The full
+go-jsonnet diagnostic (with file and line) is written to the terminal where jaas
+runs, so locally you see it right next to the request.</p>
+<h2 id="step-4--pass-a-top-level-argument">Step 4 — Pass a top-level argument</h2>
+<p>Top-level arguments arrive as URL query parameters. The <code>multi-tla</code> snippet is
+<code>function(tags=[&quot;default&quot;])</code> and joins its <code>tags</code> argument. Repeating a query
+key passes a list, which becomes a JSON array TLA:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">curl <span class="s1">&#39;http://127.0.0.1:8080/jsonnet/multi-tla?tags=prod&amp;tags=eu-west&#39;</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># {</span>
+</span></span><span class="line"><span class="cl"><span class="c1">#    &#34;count&#34;: 2,</span>
+</span></span><span class="line"><span class="cl"><span class="c1">#    &#34;joined&#34;: &#34;prod, eu-west&#34;,</span>
+</span></span><span class="line"><span class="cl"><span class="c1">#    &#34;list&#34;: [ &#34;prod&#34;, &#34;eu-west&#34; ]</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># }</span>
+</span></span></code></pre></div><p>A single occurrence of a query key (<code>?tags=prod</code>) passes a string instead of a
+one-element array.</p>
+<h2 id="step-5--set-an-external-variable">Step 5 — Set an external variable</h2>
+<p>External variables are supplied through environment variables prefixed
+<code>JAAS_EXT_VAR_</code>. The variable after the prefix is the <code>std.extVar</code> key. Restart
+JaaS with the variables the <code>example1</code> snippet reads (<code>name</code> and <code>key</code>):</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl"><span class="nv">JAAS_EXT_VAR_name</span><span class="o">=</span>Alice <span class="se">\
+</span></span></span><span class="line"><span class="cl"><span class="nv">JAAS_EXT_VAR_key</span><span class="o">=</span>secret-value <span class="se">\
+</span></span></span><span class="line"><span class="cl">jaas <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --snippet-directory examples/snippets/dashboards <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --library-path examples/libraries
+</span></span></code></pre></div><p>Then render the snippet:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">curl http://127.0.0.1:8080/jsonnet/example1
+</span></span><span class="line"><span class="cl"><span class="c1"># {</span>
+</span></span><span class="line"><span class="cl"><span class="c1">#    ...</span>
+</span></span><span class="line"><span class="cl"><span class="c1">#    &#34;person1&#34;: {</span>
+</span></span><span class="line"><span class="cl"><span class="c1">#       &#34;external&#34;: &#34;secret-value&#34;,</span>
+</span></span><span class="line"><span class="cl"><span class="c1">#       &#34;name&#34;: &#34;Alice&#34;,</span>
+</span></span><span class="line"><span class="cl"><span class="c1">#       &#34;welcome&#34;: &#34;Hello Alice!&#34;</span>
+</span></span><span class="line"><span class="cl"><span class="c1">#    },</span>
+</span></span><span class="line"><span class="cl"><span class="c1">#    ...</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># }</span>
+</span></span></code></pre></div><p><code>std.extVar('name')</code> and <code>std.extVar('key')</code> resolve to the values from the
+environment. External variables are read once at startup, not per request.</p>
+<h2 id="same-core-as-the-operator">Same core as the operator</h2>
+<p>The <code>jaas</code> binary evaluates Jsonnet through the same evaluation core whether it
+serves HTTP locally or reconciles a <code>JsonnetSnippet</code> in operator mode. Local
+rendering is the fast feedback loop for snippet authoring: a snippet that renders
+here — with the same libraries available — renders identically when the operator
+publishes it as an <code>ExternalArtifact</code>.</p>
+<h2 id="where-to-go-next">Where to go next</h2>
+<ul>
+<li><a href="/rendering/rendering-endpoint/">Rendering endpoint</a>
+ — the request shape, snippet
+resolution, the management probes, and the stable error contract.</li>
+<li><a href="/rendering/snippets-and-libraries/">Snippets and libraries</a>
+ — declaring snippets
+with <code>--snippet</code> and <code>--snippet-directory</code>, and libraries with <code>--library-path</code>.</li>
+<li><a href="/rendering/external-variables-and-tlas/">External variables and TLAs</a>
+ — the full
+<code>JAAS_EXT_VAR_*</code> and query-parameter rules.</li>
+</ul>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/local" term="local" label="local"/><category scheme="https://jaas.projects.metio.wtf/tags/renderer" term="renderer" label="renderer"/><category scheme="https://jaas.projects.metio.wtf/tags/http" term="http" label="http"/></entry></feed>

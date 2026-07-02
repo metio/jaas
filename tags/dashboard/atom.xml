@@ -1,0 +1,197 @@
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en"><generator uri="https://gohugo.io/" version="0.163.3">Hugo</generator><title type="html">Dashboard on Jsonnet-as-a-Service</title><link href="https://jaas.projects.metio.wtf/tags/dashboard/" rel="alternate" type="text/html" title="html"/><link href="https://jaas.projects.metio.wtf/tags/dashboard/index.xml" rel="alternate" type="application/rss+xml" title="rss"/><link href="https://jaas.projects.metio.wtf/tags/dashboard/atom.xml" rel="self" type="application/atom+xml" title="atom"/><updated>2026-07-02T07:56:37+00:00</updated><author><name>metio.wtf</name></author><id>https://jaas.projects.metio.wtf/tags/dashboard/</id><entry><title type="html">Dashboard</title><link href="https://jaas.projects.metio.wtf/observability/dashboard/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/guides/grafana-dashboards/?utm_source=atom_feed" rel="related" type="text/html" title="Grafana dashboards"/><link href="https://jaas.projects.metio.wtf/observability/slos/?utm_source=atom_feed" rel="related" type="text/html" title="Service level objectives"/><link href="https://jaas.projects.metio.wtf/security/admission-webhook/?utm_source=atom_feed" rel="related" type="text/html" title="Admission webhook"/><link href="https://jaas.projects.metio.wtf/observability/alerting/?utm_source=atom_feed" rel="related" type="text/html" title="Alerting"/><link href="https://jaas.projects.metio.wtf/operator/creating-sources/?utm_source=atom_feed" rel="related" type="text/html" title="Creating source artifacts"/><id>https://jaas.projects.metio.wtf/observability/dashboard/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-26T15:54:29+02:00</updated><content type="html"><![CDATA[<blockquote>JaaS publishes a maintained Grafana dashboard for its operator as a single-layer OCI image — render it through a JsonnetSnippet and hand it to the grafana-operator.</blockquote><p>JaaS publishes a maintained Grafana dashboard for its own operator as a
+single-layer OCI image at <code>ghcr.io/metio/jaas-dashboard</code>. Render it through JaaS the
+same way you&rsquo;d render any snippet — no manual JSON to copy around.</p>
+<p>The dashboard opens with an <a href="/observability/slos/">SLO</a>
+ band — reconcile
+availability against its objective, error budget remaining, reconcile-latency p95
+against its objective, and an availability-versus-objective trend — over a band of
+operator internals that explain any movement: reconciles by reason, evaluation
+throughput and backpressure, rendered output size, storage sweeps, and the
+controller-runtime workqueue. The series are the <a href="/observability/metrics/">metrics</a>
+
+the operator exports.</p>
+<p>To author your <em>own</em> dashboards in grafonnet, see the
+<a href="/guides/grafana-dashboards/">Grafana dashboards tutorial</a>
+; this page covers
+consuming the ready-made one.</p>
+<h2 id="1-point-a-flux-source-at-the-image">1. Point a Flux source at the image</h2>
+<p>It&rsquo;s an OCI artifact, so use an <code>OCIRepository</code>. The dashboard imports grafonnet,
+so also install the grafonnet <code>JsonnetLibrary</code> (the
+<a href="https://github.com/metio/helm-charts/tree/main/charts/joi"><code>joi</code> chart</a>
+,
+<code>--set libraries.grafonnet.enabled=true</code>).</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l">source.toolkit.fluxcd.io/v1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">OCIRepository</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">metadata</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">jaas-dashboard</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">monitoring</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">spec</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">interval</span><span class="p">:</span><span class="w"> </span><span class="l">1h</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l">oci://ghcr.io/metio/jaas-dashboard</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">ref</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">tag</span><span class="p">:</span><span class="w"> </span><span class="l">latest       </span><span class="w"> </span><span class="c"># or a dated tag like 2026.6.22 to pin</span><span class="w">
+</span></span></span></code></pre></div><p>The dashboard source also lives in the JaaS repository under <code>dashboards/</code>; if you
+mirror it into Git, a <code>GitRepository</code> pointing there works identically.</p>
+<h2 id="2-render-it-with-a-jsonnetsnippet-passing-the-dashboards-tlas">2. Render it with a JsonnetSnippet, passing the dashboard&rsquo;s TLAs</h2>
+<p>The dashboard is a function of top-level arguments — <code>datasource</code> (the Prometheus
+datasource UID, default <code>prometheus</code>), <code>title</code> (default <code>JaaS operator</code>), a
+<code>selector</code> label matcher folded into every query (default empty), and the SLO knobs
+<code>window</code> (default <code>28d</code>), <code>availabilityTarget</code> (default <code>0.99</code>), and <code>latencyTarget</code>
+seconds (default <code>30</code>) — supplied through <code>spec.tlas</code>.</p>
+<p><code>selector</code> is how you adapt to your Prometheus: scope the dashboard to one scrape
+job or cluster, e.g. <code>selector: ['job=&quot;jaas&quot;']</code> or <code>['cluster=&quot;prod&quot;']</code>. The queries
+never touch the <code>namespace</code> label, so a Prometheus that relabels it to
+<code>exported_namespace</code> doesn&rsquo;t affect them; <code>selector</code> pins anything else.</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l">jaas.metio.wtf/v1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">JsonnetSnippet</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">metadata</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">jaas-operator-dashboard</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">monitoring</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">spec</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">serviceAccountName</span><span class="p">:</span><span class="w"> </span><span class="l">dashboards-tenant</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="c"># The OCI image&#39;s only file is main.jsonnet, which is spec.entryFile&#39;s default,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="c"># so no entryFile is needed.</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">sourceRef</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">OCIRepository</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">jaas-dashboard</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="c"># grafonnet, which the dashboard imports by its full jb-vendor path, is served</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="c"># by the JOI library installed above.</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">libraries</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span>- <span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">JsonnetLibrary</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">grafonnet</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="c"># The dashboard&#39;s top-level arguments. Each value is a list; a single element</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="c"># becomes a string TLA.</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">tlas</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">datasource</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&#34;prometheus&#34;</span><span class="p">]</span><span class="w">         </span><span class="c"># your Prometheus datasource UID</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">title</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&#34;JaaS operator — prod&#34;</span><span class="p">]</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">selector</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s1">&#39;job=&#34;jaas&#34;&#39;</span><span class="p">]</span><span class="w">           </span><span class="c"># scope every query to your scrape job/cluster</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">window</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&#34;28d&#34;</span><span class="p">]</span><span class="w">                    </span><span class="c"># SLO window</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">availabilityTarget</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&#34;0.99&#34;</span><span class="p">]</span><span class="w">       </span><span class="c"># reconcile-availability objective (99%)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">latencyTarget</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&#34;30&#34;</span><span class="p">]</span><span class="w">              </span><span class="c"># reconcile-latency p95 objective (seconds)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">interval</span><span class="p">:</span><span class="w"> </span><span class="l">10m</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">output</span><span class="p">:</span><span class="w"> </span><span class="l">rendered</span><span class="w">
+</span></span></span></code></pre></div><p>This is zero-maintenance: the <code>OCIRepository</code> polls <code>ghcr.io/metio/jaas-dashboard</code>,
+so when a new dashboard is published JaaS re-renders, the <code>ExternalArtifact</code> digest
+changes, and the grafana-operator pushes the new JSON to Grafana — you reference the
+upstream image once and get every update automatically. Pin <code>ref.tag</code> to a dated
+tag instead of <code>latest</code> if you&rsquo;d rather adopt updates deliberately.</p>
+<p>JaaS renders the dashboard JSON and publishes it as an <code>ExternalArtifact</code> named
+after the snippet — <code>jaas-operator-dashboard</code>.</p>
+<p>To fan this dashboard out per cluster — one rendered instance per cluster, each
+scoped to its own Prometheus — template the snippet with a Flux Operator
+<code>ResourceSet</code>; see the
+<a href="/integrations/flux-operator/">Flux Operator integration</a>
+ page.</p>
+<h2 id="3-hand-the-artifact-to-the-grafana-operator">3. Hand the artifact to the grafana-operator</h2>
+<p>A <code>GrafanaDashboard</code> that references the published <code>ExternalArtifact</code> reconciles it
+into Grafana:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l">grafana.integreatly.org/v1beta1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">GrafanaDashboard</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">metadata</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">jaas-operator</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">monitoring</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">spec</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">instanceSelector</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">matchLabels</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">dashboards</span><span class="p">:</span><span class="w"> </span><span class="s2">&#34;grafana&#34;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">resyncPeriod</span><span class="p">:</span><span class="w"> </span><span class="l">30s</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">sourceRef</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l">source.toolkit.fluxcd.io/v1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">ExternalArtifact</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">jaas-operator-dashboard</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">monitoring</span><span class="w">
+</span></span></span></code></pre></div><p>When the published image updates (or you change the TLAs), JaaS re-renders, the
+<code>ExternalArtifact</code> digest changes, and the grafana-operator pushes the new JSON to
+Grafana — no manual export step.</p>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/operator" term="operator" label="operator"/><category scheme="https://jaas.projects.metio.wtf/tags/grafana" term="grafana" label="grafana"/><category scheme="https://jaas.projects.metio.wtf/tags/grafonnet" term="grafonnet" label="grafonnet"/><category scheme="https://jaas.projects.metio.wtf/tags/slo" term="slo" label="slo"/><category scheme="https://jaas.projects.metio.wtf/tags/dashboard" term="dashboard" label="dashboard"/></entry><entry><title type="html">Flux Operator (ResourceSet) integration</title><link href="https://jaas.projects.metio.wtf/integrations/flux-operator/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/comparisons/flux-operator/?utm_source=atom_feed" rel="related" type="text/html" title="vs Flux Operator ResourceSet"/><link href="https://jaas.projects.metio.wtf/observability/dashboard/?utm_source=atom_feed" rel="related" type="text/html" title="Dashboard"/><id>https://jaas.projects.metio.wtf/integrations/flux-operator/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-26T15:54:29+02:00</updated><content type="html"><![CDATA[<blockquote>Template one JsonnetSnippet per input with a Flux Operator ResourceSet so JaaS renders per-cluster or per-tenant content from a single definition.</blockquote><p>Render the same Jsonnet for many clusters or tenants without writing a snippet by
+hand for each one: let a <a href="https://fluxoperator.dev/">Flux Operator</a>
+ <code>ResourceSet</code>
+template a <code>JsonnetSnippet</code> per input, and JaaS renders each instance into its own
+<code>ExternalArtifact</code>. The <code>ResourceSet</code> supplies the per-instance values through Go
+template substitution; JaaS does the evaluation. There is no <code>ResourceSet</code> field
+in the JaaS API — you use the two together: the <code>ResourceSet</code> templates ordinary
+<code>JsonnetSnippet</code> CRs, which JaaS reconciles like any other. This needs the Flux
+Operator installed alongside JaaS in the operator mode described under
+<a href="/operator/operator-mode/">operator mode</a>
+.</p>
+<p>The worked example below fans the maintained operator dashboard (see
+<a href="/observability/dashboard/">Dashboard</a>
+) out across a fleet: each cluster gets its
+own rendered dashboard, scoped to its own Prometheus and labelled with its own
+title.</p>
+<h2 id="1-declare-the-per-instance-inputs">1. Declare the per-instance inputs</h2>
+<p>A <code>ResourceSetInputProvider</code> of <code>.spec.type</code> <code>Static</code> exports a fixed list of
+inputs from <code>.spec.defaultValues</code>. List one entry per cluster, each carrying the
+values the dashboard&rsquo;s top-level arguments need:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l">fluxcd.controlplane.io/v1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">ResourceSetInputProvider</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">metadata</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">clusters</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">monitoring</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">spec</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l">Static</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">defaultValues</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">clusters</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span>- <span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">prod</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">datasource</span><span class="p">:</span><span class="w"> </span><span class="l">prometheus-prod</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">selector</span><span class="p">:</span><span class="w"> </span><span class="s1">&#39;cluster=&#34;prod&#34;&#39;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span>- <span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">staging</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">datasource</span><span class="p">:</span><span class="w"> </span><span class="l">prometheus-staging</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">selector</span><span class="p">:</span><span class="w"> </span><span class="s1">&#39;cluster=&#34;staging&#34;&#39;</span><span class="w">
+</span></span></span></code></pre></div><p>Other provider types export inputs from a live source instead — Git branches,
+pull requests, or OCI artifact tags — and <code>.spec.schedule</code> (with <code>cron</code>,
+<code>timeZone</code>, and <code>window</code>) gates when those inputs refresh, so the templated
+snippets only change inside the window. The
+<a href="https://fluxoperator.dev/docs/resourcesets/time-based-delivery/">time-based delivery guide</a>
+
+covers that pattern.</p>
+<h2 id="2-template-a-jsonnetsnippet-per-input">2. Template a JsonnetSnippet per input</h2>
+<p>A <code>ResourceSet</code> consumes the provider through <code>.spec.inputsFrom</code>, then templates
+its <code>.spec.resources</code> once per resolved input. Each rendered <code>JsonnetSnippet</code>
+points at the dashboard <code>OCIRepository</code> and threads the per-cluster values into
+<code>spec.tlas</code> with <code>&lt;&lt; inputs.x &gt;&gt;</code> substitution:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l">fluxcd.controlplane.io/v1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">ResourceSet</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">metadata</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">cluster-dashboards</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">monitoring</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">spec</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">serviceAccountName</span><span class="p">:</span><span class="w"> </span><span class="l">dashboards-tenant</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">inputsFrom</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span>- <span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">ResourceSetInputProvider</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">clusters</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">resources</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span>- <span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l">jaas.metio.wtf/v1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">JsonnetSnippet</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">metadata</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">dashboard-&lt;&lt; inputs.name &gt;&gt;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">monitoring</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">spec</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">serviceAccountName</span><span class="p">:</span><span class="w"> </span><span class="l">dashboards-tenant</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">sourceRef</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">          </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">OCIRepository</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">          </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">jaas-dashboard</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">libraries</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">          </span>- <span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">JsonnetLibrary</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">grafonnet</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">tlas</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">          </span><span class="nt">datasource</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&#34;&lt;&lt; inputs.datasource &gt;&gt;&#34;</span><span class="p">]</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">          </span><span class="nt">title</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&#34;JaaS operator — &lt;&lt; inputs.name &gt;&gt;&#34;</span><span class="p">]</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">          </span><span class="nt">selector</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s1">&#39;&lt;&lt; inputs.selector &gt;&gt;&#39;</span><span class="p">]</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">interval</span><span class="p">:</span><span class="w"> </span><span class="l">10m</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">output</span><span class="p">:</span><span class="w"> </span><span class="l">rendered</span><span class="w">
+</span></span></span></code></pre></div><p>The <code>ResourceSet</code> creates <code>dashboard-prod</code> and <code>dashboard-staging</code>, each with its
+own datasource UID, title, and query selector. JaaS reconciles each snippet
+independently and publishes one <code>ExternalArtifact</code> per cluster, named after the
+snippet. Point a <code>GrafanaDashboard</code> at each artifact exactly as the
+<a href="/observability/dashboard/">Dashboard</a>
+ page shows, and the grafana-operator pushes
+the per-cluster JSON to Grafana.</p>
+<p>The same shape generalises beyond dashboards: any per-tenant or per-environment
+Jsonnet — manifest libraries, config documents — fans out the same way. Add a
+cluster to the provider&rsquo;s list and the <code>ResourceSet</code> renders one more snippet; no
+new snippet YAML by hand.</p>
+<p>For where this pattern sits relative to running JaaS or the Flux Operator alone,
+see <a href="/comparisons/flux-operator/">JaaS vs Flux Operator ResourceSet</a>
+.</p>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/usage" term="usage" label="usage"/><category scheme="https://jaas.projects.metio.wtf/tags/flux-operator" term="flux-operator" label="flux-operator"/><category scheme="https://jaas.projects.metio.wtf/tags/resourceset" term="resourceset" label="resourceset"/><category scheme="https://jaas.projects.metio.wtf/tags/multi-cluster" term="multi-cluster" label="multi-cluster"/><category scheme="https://jaas.projects.metio.wtf/tags/dashboard" term="dashboard" label="dashboard"/></entry></feed>

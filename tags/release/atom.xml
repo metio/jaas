@@ -1,0 +1,196 @@
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en"><generator uri="https://gohugo.io/" version="0.163.3">Hugo</generator><title type="html">Release on Jsonnet-as-a-Service</title><link href="https://jaas.projects.metio.wtf/tags/release/" rel="alternate" type="text/html" title="html"/><link href="https://jaas.projects.metio.wtf/tags/release/index.xml" rel="alternate" type="application/rss+xml" title="rss"/><link href="https://jaas.projects.metio.wtf/tags/release/atom.xml" rel="self" type="application/atom+xml" title="atom"/><updated>2026-07-02T07:56:37+00:00</updated><author><name>metio.wtf</name></author><id>https://jaas.projects.metio.wtf/tags/release/</id><entry><title type="html">CI and Releases</title><link href="https://jaas.projects.metio.wtf/contributing/ci-and-release/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/contributing/building/?utm_source=atom_feed" rel="related" type="text/html" title="Building and Testing"/><link href="https://jaas.projects.metio.wtf/integrations/claude-code/?utm_source=atom_feed" rel="related" type="text/html" title="Claude Code skill"/><id>https://jaas.projects.metio.wtf/contributing/ci-and-release/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-18T20:07:20+02:00</updated><content type="html"><![CDATA[<blockquote>The verify.yml PR gate, the static-analysis tool set, and the calendar-based hand-rolled release pipeline.</blockquote><h2 id="static-analysis">Static analysis</h2>
+<p>golangci-lint is not used. The tools below run directly, both in CI and locally inside the dev shell (see <a href="/contributing/building/">Building and Testing</a>
+). Every tool is a separate, auditable binary with its own config file.</p>
+<table>
+	<thead>
+			<tr>
+					<th>Tool</th>
+					<th>Scope</th>
+					<th>Config</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><code>go vet</code> (all analyzers)</td>
+					<td>Go correctness</td>
+					<td>—</td>
+			</tr>
+			<tr>
+					<td><a href="https://staticcheck.dev">staticcheck</a>
+</td>
+					<td>Bugs, simplifications, style</td>
+					<td><code>staticcheck.conf</code> (<code>checks = [&quot;all&quot;]</code>)</td>
+			</tr>
+			<tr>
+					<td><a href="https://github.com/securego/gosec">gosec</a>
+</td>
+					<td>Security patterns</td>
+					<td>inline <code>#nosec</code> justifications</td>
+			</tr>
+			<tr>
+					<td><a href="https://go.dev/security/vuln/">govulncheck</a>
+</td>
+					<td>Known vulnerabilities in the dependency graph</td>
+					<td>—</td>
+			</tr>
+			<tr>
+					<td><a href="https://github.com/arch-go/arch-go">arch-go</a>
+</td>
+					<td>Architecture rules</td>
+					<td><code>arch-go.yml</code></td>
+			</tr>
+			<tr>
+					<td><a href="https://github.com/mvdan/gofumpt">gofumpt</a>
+</td>
+					<td>Strict formatting</td>
+					<td>—</td>
+			</tr>
+			<tr>
+					<td><a href="https://reuse.software">REUSE</a>
+</td>
+					<td>License / copyright metadata on every file</td>
+					<td><code>REUSE.toml</code></td>
+			</tr>
+			<tr>
+					<td><a href="https://yamllint.readthedocs.io">yamllint</a>
+</td>
+					<td>YAML</td>
+					<td><code>.yamllint.yaml</code></td>
+			</tr>
+			<tr>
+					<td><a href="https://github.com/rhysd/actionlint">actionlint</a>
+</td>
+					<td>GitHub Actions workflows</td>
+					<td>—</td>
+			</tr>
+			<tr>
+					<td><a href="https://github.com/DavidAnson/markdownlint-cli2">markdownlint</a>
+</td>
+					<td>Markdown</td>
+					<td><code>.markdownlint.yaml</code></td>
+			</tr>
+			<tr>
+					<td><a href="https://github.com/crate-ci/typos">typos</a>
+</td>
+					<td>Spelling</td>
+					<td><code>.typos.toml</code></td>
+			</tr>
+			<tr>
+					<td><a href="https://github.com/aquasecurity/trivy">Trivy</a>
+</td>
+					<td>Container image CVEs</td>
+					<td>—</td>
+			</tr>
+	</tbody>
+</table>
+<h3 id="architecture-rules">Architecture rules</h3>
+<p><code>arch-go.yml</code> pins two invariants enforced with 100% compliance:</p>
+<ul>
+<li><code>api/v1</code> depends on neither the operator internals nor <code>sigs.k8s.io/controller-runtime</code>. The CRD types stay importable by external consumers without dragging the manager in. Scheme registration uses apimachinery&rsquo;s <code>runtime.NewSchemeBuilder</code> for exactly this reason.</li>
+<li><code>internal/urlguard</code> — the SSRF-defence layer — depends on the standard library only, with no internal and no external imports. This keeps the IP/URL validation logic self-contained and straightforward to fuzz in isolation.</li>
+</ul>
+<h2 id="the-verifyyml-pr-gate">The verify.yml PR gate</h2>
+<p><code>.github/workflows/verify.yml</code> fans out into one job per concern. A failure points straight at the offending gate. CI installs each tool fresh via <code>go run &lt;tool&gt;@latest</code>; the dev shell pre-installs the same tools at the same versions, so local and CI runs agree.</p>
+<table>
+	<thead>
+			<tr>
+					<th>Job</th>
+					<th>What it runs</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><code>test</code></td>
+					<td><code>go build ./...</code> then <code>go test -v -race -shuffle=on -coverprofile=cover.out ./...</code></td>
+			</tr>
+			<tr>
+					<td><code>lint-go</code></td>
+					<td><code>go vet ./...</code>, <code>staticcheck ./...</code>, <code>gosec ./...</code>, <code>gofumpt -l .</code> (fails on any output)</td>
+			</tr>
+			<tr>
+					<td><code>vulnerabilities</code></td>
+					<td><code>govulncheck ./...</code> — reachable-from-code advisories are a hard merge gate</td>
+			</tr>
+			<tr>
+					<td><code>architecture</code></td>
+					<td><code>arch-go</code> against <code>arch-go.yml</code></td>
+			</tr>
+			<tr>
+					<td><code>reuse</code></td>
+					<td><code>fsfe/reuse-action</code> — every file must carry SPDX headers</td>
+			</tr>
+			<tr>
+					<td><code>yaml</code></td>
+					<td><code>yamllint</code> against <code>.yamllint.yaml</code></td>
+			</tr>
+			<tr>
+					<td><code>github-actions</code></td>
+					<td><code>actionlint</code></td>
+			</tr>
+			<tr>
+					<td><code>markdown</code></td>
+					<td><code>markdownlint-cli2</code> against <code>.markdownlint.yaml</code></td>
+			</tr>
+			<tr>
+					<td><code>typos</code></td>
+					<td><code>typos</code> against <code>.typos.toml</code></td>
+			</tr>
+			<tr>
+					<td><code>prose</code></td>
+					<td>Vale against the shared metio/vale-config style; error-level findings (naming/branding) fail the gate</td>
+			</tr>
+			<tr>
+					<td><code>container-image</code></td>
+					<td><code>docker buildx</code> build (load, no push) followed by Trivy scan; hard-fails on any fixable <code>CRITICAL</code>/<code>HIGH</code></td>
+			</tr>
+	</tbody>
+</table>
+<h3 id="all-green-aggregate">All-green aggregate</h3>
+<p>The workflow ends with a single <code>all-green</code> job:</p>
+<ul>
+<li><code>needs</code> every other job</li>
+<li>runs <code>if: always()</code></li>
+<li>fails unless each dependency <code>result</code> is <code>success</code> or <code>skipped</code></li>
+</ul>
+<p>That one job is the <strong>only</strong> check marked required in branch protection. Adding a new job to the <code>needs</code> list of <code>all-green</code> covers it automatically; no new required check needs to be registered.</p>
+<p>The <code>govulncheck</code> gate is a hard blocker. A reachable-from-code advisory that cannot be fixed by bumping a dependency blocks the PR until resolved. Resolution is usually a <code>toolchain</code> bump in <code>go.mod</code> (for stdlib advisories) or <code>go get -u</code> (for module advisories).</p>
+<h2 id="the-release-pipeline">The release pipeline</h2>
+<p>Releases are calendar-based and automated. <code>.github/workflows/release.yml</code> runs on a Monday cron (<code>47 7 * * MON</code>) plus manual <code>workflow_dispatch</code>. The version is computed from the run date:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">date +<span class="s1">&#39;%Y.%-m.%-d&#39;</span>
+</span></span></code></pre></div><p>For a Monday run on 2026-06-22 that produces <code>2026.6.22</code>.</p>
+<p>goreleaser is not used. GPG is not used. The pipeline is hand-rolled across three jobs.</p>
+<h3 id="prepare">prepare</h3>
+<p>Counts commits since the last release touching the build-relevant paths (<code>go.mod main.go internal api config Dockerfile</code>). Every downstream job gates on that count being non-zero (or there being no prior release at all), so an empty week publishes nothing.</p>
+<h3 id="build">build</h3>
+<p>A cross-compile matrix over ten platform/arch combinations:</p>
+<ul>
+<li><code>linux/amd64</code>, <code>linux/arm</code> (v7), <code>linux/arm64</code>, <code>linux/ppc64le</code>, <code>linux/riscv64</code>, <code>linux/s390x</code></li>
+<li><code>windows/amd64</code>, <code>windows/arm64</code></li>
+<li><code>darwin/amd64</code>, <code>darwin/arm64</code></li>
+</ul>
+<p>Each platform compiles with:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl"><span class="nv">CGO_ENABLED</span><span class="o">=</span><span class="m">0</span> go build -trimpath <span class="se">\
+</span></span></span><span class="line"><span class="cl">  -ldflags<span class="o">=</span><span class="s2">&#34;-s -w -X main.version=&lt;ver&gt; -X main.commit=&lt;sha&gt;&#34;</span> .
+</span></span></code></pre></div><p>Archives are <code>tar.gz</code> on linux/darwin and <code>zip</code> on windows (with a <code>.exe</code> binary), each bundling <code>LICENSE</code> and <code>README.md</code>.</p>
+<h3 id="container">container</h3>
+<p>A single <code>docker buildx</code> multi-arch push to <code>ghcr.io/metio/jaas:{latest,&lt;version&gt;}</code> over the six linux arches. The <code>Dockerfile</code> builder is pinned to <code>$BUILDPLATFORM</code> and cross-compiles via Go&rsquo;s <code>GOARCH</code>, so the multi-arch build needs no QEMU.</p>
+<p>SBOM and provenance are attached. The image is signed with cosign keyless immediately after push:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">cosign sign <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --yes <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --annotations <span class="s2">&#34;repo=metio/jaas&#34;</span> <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --annotations <span class="s2">&#34;workflow=Automated Release&#34;</span> <span class="se">\
+</span></span></span><span class="line"><span class="cl">  ghcr.io/metio/jaas@&lt;digest&gt;
+</span></span></code></pre></div><p>Identity is proven by the workflow&rsquo;s OIDC certificate issued by Fulcio; there is no key to distribute.</p>
+<h3 id="github">github</h3>
+<p>Gates on both <code>build</code> and <code>container</code> succeeding. Downloads all platform archives, computes a single <code>SHA256SUMS</code> over them, signs it with cosign keyless (Sigstore bundle format), and publishes the GitHub Release with all archives, the checksum file, and the bundle attached.</p>
+<p>To verify a release download:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">cosign verify-blob jaas_&lt;version&gt;_SHA256SUMS <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --bundle jaas_&lt;version&gt;_SHA256SUMS.bundle <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --certificate-identity-regexp <span class="s1">&#39;^https://github.com/metio/jaas/\.github/workflows/release\.yml@refs/&#39;</span> <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+</span></span><span class="line"><span class="cl">sha256sum -c jaas_&lt;version&gt;_SHA256SUMS
+</span></span></code></pre></div><p>To verify the container image:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">cosign verify ghcr.io/metio/jaas:&lt;version&gt; <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --certificate-identity-regexp <span class="s1">&#39;^https://github.com/metio/jaas/\.github/workflows/release\.yml@refs/&#39;</span> <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+</span></span></code></pre></div>]]></content><category scheme="https://jaas.projects.metio.wtf/tags/contributing" term="contributing" label="contributing"/><category scheme="https://jaas.projects.metio.wtf/tags/ci" term="ci" label="ci"/><category scheme="https://jaas.projects.metio.wtf/tags/release" term="release" label="release"/></entry></feed>

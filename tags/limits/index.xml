@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Limits on Jsonnet-as-a-Service</title><link>https://jaas.projects.metio.wtf/tags/limits/</link><description>Recent content in Limits on Jsonnet-as-a-Service</description><generator>Hugo</generator><language>en</language><atom:link href="https://jaas.projects.metio.wtf/tags/limits/index.xml" rel="self" type="application/rss+xml"/><item><title>Evaluation and security</title><link>https://jaas.projects.metio.wtf/rendering/evaluation-and-security/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/rendering/evaluation-and-security/</guid><description>&lt;p&gt;JaaS runs Jsonnet on the server and returns the result over HTTP. Three caps
+bound each evaluation, and a small security model governs what a snippet and its
+callers can reach. Review and tune both sections before exposing the service to
+a wider audience.&lt;/p&gt;
+&lt;h2 id="evaluation-caps"&gt;Evaluation caps&lt;/h2&gt;
+&lt;table&gt;
+	&lt;thead&gt;
+			&lt;tr&gt;
+					&lt;th&gt;Flag&lt;/th&gt;
+					&lt;th&gt;Default&lt;/th&gt;
+					&lt;th&gt;Effect&lt;/th&gt;
+			&lt;/tr&gt;
+	&lt;/thead&gt;
+	&lt;tbody&gt;
+			&lt;tr&gt;
+					&lt;td&gt;&lt;code&gt;--evaluation-timeout&lt;/code&gt;&lt;/td&gt;
+					&lt;td&gt;&lt;code&gt;5s&lt;/code&gt;&lt;/td&gt;
+					&lt;td&gt;Wall-clock budget per evaluation. Exceeding it returns &lt;code&gt;504 evaluation_timeout&lt;/code&gt;. &lt;code&gt;0&lt;/code&gt; disables the timeout.&lt;/td&gt;
+			&lt;/tr&gt;
+			&lt;tr&gt;
+					&lt;td&gt;&lt;code&gt;--max-stack&lt;/code&gt;&lt;/td&gt;
+					&lt;td&gt;&lt;code&gt;500&lt;/code&gt;&lt;/td&gt;
+					&lt;td&gt;Maximum Jsonnet call-stack depth. &lt;code&gt;0&lt;/code&gt; uses go-jsonnet&amp;rsquo;s own default.&lt;/td&gt;
+			&lt;/tr&gt;
+			&lt;tr&gt;
+					&lt;td&gt;&lt;code&gt;--max-concurrent-evals&lt;/code&gt;&lt;/td&gt;
+					&lt;td&gt;&lt;code&gt;max(GOMAXPROCS*4, 16)&lt;/code&gt;&lt;/td&gt;
+					&lt;td&gt;In-flight evaluations allowed at once. Excess requests return &lt;code&gt;503 evaluation_unavailable&lt;/code&gt;. &lt;code&gt;0&lt;/code&gt; disables the cap.&lt;/td&gt;
+			&lt;/tr&gt;
+	&lt;/tbody&gt;
+&lt;/table&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-shell" data-lang="shell"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;./jaas &lt;span class="se"&gt;\
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; --snippet-directory examples/snippets/dashboards &lt;span class="se"&gt;\
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; --evaluation-timeout 2s &lt;span class="se"&gt;\
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; --max-stack &lt;span class="m"&gt;1000&lt;/span&gt; &lt;span class="se"&gt;\
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; --max-concurrent-evals &lt;span class="m"&gt;32&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;The default for &lt;code&gt;--max-concurrent-evals&lt;/code&gt; bounds worst-case goroutine pile-up
+under a runaway snippet. Each in-flight evaluation pins roughly one CPU for its
+working set, so raising the cap far above the available parallelism queues work
+without adding throughput.&lt;/p&gt;</description></item></channel></rss>

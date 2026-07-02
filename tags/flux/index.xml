@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Flux on Jsonnet-as-a-Service</title><link>https://jaas.projects.metio.wtf/tags/flux/</link><description>Recent content in Flux on Jsonnet-as-a-Service</description><generator>Hugo</generator><language>en</language><atom:link href="https://jaas.projects.metio.wtf/tags/flux/index.xml" rel="self" type="application/rss+xml"/><item><title>Creating source artifacts</title><link>https://jaas.projects.metio.wtf/operator/creating-sources/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/operator/creating-sources/</guid><description>&lt;p&gt;A &lt;code&gt;JsonnetSnippet&lt;/code&gt;&amp;rsquo;s &lt;code&gt;spec.sourceRef&lt;/code&gt; consumes a Flux source. The operator reads
+the referenced source CR&amp;rsquo;s &lt;code&gt;status.artifact.url&lt;/code&gt;, downloads the tarball Flux&amp;rsquo;s
+source-controller serves there, verifies its &lt;code&gt;status.artifact.digest&lt;/code&gt;, and
+extracts it into the snippet&amp;rsquo;s file tree. Every supported kind —
+&lt;code&gt;GitRepository&lt;/code&gt;, &lt;code&gt;OCIRepository&lt;/code&gt;, and &lt;code&gt;Bucket&lt;/code&gt; — reaches the operator through
+that same &lt;code&gt;status.artifact&lt;/code&gt; contract, so the operator never talks to a git
+remote, an OCI registry, or an object store directly. Flux owns that fetch; the
+operator consumes the artifact Flux already produced.&lt;/p&gt;</description></item><item><title>ExternalArtifact output contract</title><link>https://jaas.projects.metio.wtf/api/externalartifact/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/api/externalartifact/</guid><description>&lt;p&gt;For every successfully evaluated &lt;code&gt;JsonnetSnippet&lt;/code&gt;, the JaaS operator upserts a
+Flux &lt;code&gt;ExternalArtifact&lt;/code&gt; CR (&lt;code&gt;source.toolkit.fluxcd.io/v1&lt;/code&gt;) in the same namespace
+as the snippet. JaaS does not own the &lt;code&gt;ExternalArtifact&lt;/code&gt; CRD — it is defined and
+installed by Flux&amp;rsquo;s source-controller. The full CRD schema is in the
+&lt;a href="https://fluxcd.io/flux/components/source/externalartifacts/"&gt;Flux ExternalArtifact reference&lt;/a&gt;
+;
+below is the subset JaaS writes and the invariants downstream consumers can rely on.&lt;/p&gt;
+&lt;p&gt;For task-oriented context, see &lt;a href="https://jaas.projects.metio.wtf/operator/operator-mode/"&gt;Operator mode&lt;/a&gt;
+.&lt;/p&gt;
+&lt;h2 id="what-jaas-writes"&gt;What JaaS writes&lt;/h2&gt;
+&lt;h3 id="specsourceref"&gt;&lt;code&gt;spec.sourceRef&lt;/code&gt;&lt;/h3&gt;
+&lt;p&gt;JaaS stamps a back-pointer to the originating snippet on &lt;code&gt;spec.sourceRef&lt;/code&gt;:&lt;/p&gt;</description></item><item><title>JsonnetSnippet</title><link>https://jaas.projects.metio.wtf/api/jsonnetsnippet/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/api/jsonnetsnippet/</guid><description>&lt;p&gt;&lt;code&gt;JsonnetSnippet&lt;/code&gt; (&lt;code&gt;jsnip&lt;/code&gt;) is the published unit of Jsonnet evaluation. The JaaS
+operator watches these namespaced CRs, evaluates the Jsonnet they describe, and
+upserts a Flux &lt;code&gt;ExternalArtifact&lt;/code&gt; whose &lt;code&gt;status.artifact.url&lt;/code&gt; points at the
+rendered result. Task-oriented guidance lives in
+&lt;a href="https://jaas.projects.metio.wtf/operator/operator-mode/"&gt;Operator mode&lt;/a&gt;
+ and &lt;a href="https://jaas.projects.metio.wtf/operator/snippet-sources/"&gt;Snippet sources&lt;/a&gt;
+.&lt;/p&gt;
+&lt;h2 id="example"&gt;Example&lt;/h2&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-yaml" data-lang="yaml"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nt"&gt;apiVersion&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;jaas.metio.wtf/v1&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nt"&gt;kind&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;JsonnetSnippet&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nt"&gt;metadata&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="nt"&gt;name&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;hello-world&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="nt"&gt;namespace&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;default&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nt"&gt;spec&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="nt"&gt;serviceAccountName&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;hello-world-tenant&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="nt"&gt;entryFile&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;main.jsonnet&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="nt"&gt;output&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;rendered&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="nt"&gt;history&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="m"&gt;3&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="nt"&gt;interval&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;10m&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="nt"&gt;suspend&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="kc"&gt;false&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="nt"&gt;files&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="nt"&gt;main.jsonnet&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="p"&gt;|&lt;/span&gt;&lt;span class="sd"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; local lib = import &amp;#39;mylib/main.libsonnet&amp;#39;;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; lib.dashboard(std.extVar(&amp;#39;env&amp;#39;), std.extVar(&amp;#39;cluster&amp;#39;))&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="nt"&gt;libraries&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt; &lt;/span&gt;- &lt;span class="nt"&gt;kind&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;JsonnetLibrary&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="nt"&gt;name&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;mylib&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="nt"&gt;importPath&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;mylib&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="nt"&gt;externalVariables&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="nt"&gt;env&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;production&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="nt"&gt;cluster&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;eu-west-1&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="nt"&gt;tlas&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="nt"&gt;title&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt; &lt;/span&gt;- &lt;span class="l"&gt;My Dashboard&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;Exactly one of &lt;code&gt;spec.files&lt;/code&gt; or &lt;code&gt;spec.sourceRef&lt;/code&gt; must be set. Admission rejects
+CRs that set neither or both.&lt;/p&gt;</description></item><item><title>Operator mode</title><link>https://jaas.projects.metio.wtf/operator/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/operator/</guid><description>&lt;p&gt;With Flux integration enabled, JaaS watches &lt;code&gt;JsonnetSnippet&lt;/code&gt; resources, evaluates
+them, and publishes each result as an &lt;code&gt;ExternalArtifact&lt;/code&gt; that Flux consumers can
+deploy. These pages cover the operator and the sources it reads and writes.&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;&lt;a href="https://jaas.projects.metio.wtf/operator/operator-mode/"&gt;Operator mode&lt;/a&gt;
+&lt;/strong&gt; — enable the operator and the
+custom resources it reconciles.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;a href="https://jaas.projects.metio.wtf/operator/snippet-sources/"&gt;Snippet sources&lt;/a&gt;
+&lt;/strong&gt; — point a snippet at a Flux
+source for its inputs.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;a href="https://jaas.projects.metio.wtf/operator/creating-sources/"&gt;Creating source artifacts&lt;/a&gt;
+&lt;/strong&gt; — how snippets are
+published as &lt;code&gt;ExternalArtifact&lt;/code&gt; outputs.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;a href="https://jaas.projects.metio.wtf/operator/storage-and-ha/"&gt;Storage and HA&lt;/a&gt;
+&lt;/strong&gt; — artifact storage backends and
+leader-elected high availability.&lt;/li&gt;
+&lt;/ul&gt;</description></item><item><title>Operator mode</title><link>https://jaas.projects.metio.wtf/operator/operator-mode/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/operator/operator-mode/</guid><description>&lt;p&gt;JaaS runs as a Kubernetes operator alongside its HTTP renderer. In this mode it
+watches custom resources, evaluates the Jsonnet they describe, and publishes the
+result as a Flux &lt;a href="https://fluxcd.io/"&gt;&lt;code&gt;ExternalArtifact&lt;/code&gt;&lt;/a&gt;
+ that downstream
+controllers consume. The HTTP renderer keeps running; the operator is an
+additional set of goroutines, not a separate binary.&lt;/p&gt;
+&lt;h2 id="enabling-the-operator"&gt;Enabling the operator&lt;/h2&gt;
+&lt;p&gt;Set &lt;code&gt;--enable-flux-integration&lt;/code&gt; on the binary:&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-shell" data-lang="shell"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;jaas --enable-flux-integration &lt;span class="se"&gt;\
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; --storage-path&lt;span class="o"&gt;=&lt;/span&gt;/var/lib/jaas/artifacts &lt;span class="se"&gt;\
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; --storage-base-url&lt;span class="o"&gt;=&lt;/span&gt;http://jaas-storage.jaas.svc:8082
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;&lt;code&gt;--storage-path&lt;/code&gt; and &lt;code&gt;--storage-base-url&lt;/code&gt; are required in operator mode — they
+tell the operator where to write artifact tarballs and the public URL prefix
+downstream consumers fetch them from.&lt;/p&gt;</description></item></channel></rss>

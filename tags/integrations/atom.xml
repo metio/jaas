@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en"><generator uri="https://gohugo.io/" version="0.163.3">Hugo</generator><title type="html">Integrations on Jsonnet-as-a-Service</title><link href="https://jaas.projects.metio.wtf/tags/integrations/" rel="alternate" type="text/html" title="html"/><link href="https://jaas.projects.metio.wtf/tags/integrations/index.xml" rel="alternate" type="application/rss+xml" title="rss"/><link href="https://jaas.projects.metio.wtf/tags/integrations/atom.xml" rel="self" type="application/atom+xml" title="atom"/><updated>2026-07-02T07:56:37+00:00</updated><author><name>metio.wtf</name></author><id>https://jaas.projects.metio.wtf/tags/integrations/</id><entry><title type="html">Integrations &amp; tooling</title><link href="https://jaas.projects.metio.wtf/integrations/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/integrations/mcp-server/?utm_source=atom_feed" rel="related" type="text/html" title="MCP server"/><id>https://jaas.projects.metio.wtf/integrations/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-26T15:54:29+02:00</updated><content type="html"><![CDATA[<blockquote>Connect JaaS to the rest of your stack — the Flux Operator, the Claude Code skill, and the MCP server.</blockquote><p>How JaaS fits with the rest of your delivery stack, plus the tooling that drives
+it from the terminal and from AI assistants.</p>
+<ul>
+<li><strong><a href="/integrations/flux-operator/">Flux Operator integration</a>
+</strong> — compose JaaS
+with the Flux Operator&rsquo;s <code>ResourceSet</code>.</li>
+<li><strong><a href="/integrations/claude-code/">Claude Code skill</a>
+</strong> — a skill that helps an
+assistant author snippets and libraries.</li>
+<li><strong><a href="/integrations/mcp-server/">MCP server</a>
+</strong> — an MCP server for agent-driven
+rendering and operator introspection.</li>
+</ul>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/integrations" term="integrations" label="integrations"/><category scheme="https://jaas.projects.metio.wtf/tags/tooling" term="tooling" label="tooling"/><category scheme="https://jaas.projects.metio.wtf/tags/mcp" term="mcp" label="mcp"/></entry></feed>

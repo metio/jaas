@@ -1,0 +1,326 @@
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en"><generator uri="https://gohugo.io/" version="0.163.3">Hugo</generator><title type="html">Grafana on Jsonnet-as-a-Service</title><link href="https://jaas.projects.metio.wtf/tags/grafana/" rel="alternate" type="text/html" title="html"/><link href="https://jaas.projects.metio.wtf/tags/grafana/index.xml" rel="alternate" type="application/rss+xml" title="rss"/><link href="https://jaas.projects.metio.wtf/tags/grafana/atom.xml" rel="self" type="application/atom+xml" title="atom"/><updated>2026-07-02T07:56:37+00:00</updated><author><name>metio.wtf</name></author><id>https://jaas.projects.metio.wtf/tags/grafana/</id><entry><title type="html">Dashboard</title><link href="https://jaas.projects.metio.wtf/observability/dashboard/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/guides/grafana-dashboards/?utm_source=atom_feed" rel="related" type="text/html" title="Grafana dashboards"/><link href="https://jaas.projects.metio.wtf/observability/slos/?utm_source=atom_feed" rel="related" type="text/html" title="Service level objectives"/><link href="https://jaas.projects.metio.wtf/security/admission-webhook/?utm_source=atom_feed" rel="related" type="text/html" title="Admission webhook"/><link href="https://jaas.projects.metio.wtf/observability/alerting/?utm_source=atom_feed" rel="related" type="text/html" title="Alerting"/><link href="https://jaas.projects.metio.wtf/operator/creating-sources/?utm_source=atom_feed" rel="related" type="text/html" title="Creating source artifacts"/><id>https://jaas.projects.metio.wtf/observability/dashboard/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-26T15:54:29+02:00</updated><content type="html"><![CDATA[<blockquote>JaaS publishes a maintained Grafana dashboard for its operator as a single-layer OCI image — render it through a JsonnetSnippet and hand it to the grafana-operator.</blockquote><p>JaaS publishes a maintained Grafana dashboard for its own operator as a
+single-layer OCI image at <code>ghcr.io/metio/jaas-dashboard</code>. Render it through JaaS the
+same way you&rsquo;d render any snippet — no manual JSON to copy around.</p>
+<p>The dashboard opens with an <a href="/observability/slos/">SLO</a>
+ band — reconcile
+availability against its objective, error budget remaining, reconcile-latency p95
+against its objective, and an availability-versus-objective trend — over a band of
+operator internals that explain any movement: reconciles by reason, evaluation
+throughput and backpressure, rendered output size, storage sweeps, and the
+controller-runtime workqueue. The series are the <a href="/observability/metrics/">metrics</a>
+
+the operator exports.</p>
+<p>To author your <em>own</em> dashboards in grafonnet, see the
+<a href="/guides/grafana-dashboards/">Grafana dashboards tutorial</a>
+; this page covers
+consuming the ready-made one.</p>
+<h2 id="1-point-a-flux-source-at-the-image">1. Point a Flux source at the image</h2>
+<p>It&rsquo;s an OCI artifact, so use an <code>OCIRepository</code>. The dashboard imports grafonnet,
+so also install the grafonnet <code>JsonnetLibrary</code> (the
+<a href="https://github.com/metio/helm-charts/tree/main/charts/joi"><code>joi</code> chart</a>
+,
+<code>--set libraries.grafonnet.enabled=true</code>).</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l">source.toolkit.fluxcd.io/v1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">OCIRepository</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">metadata</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">jaas-dashboard</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">monitoring</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">spec</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">interval</span><span class="p">:</span><span class="w"> </span><span class="l">1h</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l">oci://ghcr.io/metio/jaas-dashboard</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">ref</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">tag</span><span class="p">:</span><span class="w"> </span><span class="l">latest       </span><span class="w"> </span><span class="c"># or a dated tag like 2026.6.22 to pin</span><span class="w">
+</span></span></span></code></pre></div><p>The dashboard source also lives in the JaaS repository under <code>dashboards/</code>; if you
+mirror it into Git, a <code>GitRepository</code> pointing there works identically.</p>
+<h2 id="2-render-it-with-a-jsonnetsnippet-passing-the-dashboards-tlas">2. Render it with a JsonnetSnippet, passing the dashboard&rsquo;s TLAs</h2>
+<p>The dashboard is a function of top-level arguments — <code>datasource</code> (the Prometheus
+datasource UID, default <code>prometheus</code>), <code>title</code> (default <code>JaaS operator</code>), a
+<code>selector</code> label matcher folded into every query (default empty), and the SLO knobs
+<code>window</code> (default <code>28d</code>), <code>availabilityTarget</code> (default <code>0.99</code>), and <code>latencyTarget</code>
+seconds (default <code>30</code>) — supplied through <code>spec.tlas</code>.</p>
+<p><code>selector</code> is how you adapt to your Prometheus: scope the dashboard to one scrape
+job or cluster, e.g. <code>selector: ['job=&quot;jaas&quot;']</code> or <code>['cluster=&quot;prod&quot;']</code>. The queries
+never touch the <code>namespace</code> label, so a Prometheus that relabels it to
+<code>exported_namespace</code> doesn&rsquo;t affect them; <code>selector</code> pins anything else.</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l">jaas.metio.wtf/v1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">JsonnetSnippet</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">metadata</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">jaas-operator-dashboard</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">monitoring</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">spec</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">serviceAccountName</span><span class="p">:</span><span class="w"> </span><span class="l">dashboards-tenant</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="c"># The OCI image&#39;s only file is main.jsonnet, which is spec.entryFile&#39;s default,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="c"># so no entryFile is needed.</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">sourceRef</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">OCIRepository</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">jaas-dashboard</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="c"># grafonnet, which the dashboard imports by its full jb-vendor path, is served</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="c"># by the JOI library installed above.</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">libraries</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span>- <span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">JsonnetLibrary</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">grafonnet</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="c"># The dashboard&#39;s top-level arguments. Each value is a list; a single element</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="c"># becomes a string TLA.</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">tlas</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">datasource</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&#34;prometheus&#34;</span><span class="p">]</span><span class="w">         </span><span class="c"># your Prometheus datasource UID</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">title</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&#34;JaaS operator — prod&#34;</span><span class="p">]</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">selector</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s1">&#39;job=&#34;jaas&#34;&#39;</span><span class="p">]</span><span class="w">           </span><span class="c"># scope every query to your scrape job/cluster</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">window</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&#34;28d&#34;</span><span class="p">]</span><span class="w">                    </span><span class="c"># SLO window</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">availabilityTarget</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&#34;0.99&#34;</span><span class="p">]</span><span class="w">       </span><span class="c"># reconcile-availability objective (99%)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">latencyTarget</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&#34;30&#34;</span><span class="p">]</span><span class="w">              </span><span class="c"># reconcile-latency p95 objective (seconds)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">interval</span><span class="p">:</span><span class="w"> </span><span class="l">10m</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">output</span><span class="p">:</span><span class="w"> </span><span class="l">rendered</span><span class="w">
+</span></span></span></code></pre></div><p>This is zero-maintenance: the <code>OCIRepository</code> polls <code>ghcr.io/metio/jaas-dashboard</code>,
+so when a new dashboard is published JaaS re-renders, the <code>ExternalArtifact</code> digest
+changes, and the grafana-operator pushes the new JSON to Grafana — you reference the
+upstream image once and get every update automatically. Pin <code>ref.tag</code> to a dated
+tag instead of <code>latest</code> if you&rsquo;d rather adopt updates deliberately.</p>
+<p>JaaS renders the dashboard JSON and publishes it as an <code>ExternalArtifact</code> named
+after the snippet — <code>jaas-operator-dashboard</code>.</p>
+<p>To fan this dashboard out per cluster — one rendered instance per cluster, each
+scoped to its own Prometheus — template the snippet with a Flux Operator
+<code>ResourceSet</code>; see the
+<a href="/integrations/flux-operator/">Flux Operator integration</a>
+ page.</p>
+<h2 id="3-hand-the-artifact-to-the-grafana-operator">3. Hand the artifact to the grafana-operator</h2>
+<p>A <code>GrafanaDashboard</code> that references the published <code>ExternalArtifact</code> reconciles it
+into Grafana:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l">grafana.integreatly.org/v1beta1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">GrafanaDashboard</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">metadata</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">jaas-operator</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">monitoring</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">spec</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">instanceSelector</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">matchLabels</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">dashboards</span><span class="p">:</span><span class="w"> </span><span class="s2">&#34;grafana&#34;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">resyncPeriod</span><span class="p">:</span><span class="w"> </span><span class="l">30s</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">sourceRef</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l">source.toolkit.fluxcd.io/v1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">ExternalArtifact</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">jaas-operator-dashboard</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">monitoring</span><span class="w">
+</span></span></span></code></pre></div><p>When the published image updates (or you change the TLAs), JaaS re-renders, the
+<code>ExternalArtifact</code> digest changes, and the grafana-operator pushes the new JSON to
+Grafana — no manual export step.</p>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/operator" term="operator" label="operator"/><category scheme="https://jaas.projects.metio.wtf/tags/grafana" term="grafana" label="grafana"/><category scheme="https://jaas.projects.metio.wtf/tags/grafonnet" term="grafonnet" label="grafonnet"/><category scheme="https://jaas.projects.metio.wtf/tags/slo" term="slo" label="slo"/><category scheme="https://jaas.projects.metio.wtf/tags/dashboard" term="dashboard" label="dashboard"/></entry><entry><title type="html">Grafana dashboards</title><link href="https://jaas.projects.metio.wtf/guides/grafana-dashboards/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/observability/dashboard/?utm_source=atom_feed" rel="related" type="text/html" title="Dashboard"/><link href="https://jaas.projects.metio.wtf/guides/deploying-manifests/?utm_source=atom_feed" rel="related" type="text/html" title="Deploying manifests with StageSet"/><link href="https://jaas.projects.metio.wtf/get-started/quickstart/?utm_source=atom_feed" rel="related" type="text/html" title="Quickstart"/><id>https://jaas.projects.metio.wtf/guides/grafana-dashboards/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-26T15:54:29+02:00</updated><content type="html"><![CDATA[<blockquote>Author a Grafana dashboard in Jsonnet with grafonnet, render it through the JaaS operator, and publish the dashboard JSON as an ExternalArtifact.</blockquote><p>JaaS pairs with the
+<a href="https://grafana.github.io/grafana-operator/">grafana-operator</a>
+ to manage
+Grafana dashboards as code: you author the dashboard in Jsonnet, the JaaS
+operator renders it and publishes the dashboard JSON as a Flux
+<code>ExternalArtifact</code>, and the grafana-operator reconciles that artifact into a live
+Grafana instance.</p>
+<p>This tutorial covers the JaaS side — authoring the dashboard, importing
+grafonnet as a <code>JsonnetLibrary</code>, and publishing the rendered JSON. For the
+grafana-operator side (the <code>GrafanaDashboard</code> CR, datasources, folders), see the
+links at the end.</p>
+<h2 id="prerequisites">Prerequisites</h2>
+<ul>
+<li>The JaaS operator installed and a tenant ServiceAccount granted the
+<code>externalartifacts</code> write verbs. The <a href="/get-started/quickstart/">Quickstart</a>
+
+covers both.</li>
+<li>The grafana-operator installed, if you intend to follow the handoff section
+and reconcile the dashboard into Grafana.</li>
+</ul>
+<p>This tutorial uses the namespace <code>default</code> and the tenant ServiceAccount
+<code>dashboards-tenant</code>.</p>
+<h2 id="step-1--grant-the-tenant-serviceaccount-its-verbs">Step 1 — Grant the tenant ServiceAccount its verbs</h2>
+<p>The snippet imports a <code>JsonnetLibrary</code>, so on top of the <code>externalartifacts</code>
+write verbs the tenant needs <code>get</code> on <code>jsonnetlibraries</code>:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">cat <span class="s">&lt;&lt;EOF | kubectl apply -f -
+</span></span></span><span class="line"><span class="cl"><span class="s">apiVersion: v1
+</span></span></span><span class="line"><span class="cl"><span class="s">kind: ServiceAccount
+</span></span></span><span class="line"><span class="cl"><span class="s">metadata:
+</span></span></span><span class="line"><span class="cl"><span class="s">  name: dashboards-tenant
+</span></span></span><span class="line"><span class="cl"><span class="s">  namespace: default
+</span></span></span><span class="line"><span class="cl"><span class="s">---
+</span></span></span><span class="line"><span class="cl"><span class="s">apiVersion: rbac.authorization.k8s.io/v1
+</span></span></span><span class="line"><span class="cl"><span class="s">kind: Role
+</span></span></span><span class="line"><span class="cl"><span class="s">metadata:
+</span></span></span><span class="line"><span class="cl"><span class="s">  namespace: default
+</span></span></span><span class="line"><span class="cl"><span class="s">  name: dashboards-tenant
+</span></span></span><span class="line"><span class="cl"><span class="s">rules:
+</span></span></span><span class="line"><span class="cl"><span class="s">  - apiGroups: [source.toolkit.fluxcd.io]
+</span></span></span><span class="line"><span class="cl"><span class="s">    resources: [externalartifacts]
+</span></span></span><span class="line"><span class="cl"><span class="s">    verbs: [get, create, update, patch]
+</span></span></span><span class="line"><span class="cl"><span class="s">  - apiGroups: [jaas.metio.wtf]
+</span></span></span><span class="line"><span class="cl"><span class="s">    resources: [jsonnetlibraries]
+</span></span></span><span class="line"><span class="cl"><span class="s">    verbs: [get]
+</span></span></span><span class="line"><span class="cl"><span class="s">---
+</span></span></span><span class="line"><span class="cl"><span class="s">apiVersion: rbac.authorization.k8s.io/v1
+</span></span></span><span class="line"><span class="cl"><span class="s">kind: RoleBinding
+</span></span></span><span class="line"><span class="cl"><span class="s">metadata:
+</span></span></span><span class="line"><span class="cl"><span class="s">  namespace: default
+</span></span></span><span class="line"><span class="cl"><span class="s">  name: dashboards-tenant
+</span></span></span><span class="line"><span class="cl"><span class="s">subjects:
+</span></span></span><span class="line"><span class="cl"><span class="s">  - kind: ServiceAccount
+</span></span></span><span class="line"><span class="cl"><span class="s">    name: dashboards-tenant
+</span></span></span><span class="line"><span class="cl"><span class="s">    namespace: default
+</span></span></span><span class="line"><span class="cl"><span class="s">roleRef:
+</span></span></span><span class="line"><span class="cl"><span class="s">  apiGroup: rbac.authorization.k8s.io
+</span></span></span><span class="line"><span class="cl"><span class="s">  kind: Role
+</span></span></span><span class="line"><span class="cl"><span class="s">  name: dashboards-tenant
+</span></span></span><span class="line"><span class="cl"><span class="s">EOF</span>
+</span></span></code></pre></div><p>Verify the ServiceAccount and binding:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace default get serviceaccount dashboards-tenant
+</span></span><span class="line"><span class="cl">kubectl --namespace default get rolebinding dashboards-tenant
+</span></span></code></pre></div><h2 id="step-2--publish-the-dashboard-helpers-as-a-jsonnetlibrary">Step 2 — Publish the dashboard helpers as a JsonnetLibrary</h2>
+<p>A <code>JsonnetLibrary</code> holds reusable <code>.libsonnet</code> files that snippets in the same
+namespace import by alias. The example below carries a minimal set of dashboard
+constructors. In a production setup this is where grafonnet lives — see
+<a href="/rendering/jsonnet-libraries/">Jsonnet libraries</a>
+ for serving the full grafonnet
+tree from an OCIRepository.</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">cat <span class="s">&lt;&lt;EOF | kubectl apply -f -
+</span></span></span><span class="line"><span class="cl"><span class="s">apiVersion: jaas.metio.wtf/v1
+</span></span></span><span class="line"><span class="cl"><span class="s">kind: JsonnetLibrary
+</span></span></span><span class="line"><span class="cl"><span class="s">metadata:
+</span></span></span><span class="line"><span class="cl"><span class="s">  name: grafana-helpers
+</span></span></span><span class="line"><span class="cl"><span class="s">  namespace: default
+</span></span></span><span class="line"><span class="cl"><span class="s">spec:
+</span></span></span><span class="line"><span class="cl"><span class="s">  files:
+</span></span></span><span class="line"><span class="cl"><span class="s">    dashboard.libsonnet: |
+</span></span></span><span class="line"><span class="cl"><span class="s">      {
+</span></span></span><span class="line"><span class="cl"><span class="s">        new(title): {
+</span></span></span><span class="line"><span class="cl"><span class="s">          title: title,
+</span></span></span><span class="line"><span class="cl"><span class="s">          schemaVersion: 38,
+</span></span></span><span class="line"><span class="cl"><span class="s">          panels: [],
+</span></span></span><span class="line"><span class="cl"><span class="s">        },
+</span></span></span><span class="line"><span class="cl"><span class="s">      }
+</span></span></span><span class="line"><span class="cl"><span class="s">    panel.libsonnet: |
+</span></span></span><span class="line"><span class="cl"><span class="s">      {
+</span></span></span><span class="line"><span class="cl"><span class="s">        timeseries(title, expr): {
+</span></span></span><span class="line"><span class="cl"><span class="s">          type: &#39;timeseries&#39;,
+</span></span></span><span class="line"><span class="cl"><span class="s">          title: title,
+</span></span></span><span class="line"><span class="cl"><span class="s">          targets: [{ expr: expr }],
+</span></span></span><span class="line"><span class="cl"><span class="s">        },
+</span></span></span><span class="line"><span class="cl"><span class="s">        stat(title, expr): {
+</span></span></span><span class="line"><span class="cl"><span class="s">          type: &#39;stat&#39;,
+</span></span></span><span class="line"><span class="cl"><span class="s">          title: title,
+</span></span></span><span class="line"><span class="cl"><span class="s">          targets: [{ expr: expr }],
+</span></span></span><span class="line"><span class="cl"><span class="s">        },
+</span></span></span><span class="line"><span class="cl"><span class="s">      }
+</span></span></span><span class="line"><span class="cl"><span class="s">EOF</span>
+</span></span></code></pre></div><p>Verify the library:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace default get jsonnetlibrary grafana-helpers
+</span></span></code></pre></div><h2 id="step-3--author-and-apply-the-dashboard-snippet">Step 3 — Author and apply the dashboard snippet</h2>
+<p>The <code>JsonnetSnippet</code> imports the library by the alias declared in
+<code>spec.libraries[*].importPath</code>, composes a dashboard from its constructors, and
+leaves <code>spec.output</code> at its default <code>rendered</code> so the published artifact carries
+the evaluated dashboard JSON:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">cat <span class="s">&lt;&lt;EOF | kubectl apply -f -
+</span></span></span><span class="line"><span class="cl"><span class="s">apiVersion: jaas.metio.wtf/v1
+</span></span></span><span class="line"><span class="cl"><span class="s">kind: JsonnetSnippet
+</span></span></span><span class="line"><span class="cl"><span class="s">metadata:
+</span></span></span><span class="line"><span class="cl"><span class="s">  name: api-latency
+</span></span></span><span class="line"><span class="cl"><span class="s">  namespace: default
+</span></span></span><span class="line"><span class="cl"><span class="s">spec:
+</span></span></span><span class="line"><span class="cl"><span class="s">  serviceAccountName: dashboards-tenant
+</span></span></span><span class="line"><span class="cl"><span class="s">  output: rendered
+</span></span></span><span class="line"><span class="cl"><span class="s">  files:
+</span></span></span><span class="line"><span class="cl"><span class="s">    main.jsonnet: |
+</span></span></span><span class="line"><span class="cl"><span class="s">      local dashboard = import &#39;grafana/dashboard.libsonnet&#39;;
+</span></span></span><span class="line"><span class="cl"><span class="s">      local panel = import &#39;grafana/panel.libsonnet&#39;;
+</span></span></span><span class="line"><span class="cl"><span class="s">      dashboard.new(&#39;API Latency&#39;) + {
+</span></span></span><span class="line"><span class="cl"><span class="s">        panels: [
+</span></span></span><span class="line"><span class="cl"><span class="s">          panel.timeseries(&#39;p99 by route&#39;, &#39;histogram_quantile(0.99, rate(http_request_duration_seconds_bucket[5m]))&#39;),
+</span></span></span><span class="line"><span class="cl"><span class="s">          panel.stat(&#39;error rate&#39;, &#39;sum(rate(http_requests_total{code=~&#34;5..&#34;}[5m]))&#39;),
+</span></span></span><span class="line"><span class="cl"><span class="s">        ],
+</span></span></span><span class="line"><span class="cl"><span class="s">      }
+</span></span></span><span class="line"><span class="cl"><span class="s">  libraries:
+</span></span></span><span class="line"><span class="cl"><span class="s">    - kind: JsonnetLibrary
+</span></span></span><span class="line"><span class="cl"><span class="s">      name: grafana-helpers
+</span></span></span><span class="line"><span class="cl"><span class="s">      importPath: grafana
+</span></span></span><span class="line"><span class="cl"><span class="s">EOF</span>
+</span></span></code></pre></div><p>The <code>importPath: grafana</code> ties <code>import 'grafana/dashboard.libsonnet'</code> to the
+<code>grafana-helpers</code> library. It defaults to the library&rsquo;s <code>metadata.name</code>, so
+naming the library <code>grafana</code> would let you drop the field. <code>kind</code> is always
+<code>JsonnetLibrary</code>.</p>
+<h2 id="step-4--confirm-the-dashboard-rendered">Step 4 — Confirm the dashboard rendered</h2>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace default get jsonnetsnippet api-latency
+</span></span><span class="line"><span class="cl"><span class="c1"># NAME          READY   URL                                                                                         AGE</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># api-latency   True    http://jaas-storage.jaas-system.svc.cluster.local:8082/default/api-latency/&lt;sha256&gt;.tar.gz  5s</span>
+</span></span></code></pre></div><p>If <code>READY</code> is <code>False</code>, describe the snippet — the Ready condition&rsquo;s <code>Reason</code> and
+<code>Message</code> name the cause (an RBAC gap on the library, an import alias collision,
+or a Jsonnet error):</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace default describe jsonnetsnippet api-latency
+</span></span></code></pre></div><h2 id="step-5--inspect-the-published-dashboard-json">Step 5 — Inspect the published dashboard JSON</h2>
+<p>Fetch the artifact from a one-shot pod to see the rendered dashboard:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl"><span class="nv">URL</span><span class="o">=</span><span class="k">$(</span>kubectl --namespace default get jsonnetsnippet api-latency -o <span class="nv">jsonpath</span><span class="o">=</span><span class="s1">&#39;{.status.artifactURL}&#39;</span><span class="k">)</span>
+</span></span><span class="line"><span class="cl">kubectl run --rm -i --restart<span class="o">=</span>Never --image<span class="o">=</span>docker.io/curlimages/curl:8.10.1 fetch -- <span class="se">\
+</span></span></span><span class="line"><span class="cl">    sh -c <span class="s2">&#34;curl -fsSL &#39;</span><span class="nv">$URL</span><span class="s2">&#39; | tar -xzO rendered.json&#34;</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># {</span>
+</span></span><span class="line"><span class="cl"><span class="c1">#    &#34;panels&#34;: [ ... ],</span>
+</span></span><span class="line"><span class="cl"><span class="c1">#    &#34;schemaVersion&#34;: 38,</span>
+</span></span><span class="line"><span class="cl"><span class="c1">#    &#34;title&#34;: &#34;API Latency&#34;</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># }</span>
+</span></span></code></pre></div><p><code>rendered.json</code> is the Grafana dashboard model — the exact JSON the
+grafana-operator hands to Grafana&rsquo;s dashboard API.</p>
+<h2 id="use-real-grafonnet-instead-of-the-toy-helpers">Use real grafonnet instead of the toy helpers</h2>
+<p><code>grafana-helpers</code> kept this tutorial self-contained, but in production you import
+the real <a href="https://github.com/grafana/grafonnet">grafonnet</a>
+ library from a JOI
+image rather than hand-rolling constructors. Install it as a <code>JsonnetLibrary</code>
+with the <a href="https://github.com/metio/helm-charts/tree/main/charts/joi"><code>joi</code> Helm chart</a>
+:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">helm upgrade --install joi oci://ghcr.io/metio/helm-charts/joi <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --namespace default <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --set libraries.grafonnet.enabled<span class="o">=</span><span class="nb">true</span>
+</span></span></code></pre></div><p>That renders an <code>OCIRepository</code> plus a <code>JsonnetLibrary</code> named <code>grafonnet</code>,
+sourcing <code>ghcr.io/metio/joi-grafana-grafonnet</code>. The snippet then references that
+library in place of <code>grafana-helpers</code> and imports the real grafonnet API by its
+full jb-vendor path:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l">jaas.metio.wtf/v1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">JsonnetSnippet</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">metadata</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">api-latency</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">default</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">spec</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">serviceAccountName</span><span class="p">:</span><span class="w"> </span><span class="l">dashboards-tenant</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">libraries</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span>- <span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">JsonnetLibrary</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">grafonnet</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">files</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">main.jsonnet</span><span class="p">:</span><span class="w"> </span><span class="p">|</span><span class="sd">
+</span></span></span><span class="line"><span class="cl"><span class="sd">      local g = import &#39;github.com/grafana/grafonnet/gen/grafonnet-latest/main.libsonnet&#39;;
+</span></span></span><span class="line"><span class="cl"><span class="sd">      g.dashboard.new(&#39;API Latency&#39;)
+</span></span></span><span class="line"><span class="cl"><span class="sd">      + g.dashboard.withUid(&#39;api-latency&#39;)</span><span class="w">
+</span></span></span></code></pre></div><p>The rest of the flow is the same — the snippet reconciles and publishes an
+<code>ExternalArtifact</code> exactly as in Steps 4–5; only the source of the library
+differs.</p>
+<h2 id="handoff-reconcile-the-dashboard-into-grafana">Handoff: reconcile the dashboard into Grafana</h2>
+<p>The published <code>ExternalArtifact</code> is now ready for the grafana-operator to
+consume. The grafana-operator reconciles a JaaS-published dashboard into Grafana
+through a <code>GrafanaDashboard</code> CR that references the artifact. That configuration
+— the <code>GrafanaDashboard</code> resource, the datasource and folder wiring, and the
+<code>Grafana</code> instance — lives on the grafana-operator&rsquo;s own documentation:</p>
+<ul>
+<li><strong>grafana-operator JaaS example:</strong>
+<a href="https://grafana.github.io/grafana-operator/docs/examples/dashboard/jaas/readme/">https://grafana.github.io/grafana-operator/docs/examples/dashboard/jaas/readme/</a>
+</li>
+<li><strong>grafana-operator project:</strong> <a href="https://grafana.github.io/grafana-operator/">https://grafana.github.io/grafana-operator/</a>
+</li>
+</ul>
+<p>Follow that example for the Grafana side; it picks up exactly where this
+tutorial leaves off — at the published <code>ExternalArtifact</code>.</p>
+<h2 id="consume-the-ready-made-jaas-dashboard">Consume the ready-made JaaS dashboard</h2>
+<p>You don&rsquo;t have to author a dashboard to get one. JaaS publishes a maintained
+operator dashboard (SLOs + internals) as a single-layer OCI image you render
+through a <code>JsonnetSnippet</code> and hand to the grafana-operator. See
+<a href="/observability/dashboard/">Dashboard</a>
+ for that flow — it&rsquo;s the same
+OCIRepository → <code>JsonnetSnippet</code> → <code>GrafanaDashboard</code> pattern, with the dashboard
+already written.</p>
+<h2 id="where-to-go-next">Where to go next</h2>
+<ul>
+<li><a href="/rendering/jsonnet-libraries/">Jsonnet libraries</a>
+ — serve the full grafonnet
+tree as a <code>JsonnetLibrary</code> backed by an OCIRepository, with the empty-<code>path</code>
+whole-vendor-tree pattern.</li>
+<li><a href="/operator/snippet-sources/">Snippet sources</a>
+ — back the dashboard with a
+<code>GitRepository</code> or OCIRepository instead of inline <code>spec.files</code>, and point
+<code>spec.entryFile</code> at one dashboard in a multi-dashboard tree.</li>
+</ul>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/grafana" term="grafana" label="grafana"/><category scheme="https://jaas.projects.metio.wtf/tags/grafonnet" term="grafonnet" label="grafonnet"/><category scheme="https://jaas.projects.metio.wtf/tags/externalartifact" term="externalartifact" label="externalartifact"/></entry></feed>

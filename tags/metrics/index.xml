@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Metrics on Jsonnet-as-a-Service</title><link>https://jaas.projects.metio.wtf/tags/metrics/</link><description>Recent content in Metrics on Jsonnet-as-a-Service</description><generator>Hugo</generator><language>en</language><atom:link href="https://jaas.projects.metio.wtf/tags/metrics/index.xml" rel="self" type="application/rss+xml"/><item><title>High reconcile latency</title><link>https://jaas.projects.metio.wtf/runbooks/reconcile-latency/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/runbooks/reconcile-latency/</guid><description>&lt;p&gt;Linked from the &lt;code&gt;JaaSReconcileLatencyHigh&lt;/code&gt; alert. Fires when the controller-runtime &lt;code&gt;controller_runtime_reconcile_time_seconds&lt;/code&gt; histogram p99 exceeds the configured threshold (default 30s) for the alert window.&lt;/p&gt;
+&lt;h2 id="symptom"&gt;Symptom&lt;/h2&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-text" data-lang="text"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;ALERTS{alertname=&amp;#34;JaaSReconcileLatencyHigh&amp;#34;, controller=&amp;#34;jsonnetsnippet&amp;#34;}
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;kubectl get jsonnetsnippet&lt;/code&gt; shows status updates trickling in well after spec changes.&lt;/li&gt;
+&lt;li&gt;Operator pod CPU is moderate-to-high but the queue is draining (distinguishes this from &lt;a href="https://jaas.projects.metio.wtf/runbooks/workqueue-saturation/"&gt;workqueue-saturation&lt;/a&gt;
+, where the queue itself is growing).&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h2 id="cause"&gt;Cause&lt;/h2&gt;
+&lt;p&gt;Reconcile latency is the wall-clock cost of one &lt;code&gt;Reconcile()&lt;/code&gt; call. Inside the call, JaaS does (in order):&lt;/p&gt;</description></item><item><title>Metrics</title><link>https://jaas.projects.metio.wtf/observability/metrics/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/observability/metrics/</guid><description>&lt;p&gt;The JaaS operator exposes a Prometheus metrics endpoint covering controller-runtime&amp;rsquo;s
+standard families plus a custom &lt;code&gt;jaas_*&lt;/code&gt; family the reconciler registers. Scrape
+it for dashboards and feed it into the shipped &lt;a href="https://jaas.projects.metio.wtf/observability/alerting/"&gt;alerts&lt;/a&gt;
+.&lt;/p&gt;
+&lt;h2 id="the-binary"&gt;The binary&lt;/h2&gt;
+&lt;p&gt;controller-runtime&amp;rsquo;s Prometheus endpoint binds &lt;code&gt;--metrics-bind-address&lt;/code&gt; (default
+&lt;code&gt;:8083&lt;/code&gt;), serving the standard text exposition format at &lt;code&gt;/metrics&lt;/code&gt;. Setting it
+to &lt;code&gt;0&lt;/code&gt; disables the endpoint. The default deliberately avoids controller-runtime&amp;rsquo;s
+built-in &lt;code&gt;:8080&lt;/code&gt;, which would collide with the Jsonnet HTTP port.&lt;/p&gt;
+&lt;p&gt;The full flag list with defaults is on the
+&lt;a href="https://jaas.projects.metio.wtf/reference/configuration/"&gt;configuration page&lt;/a&gt;
+.&lt;/p&gt;</description></item><item><title>Observability</title><link>https://jaas.projects.metio.wtf/observability/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/observability/</guid><description>&lt;p&gt;JaaS gives you four ways to see what it is doing in a cluster. Structured logs
+tell you what happened on a single request or reconcile; traces follow one
+operation across its spans; metrics aggregate behaviour into time series for
+dashboards and alerts; and alerts plus Kubernetes Events turn a sustained
+problem into a page or a notification.&lt;/p&gt;
+&lt;p&gt;Each pillar has its own page covering both the binary&amp;rsquo;s flags and the Helm chart
+keys that drive them:&lt;/p&gt;</description></item><item><title>Service level objectives</title><link>https://jaas.projects.metio.wtf/observability/slos/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/observability/slos/</guid><description>&lt;p&gt;The JaaS operator tracks two service-level objectives. Each is an objective on a
+service-level indicator (SLI) computed from the &lt;a href="https://jaas.projects.metio.wtf/observability/metrics/"&gt;metrics&lt;/a&gt;
+,
+measured over a rolling window. The published dashboard renders them, and the Helm
+chart can alert on them.&lt;/p&gt;
+&lt;h2 id="slo-1--reconcile-availability"&gt;SLO 1 — reconcile availability&lt;/h2&gt;
+&lt;p&gt;&lt;strong&gt;Objective:&lt;/strong&gt; ≥ &lt;strong&gt;99%&lt;/strong&gt; of syncing reconciles reach &lt;code&gt;Ready=True&lt;/code&gt;, over a &lt;strong&gt;28-day&lt;/strong&gt;
+window.&lt;/p&gt;
+&lt;p&gt;The SLI counts only reconciles that were actually trying to sync — the intentional
+&lt;code&gt;Pending&lt;/code&gt; and &lt;code&gt;Suspended&lt;/code&gt; states are excluded from both halves:&lt;/p&gt;</description></item><item><title>Workqueue saturation</title><link>https://jaas.projects.metio.wtf/runbooks/workqueue-saturation/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/runbooks/workqueue-saturation/</guid><description>&lt;p&gt;Linked from the &lt;code&gt;JaaSControllerWorkqueueDepthHigh&lt;/code&gt; alert. Fires when the reconciler&amp;rsquo;s workqueue holds more items than the configured threshold (default 50) for the alert window. Not tied to a &lt;code&gt;Reason&lt;/code&gt; constant — workqueue depth is a controller-runtime signal, not a per-snippet status.&lt;/p&gt;
+&lt;h2 id="symptom"&gt;Symptom&lt;/h2&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-text" data-lang="text"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;ALERTS{alertname=&amp;#34;JaaSControllerWorkqueueDepthHigh&amp;#34;, controller=&amp;#34;jsonnetsnippet&amp;#34;}
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;ul&gt;
+&lt;li&gt;New snippet writes settle slowly (status takes minutes to flip, not seconds).&lt;/li&gt;
+&lt;li&gt;Existing snippets re-render later than &lt;code&gt;spec.interval&lt;/code&gt; would suggest.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;kubectl describe jsonnetsnippet&lt;/code&gt; shows a stale &lt;code&gt;ObservedGeneration&lt;/code&gt;.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h2 id="cause"&gt;Cause&lt;/h2&gt;
+&lt;p&gt;The operator is dequeuing reconciles slower than the API server enqueues them. Common causes, in observed-frequency order:&lt;/p&gt;</description></item></channel></rss>

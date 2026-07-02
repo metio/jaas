@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Observability on Jsonnet-as-a-Service</title><link>https://jaas.projects.metio.wtf/tags/observability/</link><description>Recent content in Observability on Jsonnet-as-a-Service</description><generator>Hugo</generator><language>en</language><atom:link href="https://jaas.projects.metio.wtf/tags/observability/index.xml" rel="self" type="application/rss+xml"/><item><title>Alerting</title><link>https://jaas.projects.metio.wtf/observability/alerting/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/observability/alerting/</guid><description>&lt;p&gt;JaaS turns a sustained problem into a notification two ways: a Prometheus
+&lt;code&gt;PrometheusRule&lt;/code&gt; that pages on its &lt;a href="https://jaas.projects.metio.wtf/observability/metrics/"&gt;metrics&lt;/a&gt;
+, and Kubernetes
+Events that Flux&amp;rsquo;s notification-controller can route to chat or e-mail.&lt;/p&gt;
+&lt;h2 id="the-binary"&gt;The binary&lt;/h2&gt;
+&lt;p&gt;The operator emits a standard Kubernetes &lt;code&gt;Event&lt;/code&gt; on every Ready-condition
+transition — &lt;code&gt;Normal&lt;/code&gt; for &lt;code&gt;Synced&lt;/code&gt;, &lt;code&gt;Warning&lt;/code&gt; for every other reason. The reason
+string fills both the event &lt;code&gt;reason&lt;/code&gt; and &lt;code&gt;action&lt;/code&gt;. These Events need no flag to
+enable; they are written whenever the operator reconciles.&lt;/p&gt;</description></item><item><title>Logging</title><link>https://jaas.projects.metio.wtf/observability/logging/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/observability/logging/</guid><description>&lt;p&gt;JaaS logs through Go&amp;rsquo;s &lt;code&gt;log/slog&lt;/code&gt;. Every request, reconcile, and lifecycle event
+is a structured record you can filter and parse rather than scrape with a regex.
+In operator mode, controller-runtime&amp;rsquo;s own output — leader election, cache sync,
+manager startup — flows through the &lt;strong&gt;same&lt;/strong&gt; slog handler via the logr bridge
+(&lt;code&gt;ctrl.SetLogger(logr.FromSlogHandler(...))&lt;/code&gt;), so the manager&amp;rsquo;s logs share the
+configured level and format instead of emitting controller-runtime&amp;rsquo;s default zap
+output.&lt;/p&gt;
+&lt;h2 id="the-binary"&gt;The binary&lt;/h2&gt;
+&lt;p&gt;Two flags control logging. They apply in every mode JaaS runs in:&lt;/p&gt;</description></item><item><title>Metrics</title><link>https://jaas.projects.metio.wtf/observability/metrics/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/observability/metrics/</guid><description>&lt;p&gt;The JaaS operator exposes a Prometheus metrics endpoint covering controller-runtime&amp;rsquo;s
+standard families plus a custom &lt;code&gt;jaas_*&lt;/code&gt; family the reconciler registers. Scrape
+it for dashboards and feed it into the shipped &lt;a href="https://jaas.projects.metio.wtf/observability/alerting/"&gt;alerts&lt;/a&gt;
+.&lt;/p&gt;
+&lt;h2 id="the-binary"&gt;The binary&lt;/h2&gt;
+&lt;p&gt;controller-runtime&amp;rsquo;s Prometheus endpoint binds &lt;code&gt;--metrics-bind-address&lt;/code&gt; (default
+&lt;code&gt;:8083&lt;/code&gt;), serving the standard text exposition format at &lt;code&gt;/metrics&lt;/code&gt;. Setting it
+to &lt;code&gt;0&lt;/code&gt; disables the endpoint. The default deliberately avoids controller-runtime&amp;rsquo;s
+built-in &lt;code&gt;:8080&lt;/code&gt;, which would collide with the Jsonnet HTTP port.&lt;/p&gt;
+&lt;p&gt;The full flag list with defaults is on the
+&lt;a href="https://jaas.projects.metio.wtf/reference/configuration/"&gt;configuration page&lt;/a&gt;
+.&lt;/p&gt;</description></item><item><title>Production</title><link>https://jaas.projects.metio.wtf/running/production/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/running/production/</guid><description>&lt;p&gt;The chart&amp;rsquo;s defaults are safe for an initial install but not optimised for
+sustained production workloads. Work through these decisions before exposing JaaS
+to real traffic. Each links to the detailed guide.&lt;/p&gt;
+&lt;h2 id="1-pick-a-storage-backend"&gt;1. Pick a storage backend&lt;/h2&gt;
+&lt;p&gt;The single largest decision. Artifacts must survive pod restarts and, for HA,
+be readable by every replica simultaneously.&lt;/p&gt;
+&lt;table&gt;
+	&lt;thead&gt;
+			&lt;tr&gt;
+					&lt;th&gt;Backend&lt;/th&gt;
+					&lt;th&gt;Persistence&lt;/th&gt;
+					&lt;th&gt;Multi-replica HA&lt;/th&gt;
+			&lt;/tr&gt;
+	&lt;/thead&gt;
+	&lt;tbody&gt;
+			&lt;tr&gt;
+					&lt;td&gt;&lt;code&gt;local&lt;/code&gt; + emptyDir (chart default)&lt;/td&gt;
+					&lt;td&gt;No&lt;/td&gt;
+					&lt;td&gt;No&lt;/td&gt;
+			&lt;/tr&gt;
+			&lt;tr&gt;
+					&lt;td&gt;&lt;code&gt;local&lt;/code&gt; + RWO PVC&lt;/td&gt;
+					&lt;td&gt;Yes&lt;/td&gt;
+					&lt;td&gt;No — single replica only&lt;/td&gt;
+			&lt;/tr&gt;
+			&lt;tr&gt;
+					&lt;td&gt;&lt;code&gt;local&lt;/code&gt; + RWX PVC&lt;/td&gt;
+					&lt;td&gt;Yes&lt;/td&gt;
+					&lt;td&gt;Yes — requires RWX storage class&lt;/td&gt;
+			&lt;/tr&gt;
+			&lt;tr&gt;
+					&lt;td&gt;&lt;code&gt;s3&lt;/code&gt;&lt;/td&gt;
+					&lt;td&gt;Yes&lt;/td&gt;
+					&lt;td&gt;Yes — leader writes, all replicas read&lt;/td&gt;
+			&lt;/tr&gt;
+	&lt;/tbody&gt;
+&lt;/table&gt;
+&lt;p&gt;For cloud installs, &lt;code&gt;s3&lt;/code&gt; (AWS S3, MinIO, Ceph RGW, GCS S3-compat API) is the
+recommended backend. Pair it with leader election (on by default) so only the
+lease-holder writes. For on-prem, a PVC with the access mode your storage class
+supports is the practical path.&lt;/p&gt;</description></item><item><title>Tracing</title><link>https://jaas.projects.metio.wtf/observability/tracing/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/observability/tracing/</guid><description>&lt;p&gt;The JaaS operator exports OpenTelemetry traces over OTLP gRPC. With an endpoint
+configured, each reconcile and the work it fans out into — source fetch, library
+resolution, evaluation, publish — becomes a span you can follow in a tracing
+backend. When no endpoint is set, the OpenTelemetry SDK runs in no-op mode and
+emits nothing, so tracing carries no cost until you opt in.&lt;/p&gt;
+&lt;h2 id="the-binary"&gt;The binary&lt;/h2&gt;
+&lt;p&gt;Three flags configure the exporter:&lt;/p&gt;</description></item></channel></rss>

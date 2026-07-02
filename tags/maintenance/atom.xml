@@ -1,0 +1,138 @@
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en"><generator uri="https://gohugo.io/" version="0.163.3">Hugo</generator><title type="html">Maintenance on Jsonnet-as-a-Service</title><link href="https://jaas.projects.metio.wtf/tags/maintenance/" rel="alternate" type="text/html" title="html"/><link href="https://jaas.projects.metio.wtf/tags/maintenance/index.xml" rel="alternate" type="application/rss+xml" title="rss"/><link href="https://jaas.projects.metio.wtf/tags/maintenance/atom.xml" rel="self" type="application/atom+xml" title="atom"/><updated>2026-07-02T07:56:37+00:00</updated><author><name>metio.wtf</name></author><id>https://jaas.projects.metio.wtf/tags/maintenance/</id><entry><title type="html">Operations</title><link href="https://jaas.projects.metio.wtf/running/operations/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/running/disaster-recovery/?utm_source=atom_feed" rel="related" type="text/html" title="Backup and disaster recovery"/><link href="https://jaas.projects.metio.wtf/reference/configuration/?utm_source=atom_feed" rel="related" type="text/html" title="Configuration reference"/><link href="https://jaas.projects.metio.wtf/reference/helm-values/?utm_source=atom_feed" rel="related" type="text/html" title="Helm chart values"/><link href="https://jaas.projects.metio.wtf/get-started/kubernetes/?utm_source=atom_feed" rel="related" type="text/html" title="Kubernetes"/><link href="https://jaas.projects.metio.wtf/running/production/?utm_source=atom_feed" rel="related" type="text/html" title="Production"/><id>https://jaas.projects.metio.wtf/running/operations/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-26T15:54:29+02:00</updated><content type="html"><![CDATA[<blockquote>Day-two operational tasks for a running JaaS install — graceful shutdown, leader election, storage GC, and upgrades.</blockquote><p>Day-two operations for a running JaaS install. Initial install and hardening
+decisions are in <a href="/get-started/kubernetes/">Kubernetes</a>
+ and
+<a href="/running/production/">Production</a>
+.</p>
+<h2 id="graceful-shutdown-and-drain">Graceful shutdown and drain</h2>
+<p>When Kubernetes sends <code>SIGTERM</code>, JaaS executes a two-phase shutdown to avoid
+dropping in-flight requests:</p>
+<ol>
+<li>The readiness probe flips to <code>false</code> (<code>503</code> on <code>/ready</code>). Kubernetes
+endpoint controllers begin deregistering the pod from Services.</li>
+<li>JaaS waits for <code>--shutdown-delay</code> (default <code>5s</code>) before closing its
+listeners. This window lets the endpoint propagation complete so no new
+traffic arrives after the server closes.</li>
+<li>After the delay, the servers shut down gracefully with a 30-second
+<code>context.WithTimeout</code>. The operator goroutine is also cancelled and awaited
+within the same 30-second window.</li>
+</ol>
+<p>The distroless runtime image has no <code>sleep</code> binary, so the drain delay is
+implemented in the binary rather than via a <code>preStop</code> hook. A second
+<code>SIGTERM</code> (or <code>SIGINT</code>) during the drain cuts the wait short.</p>
+<p>To disable the drain (zero delay):</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">--shutdown-delay <span class="m">0</span>
+</span></span></code></pre></div><p>The chart value is <code>arguments.shutdownDelay</code>.</p>
+<h2 id="leader-election-during-rolling-updates">Leader election during rolling updates</h2>
+<p>In operator mode, leader election is on by default (<code>--leader-election</code>,
+<code>operator.leaderElection.enabled: true</code>). The chart sets
+<code>LeaderElectionReleaseOnCancel: true</code>, so when the old pod receives <code>SIGTERM</code> it
+releases the lease immediately instead of waiting out the 15-second
+<code>LeaseDuration</code>. The new pod picks up the lease within milliseconds.</p>
+<p>Snippets that were <code>Ready=True</code> before the restart stay in that condition via
+cached state. A new pod that takes over as leader reconciles them on the next
+watch event. If snippets remain degraded for more than a few seconds after a
+restart, check the <a href="/runbooks/operator-watch-silent/">operator-watch-silent</a>
+
+runbook — it diagnoses the case where the operator&rsquo;s own ClusterRole is missing
+a verb so controller-runtime&rsquo;s informer silently fails to start.</p>
+<p>To force-restart the operator (e.g. after an upgrade):</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl rollout restart deployment/jaas --namespace jaas-system
+</span></span></code></pre></div><h2 id="artifact-retention-and-storage-gc">Artifact retention and storage GC</h2>
+<p>Three independent mechanisms govern how long artifacts stay on disk (or in S3).
+Full storage backend configuration is in <a href="/operator/storage-and-ha/">Storage and HA</a>
+.</p>
+<h3 id="gc-grace-window---artifact-gc-grace-default-5m">GC grace window (<code>--artifact-gc-grace</code>, default <code>5m</code>)</h3>
+<p>When a snippet is re-rendered, the superseded revision drops out of the keep-set
+but remains fetchable for <code>--artifact-gc-grace</code> after supersession. This closes
+the pin→fetch race in which a Flux consumer reads <code>status.artifact.url</code> a moment
+before the operator GC-prunes the old tarball. The window survives operator
+restarts — supersession time is derived from on-disk storage metadata, not from
+in-memory state.</p>
+<p>Set <code>0</code> to restore eager pruning (one revision at a time, matching stock Flux
+source-controller semantics). Tune lower when storage capacity is tight and all
+consumers are in-cluster.</p>
+<h3 id="history-retention-spechistory-default-1-max-50">History retention (<code>spec.history</code>, default <code>1</code>, max <code>50</code>)</h3>
+<p>Per-snippet deliberate retention for rollback and blue-green flows. A downstream
+consumer can pin to a specific <code>sha256</code> digest indefinitely as long as that
+revision is within the history keep-set. This is separate from the GC grace
+window — it is explicit operator intent, not a race-protection mechanism.</p>
+<h3 id="orphaned-tmp-sweep---storage-sweep-interval---storage-sweep-max-tmp-age">Orphaned <code>.tmp</code> sweep (<code>--storage-sweep-interval</code>, <code>--storage-sweep-max-tmp-age</code>)</h3>
+<p>A <code>Put</code> that dies between writing the tempfile and the atomic rename leaves a
+<code>&lt;rev&gt;.tar.gz.tmp</code> residue. The sweep goroutine runs on a ticker (default every
+<code>10m</code>) and removes <code>.tmp</code> files older than <code>--storage-sweep-max-tmp-age</code>
+(default <code>30m</code>). The age floor ensures live writers are never raced.</p>
+<p>Set <code>--storage-sweep-interval 0</code> to disable the sweep entirely. The
+<code>jaas_storage_sweep_failures_total</code> Prometheus counter signals failing sweep
+passes.</p>
+<h2 id="finalizer-teardown-and-the-withdrawforced-safety-valve">Finalizer teardown and the WithdrawForced safety valve</h2>
+<p>Every <code>JsonnetSnippet</code> holds a finalizer (<code>jaas.metio.wtf/finalizer</code>) that
+blocks Kubernetes garbage collection until the operator successfully calls
+<code>Publisher.Withdraw</code> to remove the artifact from storage. If the backend is
+permanently unavailable (S3 down, RBAC revoked, bucket deleted), the finalizer
+would otherwise hold the snippet — and by extension its namespace — in
+<code>Terminating</code> forever.</p>
+<p><code>--max-withdraw-wait</code> (default <code>1h</code>) bounds how long the finalizer can hold.
+Once the deadline passes, the operator:</p>
+<ol>
+<li>Emits a <code>Warning WithdrawForced</code> Kubernetes Event on the snippet.</li>
+<li>Drops the finalizer so the snippet can be garbage-collected.</li>
+</ol>
+<p>The trade-off is a possible orphan tarball in storage. Recover it using the
+<a href="/runbooks/storage-recovery/">storage-recovery</a>
+ runbook.</p>
+<p>Adjust the bound with the chart value <code>operator.maxWithdrawWait</code>. Lower it in
+environments where namespace teardown latency is critical; raise it (or remove
+the concern by fixing the backend) in environments where artifact-safety is
+paramount.</p>
+<h2 id="upgrades">Upgrades</h2>
+<p>Calendar-based releases ship every Monday. The chart version and the binary
+version advance together.</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">helm upgrade --install jaas oci://ghcr.io/metio/helm-charts/jaas <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --namespace jaas-system <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --values my-values.yaml <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --wait --timeout 5m
+</span></span></code></pre></div><p>The chart ships CRDs under <code>templates/</code> so <code>helm upgrade --install</code> applies schema
+changes automatically.</p>
+<p><strong>Before each upgrade</strong>, read
+<a href="/reference/upgrading/">Upgrading</a>
+:</p>
+<ul>
+<li>Releases that change <code>spec.selector.matchLabels</code> on the Deployment require a
+manual <code>kubectl delete deployment/jaas</code> first — that field is immutable and
+<code>helm upgrade --install</code> will fail otherwise.</li>
+<li>The pre-delete cleanup Job (<code>operator.cleanupOnDelete.enabled: true</code>, the
+default) runs on <code>helm uninstall</code> and drops every snippet&rsquo;s finalizer so
+<code>ExternalArtifact</code> resources are unwound before the operator pod is removed.
+If the cleanup Job hangs, check <code>operator.cleanupOnDelete.kubectlTimeout</code>
+(default <code>2m</code>) and the backend health.</li>
+</ul>
+<h2 id="monitoring-operational-health">Monitoring operational health</h2>
+<p>Key signals to watch:</p>
+<ul>
+<li><code>jaas_storage_sweep_failures_total</code> — non-zero means the sweep goroutine is
+erroring; investigate storage backend health.</li>
+<li><code>jaas_snippet_reconcile_total{status!=&quot;Synced&quot;}</code> — elevated rate means
+snippets are failing to render; cross-reference with the <code>reason</code> label and
+the relevant runbook.</li>
+<li><code>JaaSControllerWorkqueueDepthHigh</code> PrometheusRule alert — workqueue is backing
+up; the operator cannot keep up with the reconcile rate.</li>
+<li><code>/ready</code> probe on the management port (default <code>8081</code>) — <code>503</code> after startup
+means the manager has not yet been elected or its cache has not synced.</li>
+</ul>
+<p>All metrics are documented in <a href="/observability/">Observability</a>
+. All shipped
+alerts link to <a href="/runbooks/">Runbooks</a>
+.</p>
+<h2 id="next-steps">Next steps</h2>
+<ul>
+<li><a href="/running/scale-and-capacity/">Scale and capacity</a>
+ — replica sizing,
+the leader-election HA model, and the throughput knobs.</li>
+<li><a href="/reference/configuration/">Configuration reference</a>
+ — the full flag
+list with defaults and chart value equivalents.</li>
+<li><a href="/runbooks/">Runbooks</a>
+ — incident response procedures keyed to each
+<code>Ready</code> condition <code>Reason</code>.</li>
+</ul>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/installation" term="installation" label="installation"/><category scheme="https://jaas.projects.metio.wtf/tags/operations" term="operations" label="operations"/><category scheme="https://jaas.projects.metio.wtf/tags/maintenance" term="maintenance" label="maintenance"/><category scheme="https://jaas.projects.metio.wtf/tags/upgrades" term="upgrades" label="upgrades"/></entry></feed>

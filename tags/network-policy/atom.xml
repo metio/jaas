@@ -1,0 +1,336 @@
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en"><generator uri="https://gohugo.io/" version="0.163.3">Hugo</generator><title type="html">Network-Policy on Jsonnet-as-a-Service</title><link href="https://jaas.projects.metio.wtf/tags/network-policy/" rel="alternate" type="text/html" title="html"/><link href="https://jaas.projects.metio.wtf/tags/network-policy/index.xml" rel="alternate" type="application/rss+xml" title="rss"/><link href="https://jaas.projects.metio.wtf/tags/network-policy/atom.xml" rel="self" type="application/atom+xml" title="atom"/><updated>2026-07-02T07:56:37+00:00</updated><author><name>metio.wtf</name></author><id>https://jaas.projects.metio.wtf/tags/network-policy/</id><entry><title type="html">Network policy</title><link href="https://jaas.projects.metio.wtf/security/network-policy/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/security/service-mesh/?utm_source=atom_feed" rel="related" type="text/html" title="Service mesh"/><link href="https://jaas.projects.metio.wtf/rendering/evaluation-and-security/?utm_source=atom_feed" rel="related" type="text/html" title="Evaluation and security"/><link href="https://jaas.projects.metio.wtf/running/production/?utm_source=atom_feed" rel="related" type="text/html" title="Production"/><link href="https://jaas.projects.metio.wtf/reference/verifying-releases/?utm_source=atom_feed" rel="related" type="text/html" title="Verifying releases"/><id>https://jaas.projects.metio.wtf/security/network-policy/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-26T15:54:29+02:00</updated><content type="html"><![CDATA[<blockquote>The opt-in NetworkPolicy the chart ships — pod-scoped allowlists vs. a namespace-wide default-deny, choosing a policy engine, the ingress and egress traffic JaaS needs, and how to tighten each port.</blockquote><p>The Helm chart ships an opt-in <code>NetworkPolicy</code> for the JaaS pod. It is off by
+default and renders only when <code>networkPolicy.enabled</code> is <code>true</code>. Two independent
+layers are on offer: pod-scoped allowlists that lock down only JaaS&rsquo;s own pods
+(the safe default), and an additional namespace-wide default-deny for a zero-trust
+namespace. The ingress and egress tables below describe exactly what traffic JaaS
+depends on — in both renderer mode and <a href="/operator/operator-mode/">operator mode</a>
+ — so
+everything else can be denied.</p>
+<h2 id="two-layers-pod-scoped-allowlists-vs-namespace-default-deny">Two layers: pod-scoped allowlists vs. namespace default-deny</h2>
+<p><code>networkPolicy.enabled: true</code> renders per-workload, <strong>pod-scoped allowlist</strong>
+policies. They select only JaaS&rsquo;s own pods through their <code>app.kubernetes.io/*</code>
+labels and lock down just those pods to the required ports. This is the safe
+default and is fine in a shared namespace: co-located workloads — including
+anything in <code>flux-system</code> if JaaS shares that namespace — are untouched.</p>
+<p><code>networkPolicy.defaultDeny.enabled</code> (default <code>false</code>) <strong>additionally</strong> renders a
+namespace-wide default-deny so every pod in the namespace is denied by default and
+the allowlists become the only exceptions (a zero-trust namespace). The default-deny
+sits at a lower precedence than the allowlists, so the allowlists always win for the
+JaaS pods while everything else is denied.</p>
+<p>Pick the layer that matches namespace ownership:</p>
+<ul>
+<li><strong><code>defaultDeny.enabled: false</code></strong> (default) — pod-scoped setup. Only JaaS&rsquo;s pods
+are locked down; neighbours keep whatever posture their own policies give them.</li>
+<li><strong><code>defaultDeny.enabled: true</code></strong> — namespace zero-trust. Enable this <strong>only when
+JaaS owns its namespace</strong>, because the deny-all also denies every co-located
+workload that does not have its own allowing policy.</li>
+</ul>
+<p><code>defaultDeny.order</code> (default <code>2000</code>) tunes the Calico <code>order</code> / ClusterNetworkPolicy
+<code>priority</code> that keeps the deny-all subordinate to the allowlists. The <code>kubernetes</code>
+and <code>cilium</code> engines have no precedence knob — deny and allow combine additively and
+allow wins — so the value matters only for the <code>calico</code> and <code>clusterNetworkPolicy</code>
+engines.</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">networkPolicy</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">defaultDeny</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">   </span><span class="c"># only when JaaS owns this namespace</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">order</span><span class="p">:</span><span class="w"> </span><span class="m">2000</span><span class="w">
+</span></span></span></code></pre></div><h2 id="choosing-a-policy-engine">Choosing a policy engine</h2>
+<p><code>networkPolicy.engine</code> selects which policy dialect the chart renders. It is
+explicit, not auto-detected: a chart that sniffed the running CNI would render
+different objects on different clusters from identical values, which breaks GitOps
+determinism. You name the engine, and the rendered manifest is the same everywhere.</p>
+<table>
+	<thead>
+			<tr>
+					<th><code>engine</code></th>
+					<th>Renders</th>
+					<th>API</th>
+					<th>FQDN egress</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><code>kubernetes</code> (default)</td>
+					<td><code>NetworkPolicy</code></td>
+					<td><code>networking.k8s.io/v1</code></td>
+					<td>No</td>
+			</tr>
+			<tr>
+					<td><code>cilium</code></td>
+					<td><code>CiliumNetworkPolicy</code></td>
+					<td><code>cilium.io/v2</code></td>
+					<td>Yes — free <code>toFQDNs</code> egress</td>
+			</tr>
+			<tr>
+					<td><code>calico</code></td>
+					<td><code>NetworkPolicy</code></td>
+					<td><code>projectcalico.org/v3</code></td>
+					<td>No — OSS Calico has no FQDN egress; that is Calico Enterprise only</td>
+			</tr>
+			<tr>
+					<td><code>clusterNetworkPolicy</code></td>
+					<td><code>ClusterNetworkPolicy</code></td>
+					<td><code>policy.networking.k8s.io/v1alpha2</code></td>
+					<td>No</td>
+			</tr>
+	</tbody>
+</table>
+<p><code>clusterNetworkPolicy</code> renders the SIG-Network <code>ClusterNetworkPolicy</code> that
+consolidates the deprecated <code>AdminNetworkPolicy</code> + <code>BaselineAdminNetworkPolicy</code>
+APIs into one resource. It is alpha, cluster-scoped, and rendered in the <code>Baseline</code>
+tier so a developer-authored <code>NetworkPolicy</code> still takes precedence over it.</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">networkPolicy</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="l">cilium</span><span class="w">
+</span></span></span></code></pre></div><p>The per-port <code>.from</code> knobs documented under <a href="#configuring-ingress">Configuring ingress</a>
+
+apply to the <code>kubernetes</code> engine only. For the other engines the allowlists are
+pod-scoped allow-all on the required ports, and you tighten them through that
+engine&rsquo;s native passthrough lists — <code>networkPolicy.&lt;engine&gt;.ingress</code> and
+<code>networkPolicy.&lt;engine&gt;.egress</code> — which are merged verbatim into the rendered
+policy&rsquo;s <code>spec</code>. For example, adding identity-based ingress and a <code>toFQDNs</code> egress
+under the Cilium engine:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">networkPolicy</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="l">cilium</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">cilium</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">ingress</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span>- <span class="nt">fromEndpoints</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">          </span>- <span class="nt">matchLabels</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">              </span><span class="nt">app.kubernetes.io/name</span><span class="p">:</span><span class="w"> </span><span class="l">kustomize-controller</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">egress</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span>- <span class="nt">toFQDNs</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">          </span>- <span class="nt">matchName</span><span class="p">:</span><span class="w"> </span><span class="l">bucket.example.com</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">toPorts</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">          </span>- <span class="nt">ports</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">              </span>- <span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="s2">&#34;443&#34;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="nt">protocol</span><span class="p">:</span><span class="w"> </span><span class="l">TCP</span><span class="w">
+</span></span></span></code></pre></div><h2 id="required-traffic">Required traffic</h2>
+<p>The traffic JaaS needs depends on the mode it runs in. The renderer-mode rows apply
+to every install; the operator-mode rows apply only when <code>operator.enabled</code> is
+<code>true</code>.</p>
+<h3 id="ingress">Ingress</h3>
+<table>
+	<thead>
+			<tr>
+					<th>Port</th>
+					<th>Source</th>
+					<th>Mode</th>
+					<th>Selectable by label?</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>Jsonnet HTTP (<code>ports.http</code>, <code>8080</code>)</td>
+					<td>Callers of the <code>/jsonnet</code> endpoint, or an Ingress controller fronting the Service</td>
+					<td>always</td>
+					<td>Yes — or open when an Ingress fronts it</td>
+			</tr>
+			<tr>
+					<td>Management probes (<code>ports.management</code>, <code>8081</code>)</td>
+					<td>The kubelet, dialing the readiness, liveness, and startup probes from the node IP</td>
+					<td>always</td>
+					<td>No — the node IP is not a pod, so it cannot be a <code>podSelector</code></td>
+			</tr>
+			<tr>
+					<td>Storage HTTP (<code>ports.storage</code>, <code>8082</code>)</td>
+					<td>The Flux consumers that dereference <code>ExternalArtifact</code> tarballs — kustomize-controller, helm-controller, and custom consumers such as stageset-controller</td>
+					<td>operator</td>
+					<td>Yes — by consumer namespace</td>
+			</tr>
+			<tr>
+					<td>Webhook (<code>ports.webhook</code>, <code>9443</code>)</td>
+					<td>The kube-apiserver, dialing the validating admission webhook</td>
+					<td>operator + webhook</td>
+					<td>No — the apiserver is not a pod</td>
+			</tr>
+			<tr>
+					<td>Metrics (<code>ports.metrics</code>, <code>8083</code>)</td>
+					<td>Prometheus scraping <code>/metrics</code></td>
+					<td>operator + metrics</td>
+					<td>Yes — by the scraper&rsquo;s pod or namespace</td>
+			</tr>
+	</tbody>
+</table>
+<p>The Jsonnet HTTP and management ports always get an ingress rule. The storage,
+webhook, and metrics ports each get their own rule when their mode is active —
+storage when <code>operator.enabled</code>, webhook when the operator&rsquo;s webhook is enabled,
+and metrics when the operator&rsquo;s metrics endpoint is enabled.</p>
+<p>The kubelet and the apiserver source traffic from addresses that are not pods, so
+their rules cannot be narrowed with a <code>podSelector</code> or <code>namespaceSelector</code>. Leaving
+the management and webhook <code>from</code> lists empty keeps those ports reachable, which is
+what lets probes succeed and the apiserver reach the webhook. Authenticity on the
+webhook port is enforced by TLS and the CA bundle on the
+<code>ValidatingWebhookConfiguration</code>, not by the network layer — see the
+<a href="/security/admission-webhook/">admission webhook page</a>
+.</p>
+<h3 id="egress">Egress</h3>
+<p>Egress only matters when you opt into it (<code>networkPolicy.egress.enabled</code>). The JaaS
+operator needs the following outbound flows; in renderer mode it needs only DNS, if
+that.</p>
+<table>
+	<thead>
+			<tr>
+					<th>Destination</th>
+					<th>Purpose</th>
+					<th>Mode</th>
+					<th>Selectable by label?</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>Cluster DNS</td>
+					<td>Name resolution — without it every other egress flow fails</td>
+					<td>always</td>
+					<td>Yes — by the DNS namespace</td>
+			</tr>
+			<tr>
+					<td>kube-apiserver</td>
+					<td>TokenRequest minting, CR reads, <code>ExternalArtifact</code> writes, leader election, and webhook caBundle patching</td>
+					<td>operator</td>
+					<td>No — <code>ipBlock</code> CIDR only</td>
+			</tr>
+			<tr>
+					<td>source-controller</td>
+					<td>Fetching upstream artifacts for snippets that use a <code>sourceRef</code></td>
+					<td>operator</td>
+					<td>Yes — the <code>flux-system</code> namespace</td>
+			</tr>
+			<tr>
+					<td>S3 endpoint</td>
+					<td>Reading and writing tarballs when <code>storage.backend</code> is <code>s3</code></td>
+					<td>operator + S3</td>
+					<td>Depends — in-cluster MinIO is label-selectable; an external bucket is <code>ipBlock</code> only</td>
+			</tr>
+			<tr>
+					<td>OTLP collector</td>
+					<td>Shipping traces when <code>operator.tracing.endpoint</code> is set</td>
+					<td>operator + tracing</td>
+					<td>Depends — in-cluster collector is label-selectable; an external one is <code>ipBlock</code> only</td>
+			</tr>
+	</tbody>
+</table>
+<p>The kube-apiserver is never label-selectable, so its egress rule must be an
+<code>ipBlock</code> CIDR. The same applies to any S3 bucket or OTLP collector that lives
+outside the cluster.</p>
+<h2 id="configuring-ingress">Configuring ingress</h2>
+<p>Under the <code>kubernetes</code> engine, enable the policy and tighten each port through its
+<code>from</code> knob. An empty <code>from</code> list leaves that port open; a non-empty list restricts
+it to the listed peers.</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">networkPolicy</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="c"># Open by default — typical when an Ingress fronts the Service. Set a</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="c"># from-list to restrict callers of the /jsonnet endpoint.</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">http</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">from</span><span class="p">:</span><span class="w"> </span><span class="p">[]</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="c"># Leave empty — the kubelet probes source from the node IP.</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">management</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">from</span><span class="p">:</span><span class="w"> </span><span class="p">[]</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="c"># Leave empty — the kube-apiserver cannot be expressed as a podSelector.</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">webhook</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">from</span><span class="p">:</span><span class="w"> </span><span class="p">[]</span><span class="w">
+</span></span></span></code></pre></div><p>The storage port defaults to allowing any pod in <code>flux-system</code>, the namespace where
+the stock Flux consumers run. Add an entry per extra consumer namespace — for
+example a stageset-controller running in <code>stageset-system</code>:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">networkPolicy</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">storage</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">from</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span>- <span class="nt">namespaceSelector</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">          </span><span class="nt">matchLabels</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="nt">kubernetes.io/metadata.name</span><span class="p">:</span><span class="w"> </span><span class="l">flux-system</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span>- <span class="nt">namespaceSelector</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">          </span><span class="nt">matchLabels</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="nt">kubernetes.io/metadata.name</span><span class="p">:</span><span class="w"> </span><span class="l">stageset-system</span><span class="w">
+</span></span></span></code></pre></div><p>The metrics port has its own ingress rule, rendered when both <code>operator.enabled</code> and
+<code>operator.metrics.enabled</code> are set. Scope it to your monitoring namespace through
+<code>networkPolicy.metrics.from</code>:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">networkPolicy</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">metrics</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">from</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span>- <span class="nt">namespaceSelector</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">          </span><span class="nt">matchLabels</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="nt">kubernetes.io/metadata.name</span><span class="p">:</span><span class="w"> </span><span class="l">monitoring</span><span class="w">
+</span></span></span></code></pre></div><p>Anything the per-port knobs do not cover goes into <code>additionalIngress</code>, which is
+merged verbatim into the policy:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">networkPolicy</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">additionalIngress</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span>- <span class="nt">ports</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span>- <span class="nt">protocol</span><span class="p">:</span><span class="w"> </span><span class="l">TCP</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">          </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="m">8080</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">from</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span>- <span class="nt">namespaceSelector</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="nt">matchLabels</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">              </span><span class="nt">kubernetes.io/metadata.name</span><span class="p">:</span><span class="w"> </span><span class="l">ingress-nginx</span><span class="w">
+</span></span></span></code></pre></div><h2 id="opt-in-egress">Opt-in egress</h2>
+<p>Egress is off by default, and deliberately so. Adding the <code>Egress</code> policy type
+flips the JaaS pod to default-deny for outbound traffic — everything not explicitly
+allowed is dropped. Getting the allow-list complete is the cluster operator&rsquo;s risk,
+because the two destinations the operator needs most — the kube-apiserver and any
+external S3 or OTLP endpoint — are not label-selectable and so depend on <code>ipBlock</code>
+CIDRs that vary per cluster. An incomplete list does not fail loudly; it silently
+cuts the operator off.</p>
+<blockquote>
+<p><strong>Warning:</strong> Enabling egress <strong>without</strong> an <code>ipBlock</code> for the kube-apiserver cuts
+the operator off from the control plane. It can no longer mint tokens, read CRs,
+publish <code>ExternalArtifact</code> resources, hold the leader-election lease, or patch the
+webhook caBundle. Always include the apiserver CIDR before turning egress on.</p>
+</blockquote>
+<p>Find the apiserver&rsquo;s address with:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace default get endpointslice kubernetes --output <span class="nv">jsonpath</span><span class="o">=</span><span class="s1">&#39;{.endpoints[*].addresses[*]}&#39;</span>
+</span></span></code></pre></div><p>Use that IP as a <code>/32</code> (or your control plane&rsquo;s CIDR for an HA apiserver). A
+complete operator egress block — DNS, the apiserver, source-controller, S3, and an
+OTLP collector — looks like this:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">networkPolicy</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">egress</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c"># DNS to the cluster DNS namespace. Without this, every flow below</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c"># fails name resolution.</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">dns</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">dnsNamespace</span><span class="p">:</span><span class="w"> </span><span class="l">kube-system</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">to</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="c"># kube-apiserver — not label-selectable, so an ipBlock CIDR.</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="c"># Replace with the IP(s) from the command above.</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span>- <span class="nt">to</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">          </span>- <span class="nt">ipBlock</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">              </span><span class="nt">cidr</span><span class="p">:</span><span class="w"> </span><span class="m">10.0.0.1</span><span class="l">/32</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">ports</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">          </span>- <span class="nt">protocol</span><span class="p">:</span><span class="w"> </span><span class="l">TCP</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="m">443</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="c"># source-controller — fetching upstream artifacts for sourceRef snippets.</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span>- <span class="nt">to</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">          </span>- <span class="nt">namespaceSelector</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">              </span><span class="nt">matchLabels</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="nt">kubernetes.io/metadata.name</span><span class="p">:</span><span class="w"> </span><span class="l">flux-system</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="c"># S3 bucket — an ipBlock CIDR for an external endpoint. For in-cluster</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="c"># MinIO, use a namespaceSelector instead.</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span>- <span class="nt">to</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">          </span>- <span class="nt">ipBlock</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">              </span><span class="nt">cidr</span><span class="p">:</span><span class="w"> </span><span class="m">203.0.113.0</span><span class="l">/24</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">ports</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">          </span>- <span class="nt">protocol</span><span class="p">:</span><span class="w"> </span><span class="l">TCP</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="m">443</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="c"># OTLP collector — an ipBlock CIDR for an external endpoint. For an</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="c"># in-cluster collector, use a namespaceSelector instead.</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span>- <span class="nt">to</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">          </span>- <span class="nt">ipBlock</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">              </span><span class="nt">cidr</span><span class="p">:</span><span class="w"> </span><span class="m">198.51.100.10</span><span class="l">/32</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">ports</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">          </span>- <span class="nt">protocol</span><span class="p">:</span><span class="w"> </span><span class="l">TCP</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="m">4317</span><span class="w">
+</span></span></span></code></pre></div><p>Trim this to what your install actually uses: drop the S3 block on the local storage
+backend, and drop the OTLP block when <a href="/observability/">tracing</a>
+ is off. The
+apiserver and DNS rules are non-negotiable for the operator. Storage destinations
+are covered on the <a href="/operator/storage-and-ha/">storage and high availability page</a>
+, and
+tenancy on the <a href="/security/tenancy-and-rbac/">tenancy and RBAC page</a>
+.</p>
+<p>For the full set of chart values, see the
+<a href="https://github.com/metio/helm-charts/tree/main/charts/jaas">chart README</a>
+.</p>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/network-policy" term="network-policy" label="network-policy"/><category scheme="https://jaas.projects.metio.wtf/tags/security" term="security" label="security"/><category scheme="https://jaas.projects.metio.wtf/tags/networking" term="networking" label="networking"/></entry></feed>

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Service-Mesh on Jsonnet-as-a-Service</title><link>https://jaas.projects.metio.wtf/tags/service-mesh/</link><description>Recent content in Service-Mesh on Jsonnet-as-a-Service</description><generator>Hugo</generator><language>en</language><atom:link href="https://jaas.projects.metio.wtf/tags/service-mesh/index.xml" rel="self" type="application/rss+xml"/><item><title>Service mesh</title><link>https://jaas.projects.metio.wtf/security/service-mesh/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/security/service-mesh/</guid><description>&lt;p&gt;The Helm chart ships an opt-in service-mesh authorization layer for the JaaS pod.
+It is off by default and renders only when &lt;code&gt;serviceMesh.enabled&lt;/code&gt; is &lt;code&gt;true&lt;/code&gt;. Where
+the &lt;a href="https://jaas.projects.metio.wtf/security/network-policy/"&gt;network policy&lt;/a&gt;
+ operates at L3/L4 — which pods and IP
+ranges may reach which ports — the service mesh operates at L7 with &lt;strong&gt;identity-based
+authorization&lt;/strong&gt; and &lt;strong&gt;mTLS&lt;/strong&gt;: it asks &lt;em&gt;which mesh identity&lt;/em&gt; is calling, proven by a
+cryptographic workload certificate, not merely which IP the packet came from.&lt;/p&gt;</description></item></channel></rss>

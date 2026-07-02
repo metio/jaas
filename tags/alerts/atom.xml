@@ -1,0 +1,282 @@
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en"><generator uri="https://gohugo.io/" version="0.163.3">Hugo</generator><title type="html">Alerts on Jsonnet-as-a-Service</title><link href="https://jaas.projects.metio.wtf/tags/alerts/" rel="alternate" type="text/html" title="html"/><link href="https://jaas.projects.metio.wtf/tags/alerts/index.xml" rel="alternate" type="application/rss+xml" title="rss"/><link href="https://jaas.projects.metio.wtf/tags/alerts/atom.xml" rel="self" type="application/atom+xml" title="atom"/><updated>2026-07-02T07:56:37+00:00</updated><author><name>metio.wtf</name></author><id>https://jaas.projects.metio.wtf/tags/alerts/</id><entry><title type="html">Alerting</title><link href="https://jaas.projects.metio.wtf/observability/alerting/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/observability/metrics/?utm_source=atom_feed" rel="related" type="text/html" title="Metrics"/><link href="https://jaas.projects.metio.wtf/observability/logging/?utm_source=atom_feed" rel="related" type="text/html" title="Logging"/><link href="https://jaas.projects.metio.wtf/observability/slos/?utm_source=atom_feed" rel="related" type="text/html" title="Service level objectives"/><link href="https://jaas.projects.metio.wtf/observability/tracing/?utm_source=atom_feed" rel="related" type="text/html" title="Tracing"/><link href="https://jaas.projects.metio.wtf/security/admission-webhook/?utm_source=atom_feed" rel="related" type="text/html" title="Admission webhook"/><id>https://jaas.projects.metio.wtf/observability/alerting/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-18T20:07:20+02:00</updated><content type="html"><![CDATA[<blockquote>The opt-in PrometheusRule alert catalog with tunable thresholds and runbook links, plus Kubernetes Events routed through Flux&rsquo;s notification-controller.</blockquote><p>JaaS turns a sustained problem into a notification two ways: a Prometheus
+<code>PrometheusRule</code> that pages on its <a href="/observability/metrics/">metrics</a>
+, and Kubernetes
+Events that Flux&rsquo;s notification-controller can route to chat or e-mail.</p>
+<h2 id="the-binary">The binary</h2>
+<p>The operator emits a standard Kubernetes <code>Event</code> on every Ready-condition
+transition — <code>Normal</code> for <code>Synced</code>, <code>Warning</code> for every other reason. The reason
+string fills both the event <code>reason</code> and <code>action</code>. These Events need no flag to
+enable; they are written whenever the operator reconciles.</p>
+<p>The operator also threads runbook links into its own status automatically: every
+actionable Ready-condition Message gains a
+<code>(runbook: https://jaas.projects.metio.wtf/runbooks/&lt;reason&gt;/)</code> suffix, so
+<code>kubectl describe jsonnetsnippet</code> points straight at the matching page. Healthy
+or intentional states (<code>Synced</code>, <code>Suspended</code>, <code>Pending</code>) get no suffix.</p>
+<h3 id="routing-events-through-flux">Routing Events through Flux</h3>
+<p>Routing the Events is Flux&rsquo;s <code>notification-controller</code>: target an <code>Alert</code> CR at
+<code>kind: JsonnetSnippet</code> and JaaS needs no <code>Provider</code>/<code>Alert</code> plumbing of its own.</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l">notification.toolkit.fluxcd.io/v1beta3</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">Alert</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">metadata</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">jaas-snippets</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">flux-system</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">spec</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">providerRef</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">slack</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">eventSeverity</span><span class="p">:</span><span class="w"> </span><span class="l">warn  </span><span class="w"> </span><span class="c"># &#39;info&#39; to include success events</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">eventSources</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span>- <span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">JsonnetSnippet</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="s1">&#39;*&#39;</span><span class="w">
+</span></span></span></code></pre></div><p>Wire whatever <code>Provider</code> you already use for Flux source CRs; see the
+<a href="https://fluxcd.io/">Flux notification-controller documentation</a>
+ for provider
+configuration.</p>
+<h3 id="the-alert-catalog">The alert catalog</h3>
+<p>The chart ships a starter alert set on the custom metrics plus a handful of
+controller-runtime signals. Each alert carries its remediation page as a
+<code>runbook_url</code> annotation so Alertmanager renders a direct link:</p>
+<table>
+	<thead>
+			<tr>
+					<th>Alert</th>
+					<th>Severity</th>
+					<th>Fires when</th>
+					<th>Threshold knobs (default)</th>
+					<th>Runbook</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><code>JaaSSnippetReconcileErrorsHigh</code></td>
+					<td>warning</td>
+					<td>A snippet keeps flipping to Ready=False (excluding <code>Synced</code>/<code>Suspended</code>/<code>Pending</code>).</td>
+					<td><code>reconcileErrorRate</code> (0.1/s), <code>reconcileErrorDuration</code> (10m)</td>
+					<td>per-reason page under <a href="/runbooks/"><code>/runbooks/</code></a>
+</td>
+			</tr>
+			<tr>
+					<td><code>JaaSSnippetArtifactGrowing</code></td>
+					<td>warning</td>
+					<td>p99 <code>jaas_snippet_rendered_bytes</code> exceeds the size ceiling.</td>
+					<td><code>artifactSizeBytes</code> (16 MiB), <code>artifactSizeDuration</code> (30m)</td>
+					<td><a href="/runbooks/artifacttoolarge/">artifacttoolarge</a>
+</td>
+			</tr>
+			<tr>
+					<td><code>JaaSControllerWorkqueueDepthHigh</code></td>
+					<td>warning</td>
+					<td>The <code>jsonnetsnippet</code> workqueue can&rsquo;t drain.</td>
+					<td><code>workqueueDepth</code> (50), <code>workqueueDuration</code> (15m)</td>
+					<td><a href="/runbooks/workqueue-saturation/">workqueue-saturation</a>
+</td>
+			</tr>
+			<tr>
+					<td><code>JaaSReconcileLatencyHigh</code></td>
+					<td>warning</td>
+					<td>p99 reconcile time crosses the ceiling.</td>
+					<td><code>reconcileLatencySeconds</code> (30), <code>reconcileLatencyDuration</code> (15m)</td>
+					<td><a href="/runbooks/reconcile-latency/">reconcile-latency</a>
+</td>
+			</tr>
+			<tr>
+					<td><code>JaaSOperatorPodDown</code></td>
+					<td>critical</td>
+					<td>A jaas pod stays NotReady.</td>
+					<td><code>podDownDuration</code> (5m)</td>
+					<td><a href="/runbooks/operator-pod-down/">operator-pod-down</a>
+</td>
+			</tr>
+			<tr>
+					<td><code>JaaSStorageSweepFailures</code></td>
+					<td>warning</td>
+					<td>Background sweeps fail per hour above the floor.</td>
+					<td><code>sweepFailuresPerHour</code> (3), <code>sweepFailuresDuration</code> (30m)</td>
+					<td><a href="/runbooks/storage-recovery/">storage-recovery</a>
+</td>
+			</tr>
+			<tr>
+					<td><code>JaaSWebhookCertRenewalFailing</code></td>
+					<td>critical</td>
+					<td>Self-signed cert renewal fails per hour above the floor.</td>
+					<td><code>webhookCertRenewalFailuresPerHour</code> (1), <code>webhookCertRenewalFailuresDuration</code> (30m)</td>
+					<td><a href="/runbooks/webhook-cert-renewal/">webhook-cert-renewal</a>
+</td>
+			</tr>
+			<tr>
+					<td><code>JaaSTenantTokenMintFailing</code></td>
+					<td>warning</td>
+					<td>Token mints fail for a <code>(namespace, serviceAccount)</code> pair.</td>
+					<td><code>tenantTokenMintFailureRate</code> (0.01/s), <code>tenantTokenMintFailureDuration</code> (10m)</td>
+					<td><a href="/runbooks/rbacdenied/">rbacdenied</a>
+</td>
+			</tr>
+			<tr>
+					<td><code>JaaSForceDropsAccumulating</code></td>
+					<td>warning</td>
+					<td>Snippet finalizers are force-dropped per hour above the floor.</td>
+					<td><code>forceDropsPerHour</code> (0), <code>forceDropsDuration</code> (5m)</td>
+					<td><a href="/runbooks/storage-recovery/">storage-recovery</a>
+</td>
+			</tr>
+			<tr>
+					<td><code>JaaSCRDWatchEngagementFailing</code></td>
+					<td>warning</td>
+					<td>A Flux source watch won&rsquo;t engage for a GVK.</td>
+					<td><code>crdWatchEngagementFailuresPerHour</code> (1), <code>crdWatchEngagementFailuresDuration</code> (30m)</td>
+					<td><a href="/runbooks/crd-watch-engagement/">crd-watch-engagement</a>
+</td>
+			</tr>
+			<tr>
+					<td><code>JaaSEvalSaturation</code></td>
+					<td>warning</td>
+					<td>In-flight evals exceed the saturation ratio of the cap (guarded on the cap being non-zero).</td>
+					<td><code>evalSaturationRatio</code> (0.9), <code>evalSaturationDuration</code> (10m)</td>
+					<td><a href="/runbooks/eval-saturation/">eval-saturation</a>
+</td>
+			</tr>
+			<tr>
+					<td><code>JaaSEvalRejected</code></td>
+					<td>warning</td>
+					<td>The semaphore turns evals away per second above the floor.</td>
+					<td><code>evalRejectedRate</code> (0.05/s), <code>evalRejectedDuration</code> (10m)</td>
+					<td><a href="/runbooks/eval-saturation/">eval-saturation</a>
+</td>
+			</tr>
+			<tr>
+					<td><code>JaaSEvalLeakedGoroutines</code></td>
+					<td>warning</td>
+					<td>Orphan eval goroutines persist above the floor — a runaway snippet.</td>
+					<td><code>evalLeakedFloor</code> (0), <code>evalLeakedDuration</code> (5m)</td>
+					<td><a href="/runbooks/eval-saturation/">eval-saturation</a>
+</td>
+			</tr>
+	</tbody>
+</table>
+<p><code>JaaSSnippetReconcileErrorsHigh</code> templates its runbook URL on the failing reason,
+so it lands on the matching per-reason page under <a href="/runbooks/"><code>/runbooks/</code></a>
+. Each
+Ready-condition reason and each alert maps to a remediation page there.</p>
+<h2 id="the-helm-chart">The Helm chart</h2>
+<p>The <code>PrometheusRule</code> is opt-in under <code>operator.metrics.prometheusRule</code> and needs
+the Prometheus Operator&rsquo;s <code>monitoring.coreos.com/v1</code> API in the cluster:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">operator</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">metrics</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">prometheusRule</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">interval</span><span class="p">:</span><span class="w"> </span><span class="l">30s</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="c"># Labels your Prometheus instance selects PrometheusRules on.</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">labels</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">release</span><span class="p">:</span><span class="w"> </span><span class="l">kube-prometheus</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="c"># Merged onto every rendered alert — route all jaas alerts</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="c"># through one Alertmanager receiver.</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">extraAlertLabels</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">team</span><span class="p">:</span><span class="w"> </span><span class="l">platform</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="c"># Annotation key the runbook URL lands under (Prometheus-operator</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="c"># convention is runbook_url).</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">runbookAnnotationKey</span><span class="p">:</span><span class="w"> </span><span class="l">runbook_url</span><span class="w">
+</span></span></span></code></pre></div><p>Every threshold is a knob under <code>operator.metrics.prometheusRule.thresholds</code>, so
+the noise floor is tunable without copy-pasting rule bodies. To silence a
+built-in alert, raise its threshold to an impossibly high value — there is no
+per-alert disable toggle, and the threshold pattern keeps &ldquo;this alert is
+intentionally inert&rdquo; visible in the chart values. Cluster-specific rules append
+under a separate group via <code>operator.metrics.prometheusRule.extraRules</code>.</p>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/operator" term="operator" label="operator"/><category scheme="https://jaas.projects.metio.wtf/tags/alerts" term="alerts" label="alerts"/><category scheme="https://jaas.projects.metio.wtf/tags/prometheus" term="prometheus" label="prometheus"/><category scheme="https://jaas.projects.metio.wtf/tags/observability" term="observability" label="observability"/></entry><entry><title type="html">Observability</title><link href="https://jaas.projects.metio.wtf/observability/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/observability/slos/?utm_source=atom_feed" rel="related" type="text/html" title="Service level objectives"/><link href="https://jaas.projects.metio.wtf/observability/alerting/?utm_source=atom_feed" rel="related" type="text/html" title="Alerting"/><link href="https://jaas.projects.metio.wtf/observability/logging/?utm_source=atom_feed" rel="related" type="text/html" title="Logging"/><link href="https://jaas.projects.metio.wtf/observability/metrics/?utm_source=atom_feed" rel="related" type="text/html" title="Metrics"/><link href="https://jaas.projects.metio.wtf/observability/tracing/?utm_source=atom_feed" rel="related" type="text/html" title="Tracing"/><id>https://jaas.projects.metio.wtf/observability/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-18T20:07:20+02:00</updated><content type="html"><![CDATA[<blockquote>How to watch JaaS in production — structured logs, OTLP traces, Prometheus metrics, and the shipped alert catalog with Kubernetes Events and Flux notification routing.</blockquote><p>JaaS gives you four ways to see what it is doing in a cluster. Structured logs
+tell you what happened on a single request or reconcile; traces follow one
+operation across its spans; metrics aggregate behaviour into time series for
+dashboards and alerts; and alerts plus Kubernetes Events turn a sustained
+problem into a page or a notification.</p>
+<p>Each pillar has its own page covering both the binary&rsquo;s flags and the Helm chart
+keys that drive them:</p>
+<ul>
+<li><a href="/observability/logging/">Logging</a>
+ — the <code>log/slog</code> logger, <code>--log-level</code> and
+<code>--log-format</code>, and reading JSON logs with <code>kubectl logs</code> and <code>jq</code>.</li>
+<li><a href="/observability/tracing/">Tracing</a>
+ — OTLP gRPC export to an OpenTelemetry collector,
+sampling, and viewing spans.</li>
+<li><a href="/observability/metrics/">Metrics</a>
+ — the Prometheus endpoint, the custom <code>jaas_*</code>
+metric family, scraping with a <code>ServiceMonitor</code>, and querying with PromQL.</li>
+<li><a href="/observability/alerting/">Alerting</a>
+ — the opt-in <code>PrometheusRule</code> alert catalog with
+its runbook links, plus Kubernetes Events routed through Flux&rsquo;s
+notification-controller.</li>
+</ul>
+<p>Logging applies to every mode JaaS runs in. Tracing, metrics, and alerting are
+operator-mode concerns and take effect once <code>--enable-flux-integration</code> is set
+(<code>operator.enabled</code> in the chart).</p>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/operator" term="operator" label="operator"/><category scheme="https://jaas.projects.metio.wtf/tags/logging" term="logging" label="logging"/><category scheme="https://jaas.projects.metio.wtf/tags/tracing" term="tracing" label="tracing"/><category scheme="https://jaas.projects.metio.wtf/tags/metrics" term="metrics" label="metrics"/><category scheme="https://jaas.projects.metio.wtf/tags/alerts" term="alerts" label="alerts"/></entry><entry><title type="html">Service level objectives</title><link href="https://jaas.projects.metio.wtf/observability/slos/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/observability/alerting/?utm_source=atom_feed" rel="related" type="text/html" title="Alerting"/><link href="https://jaas.projects.metio.wtf/observability/dashboard/?utm_source=atom_feed" rel="related" type="text/html" title="Dashboard"/><link href="https://jaas.projects.metio.wtf/observability/metrics/?utm_source=atom_feed" rel="related" type="text/html" title="Metrics"/><link href="https://jaas.projects.metio.wtf/security/admission-webhook/?utm_source=atom_feed" rel="related" type="text/html" title="Admission webhook"/><link href="https://jaas.projects.metio.wtf/operator/creating-sources/?utm_source=atom_feed" rel="related" type="text/html" title="Creating source artifacts"/><id>https://jaas.projects.metio.wtf/observability/slos/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-19T09:16:22+02:00</updated><content type="html"><![CDATA[<blockquote>The JaaS operator&rsquo;s SLOs — reconcile availability and reconcile latency — with their SLIs, targets, error budget, the dashboard that shows them, and how to tune them.</blockquote><p>The JaaS operator tracks two service-level objectives. Each is an objective on a
+service-level indicator (SLI) computed from the <a href="/observability/metrics/">metrics</a>
+,
+measured over a rolling window. The published dashboard renders them, and the Helm
+chart can alert on them.</p>
+<h2 id="slo-1--reconcile-availability">SLO 1 — reconcile availability</h2>
+<p><strong>Objective:</strong> ≥ <strong>99%</strong> of syncing reconciles reach <code>Ready=True</code>, over a <strong>28-day</strong>
+window.</p>
+<p>The SLI counts only reconciles that were actually trying to sync — the intentional
+<code>Pending</code> and <code>Suspended</code> states are excluded from both halves:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-promql" data-lang="promql"><span class="line"><span class="cl"><span class="k">sum</span><span class="o">(</span><span class="kr">rate</span><span class="o">(</span><span class="nv">jaas_snippet_reconcile_total</span><span class="p">{</span><span class="nl">status</span><span class="o">=</span><span class="p">&#34;</span><span class="s">True</span><span class="p">&#34;}[</span><span class="s">28d</span><span class="p">]</span><span class="o">))</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="o">/</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="o">(</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="k">sum</span><span class="o">(</span><span class="kr">rate</span><span class="o">(</span><span class="nv">jaas_snippet_reconcile_total</span><span class="p">{</span><span class="nl">status</span><span class="o">=</span><span class="p">&#34;</span><span class="s">True</span><span class="p">&#34;}[</span><span class="s">28d</span><span class="p">]</span><span class="o">))</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="o">+</span><span class="w"> </span><span class="k">sum</span><span class="o">(</span><span class="kr">rate</span><span class="o">(</span><span class="nv">jaas_snippet_reconcile_total</span><span class="p">{</span><span class="nl">status</span><span class="o">=</span><span class="p">&#34;</span><span class="s">False</span><span class="p">&#34;,</span><span class="nl">reason</span><span class="o">!~</span><span class="p">&#34;</span><span class="s">Suspended|Pending</span><span class="p">&#34;}[</span><span class="s">28d</span><span class="p">]</span><span class="o">))</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="o">)</span><span class="w">
+</span></span></span></code></pre></div><p>The <strong>error budget</strong> is the 1% of reconciles allowed to fail over the window.
+Remaining budget, normalised so <code>1</code> is full and <code>0</code> is exhausted:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-promql" data-lang="promql"><span class="line"><span class="cl"><span class="o">(&lt;</span><span class="nv">availability</span><span class="o">&gt;</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mf">0.99</span><span class="o">)</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="o">(</span><span class="mi">1</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mf">0.99</span><span class="o">)</span><span class="w">
+</span></span></span></code></pre></div><h2 id="slo-2--reconcile-latency">SLO 2 — reconcile latency</h2>
+<p><strong>Objective:</strong> the JsonnetSnippet controller&rsquo;s <strong>p95</strong> reconcile duration stays
+<strong>below 30s</strong> over the window.</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-promql" data-lang="promql"><span class="line"><span class="cl"><span class="kr">histogram_quantile</span><span class="o">(</span><span class="mf">0.95</span><span class="p">,</span><span class="w"> </span><span class="k">sum</span><span class="w"> </span><span class="k">by</span><span class="w"> </span><span class="o">(</span><span class="nv">le</span><span class="o">)</span><span class="w"> </span><span class="o">(</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="kr">rate</span><span class="o">(</span><span class="nv">controller_runtime_reconcile_time_seconds_bucket</span><span class="p">{</span><span class="nl">controller</span><span class="o">=</span><span class="p">&#34;</span><span class="s">jsonnetsnippet</span><span class="p">&#34;}[</span><span class="s">28d</span><span class="p">]</span><span class="o">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="o">))</span><span class="w">
+</span></span></span></code></pre></div><h2 id="see-the-slos-on-the-dashboard">See the SLOs on the dashboard</h2>
+<p>The published <a href="/observability/dashboard/">dashboard</a>
+ opens with an SLO band:
+current availability against its objective, error budget remaining, p95 latency
+against its objective, and an availability-versus-objective trend. The
+operator-internals panels below explain any movement.</p>
+<p>The objectives and window are top-level arguments, so you set them per environment
+when you render the dashboard through a <code>JsonnetSnippet</code>:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">spec</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">tlas</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">datasource</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&#34;prometheus&#34;</span><span class="p">]</span><span class="w">   </span><span class="c"># your Prometheus datasource UID</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">window</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&#34;28d&#34;</span><span class="p">]</span><span class="w">              </span><span class="c"># SLO window</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">availabilityTarget</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&#34;0.99&#34;</span><span class="p">]</span><span class="w"> </span><span class="c"># 99%</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">latencyTarget</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&#34;30&#34;</span><span class="p">]</span><span class="w">        </span><span class="c"># seconds</span><span class="w">
+</span></span></span></code></pre></div><p>A short window is fine for a demo; a real <code>28d</code> SLI needs at least that much
+Prometheus retention. For long windows, precompute the SLI with a recording rule
+and point <code>window</code> at the recorded series instead of a raw <code>rate(...[28d])</code>.</p>
+<h2 id="alert-on-the-budget">Alert on the budget</h2>
+<p>The shipped <a href="/observability/alerting/">alerts</a>
+ already page on the <em>causes</em> of SLO
+loss (reconcile errors, latency, eval saturation). To alert on the objective
+itself, add an availability-SLO rule through the chart&rsquo;s <code>extraRules</code> passthrough —
+here it fires when recent availability drops below 99%:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">operator</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">metrics</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">prometheusRule</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">extraRules</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span>- <span class="nt">alert</span><span class="p">:</span><span class="w"> </span><span class="l">JaaSReconcileAvailabilityBelowSLO</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">          </span><span class="nt">expr</span><span class="p">:</span><span class="w"> </span><span class="p">|</span><span class="sd">
+</span></span></span><span class="line"><span class="cl"><span class="sd">            (
+</span></span></span><span class="line"><span class="cl"><span class="sd">              sum(rate(jaas_snippet_reconcile_total{status=&#34;True&#34;}[1h]))
+</span></span></span><span class="line"><span class="cl"><span class="sd">              /
+</span></span></span><span class="line"><span class="cl"><span class="sd">              (
+</span></span></span><span class="line"><span class="cl"><span class="sd">                sum(rate(jaas_snippet_reconcile_total{status=&#34;True&#34;}[1h]))
+</span></span></span><span class="line"><span class="cl"><span class="sd">                + sum(rate(jaas_snippet_reconcile_total{status=&#34;False&#34;,reason!~&#34;Suspended|Pending&#34;}[1h]))
+</span></span></span><span class="line"><span class="cl"><span class="sd">              )
+</span></span></span><span class="line"><span class="cl"><span class="sd">            ) &lt; 0.99</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">          </span><span class="nt">for</span><span class="p">:</span><span class="w"> </span><span class="l">1h</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">          </span><span class="nt">labels</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="nt">severity</span><span class="p">:</span><span class="w"> </span><span class="l">warning</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">          </span><span class="nt">annotations</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="nt">summary</span><span class="p">:</span><span class="w"> </span><span class="l">JaaS reconcile availability is below its 99% objective</span><span class="w">
+</span></span></span></code></pre></div><p>The alert measures a short recent window (<code>1h</code>) so it pages while the budget is
+actively burning; the dashboard&rsquo;s <code>window</code> shows the full SLO window. See
+<a href="/observability/alerting/">Alerting</a>
+ for the rest of the catalog.</p>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/operator" term="operator" label="operator"/><category scheme="https://jaas.projects.metio.wtf/tags/slo" term="slo" label="slo"/><category scheme="https://jaas.projects.metio.wtf/tags/metrics" term="metrics" label="metrics"/><category scheme="https://jaas.projects.metio.wtf/tags/alerts" term="alerts" label="alerts"/></entry></feed>

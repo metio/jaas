@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en"><generator uri="https://gohugo.io/" version="0.163.3">Hugo</generator><title type="html">Cosign on Jsonnet-as-a-Service</title><link href="https://jaas.projects.metio.wtf/tags/cosign/" rel="alternate" type="text/html" title="html"/><link href="https://jaas.projects.metio.wtf/tags/cosign/index.xml" rel="alternate" type="application/rss+xml" title="rss"/><link href="https://jaas.projects.metio.wtf/tags/cosign/atom.xml" rel="self" type="application/atom+xml" title="atom"/><updated>2026-07-02T07:56:37+00:00</updated><author><name>metio.wtf</name></author><id>https://jaas.projects.metio.wtf/tags/cosign/</id><entry><title type="html">Verifying releases</title><link href="https://jaas.projects.metio.wtf/reference/verifying-releases/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/running/production/?utm_source=atom_feed" rel="related" type="text/html" title="Production"/><link href="https://jaas.projects.metio.wtf/running/disaster-recovery/?utm_source=atom_feed" rel="related" type="text/html" title="Backup and disaster recovery"/><link href="https://jaas.projects.metio.wtf/reference/configuration/?utm_source=atom_feed" rel="related" type="text/html" title="Configuration reference"/><link href="https://jaas.projects.metio.wtf/rendering/evaluation-and-security/?utm_source=atom_feed" rel="related" type="text/html" title="Evaluation and security"/><link href="https://jaas.projects.metio.wtf/reference/helm-values/?utm_source=atom_feed" rel="related" type="text/html" title="Helm chart values"/><id>https://jaas.projects.metio.wtf/reference/verifying-releases/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-26T15:54:29+02:00</updated><content type="html"><![CDATA[<blockquote>Verify the jaas container image and release archives with cosign keyless signatures before deploying.</blockquote><p>Every jaas release is signed with <a href="https://github.com/sigstore/cosign">cosign</a>
+
+keyless. There is no GPG key to import — identity is proven by the release
+workflow&rsquo;s OIDC certificate from Sigstore&rsquo;s Fulcio CA, recorded in the public
+Rekor transparency log. Verify before you deploy.</p>
+<p>You need <code>cosign</code> (any v2/v4 release) on your PATH. Replace <code>&lt;version&gt;</code> with the
+calendar-version tag you are installing (for example <code>2026.6.15</code>).</p>
+<h2 id="verify-the-container-image">Verify the container image</h2>
+<p>Both the image and the build attestations are signed against the workflow&rsquo;s
+Fulcio identity. The certificate-identity is the release workflow path; the OIDC
+issuer is GitHub Actions:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">cosign verify ghcr.io/metio/jaas:&lt;version&gt; <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --certificate-identity-regexp <span class="s1">&#39;^https://github.com/metio/jaas/\.github/workflows/release\.yml@refs/&#39;</span> <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+</span></span></code></pre></div><p>A passing run prints the verified signature payload and exits <code>0</code>. Any other
+exit code means the image is unsigned or was not produced by the jaas release
+workflow — do not deploy it.</p>
+<p>Pin to an immutable digest in production rather than the mutable tag. Resolve the
+digest once (with <code>crane</code>, or <code>docker buildx imagetools inspect</code>), then verify and
+deploy by digest:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl"><span class="nv">digest</span><span class="o">=</span><span class="k">$(</span>crane digest ghcr.io/metio/jaas:&lt;version&gt;<span class="k">)</span>
+</span></span><span class="line"><span class="cl">cosign verify <span class="s2">&#34;ghcr.io/metio/jaas@</span><span class="si">${</span><span class="nv">digest</span><span class="si">}</span><span class="s2">&#34;</span> <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --certificate-identity-regexp <span class="s1">&#39;^https://github.com/metio/jaas/\.github/workflows/release\.yml@refs/&#39;</span> <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+</span></span></code></pre></div><h3 id="sbom-and-provenance">SBOM and provenance</h3>
+<p>The image build attaches an SBOM and SLSA provenance. Inspect them with:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">cosign download sbom ghcr.io/metio/jaas:&lt;version&gt;
+</span></span><span class="line"><span class="cl">cosign verify-attestation ghcr.io/metio/jaas:&lt;version&gt; <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --type slsaprovenance <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --certificate-identity-regexp <span class="s1">&#39;^https://github.com/metio/jaas/\.github/workflows/release\.yml@refs/&#39;</span> <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+</span></span></code></pre></div><h2 id="verify-the-release-archives">Verify the release archives</h2>
+<p>The GitHub release attaches one <code>SHA256SUMS</code> file covering every archive, a
+cosign bundle (<code>SHA256SUMS.bundle</code>) that signs it, and the per-platform
+<code>.tar.gz</code> / <code>.zip</code> archives. Download <code>jaas_&lt;version&gt;_SHA256SUMS</code>, its
+<code>.bundle</code>, and the archive you want into the same directory, then verify the
+checksum file&rsquo;s signature and check your download against it:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">cosign verify-blob jaas_&lt;version&gt;_SHA256SUMS <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --bundle jaas_&lt;version&gt;_SHA256SUMS.bundle <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --certificate-identity-regexp <span class="s1">&#39;^https://github.com/metio/jaas/\.github/workflows/release\.yml@refs/&#39;</span> <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+</span></span><span class="line"><span class="cl">sha256sum -c jaas_&lt;version&gt;_SHA256SUMS
+</span></span></code></pre></div><p>The first command proves the checksum file came from the jaas release workflow;
+the second proves your downloaded archive matches the trusted checksums.
+<code>sha256sum -c</code> reports <code>OK</code> per file present in the directory and ignores
+checksums for files you did not download.</p>
+<p>The GitHub release notes link here so they stay short — the canonical, copy-pasteable
+commands live on this page.</p>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/installation" term="installation" label="installation"/><category scheme="https://jaas.projects.metio.wtf/tags/security" term="security" label="security"/><category scheme="https://jaas.projects.metio.wtf/tags/supply-chain" term="supply-chain" label="supply-chain"/><category scheme="https://jaas.projects.metio.wtf/tags/cosign" term="cosign" label="cosign"/><category scheme="https://jaas.projects.metio.wtf/tags/sigstore" term="sigstore" label="sigstore"/></entry></feed>

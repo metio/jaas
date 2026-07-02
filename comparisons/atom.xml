@@ -1,0 +1,359 @@
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en"><generator uri="https://gohugo.io/" version="0.163.3">Hugo</generator><title type="html">Comparisons on Jsonnet-as-a-Service</title><link href="https://jaas.projects.metio.wtf/comparisons/" rel="alternate" type="text/html" title="html"/><link href="https://jaas.projects.metio.wtf/comparisons/index.xml" rel="alternate" type="application/rss+xml" title="rss"/><link href="https://jaas.projects.metio.wtf/comparisons/atom.xml" rel="self" type="application/atom+xml" title="atom"/><updated>2026-07-02T07:56:36+00:00</updated><author><name>metio.wtf</name></author><id>https://jaas.projects.metio.wtf/comparisons/</id><entry><title type="html">JaaS and grafana-operator</title><link href="https://jaas.projects.metio.wtf/comparisons/grafana-operator/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/comparisons/tanka/?utm_source=atom_feed" rel="related" type="text/html" title="JaaS vs Tanka"/><link href="https://jaas.projects.metio.wtf/comparisons/jsonnet-controller/?utm_source=atom_feed" rel="related" type="text/html" title="JaaS vs jsonnet-controller"/><link href="https://jaas.projects.metio.wtf/comparisons/jsonnet-cli/?utm_source=atom_feed" rel="related" type="text/html" title="JaaS vs the jsonnet CLI"/><link href="https://jaas.projects.metio.wtf/comparisons/flux-operator/?utm_source=atom_feed" rel="related" type="text/html" title="vs Flux Operator ResourceSet"/><id>https://jaas.projects.metio.wtf/comparisons/grafana-operator/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-26T15:54:29+02:00</updated><content type="html"><![CDATA[<blockquote>How JaaS renders Grafana dashboard JSON from Jsonnet while grafana-operator reconciles it into Grafana.</blockquote><p>JaaS and the <a href="https://grafana.github.io/grafana-operator/">grafana-operator</a>
+ are
+not alternatives — they do different jobs and are commonly used together. JaaS
+<em>produces</em> dashboard JSON from Jsonnet; grafana-operator <em>consumes</em> dashboard
+JSON and reconciles it into a Grafana instance.</p>
+<h2 id="division-of-labour">Division of labour</h2>
+<p>grafana-operator manages Grafana itself. It reconciles <code>GrafanaDashboard</code>,
+<code>GrafanaDatasource</code>, <code>GrafanaFolder</code>, and related resources into one or more
+Grafana instances, handling authentication, folder placement, datasource wiring,
+and drift correction inside Grafana. A <code>GrafanaDashboard</code> can take its dashboard
+model from inline JSON, a URL, a ConfigMap, a <code>grafana.com</code> dashboard ID, or a
+remote source.</p>
+<p>JaaS evaluates Jsonnet — including <a href="https://grafana.github.io/grafonnet/">grafonnet</a>
+
+— and publishes the rendered dashboard JSON as a Flux <code>ExternalArtifact</code>. It
+knows nothing about Grafana: it renders JSON and stops there.</p>
+<p>So the two compose along a clean seam. You author dashboards in grafonnet, JaaS
+renders them to JSON, and grafana-operator takes that JSON and reconciles it into
+Grafana. Each tool owns one half of the pipeline and neither reaches into the
+other&rsquo;s domain.</p>
+<h2 id="when-grafana-operator-alone-is-enough">When grafana-operator alone is enough</h2>
+<p>If your dashboards are already plain JSON, or you consume them by <code>grafana.com</code>
+dashboard ID, or you maintain them in the Grafana UI and export the model, then
+grafana-operator covers the whole workflow on its own. There is no Jsonnet to
+render, so there is nothing for JaaS to do. Reach for grafana-operator by itself
+whenever the dashboard model exists as static JSON.</p>
+<h2 id="when-to-add-jaas">When to add JaaS</h2>
+<p>Add JaaS when your dashboards are authored in grafonnet (or any Jsonnet),
+typically to share panels, variables, and layout helpers across many dashboards
+instead of duplicating JSON. JaaS turns that Jsonnet into the JSON
+grafana-operator expects, with the same <code>jsonnet -J vendor</code> import resolution
+you use locally, so a dashboard renders identically on your workstation and
+in-cluster. grafana-operator then reconciles the rendered output as it would any
+other dashboard JSON.</p>
+<h2 id="wiring-them-together">Wiring them together</h2>
+<p>The grafana-operator project documents the JaaS integration directly, including
+the <code>GrafanaDashboard</code> configuration that points at a JaaS-rendered artifact:
+<a href="https://grafana.github.io/grafana-operator/docs/examples/dashboard/jaas/readme/">grafana-operator dashboard example with JaaS</a>
+.
+Keep all <code>GrafanaDashboard</code>, datasource, and folder configuration on the
+grafana-operator side; JaaS contributes only the rendering step and the
+<code>ExternalArtifact</code> it publishes.</p>
+<p>The <a href="/guides/grafana-dashboards/">Grafana dashboards</a>
+ tutorial shows the JaaS
+side — authoring a grafonnet dashboard as a <code>JsonnetSnippet</code> and publishing the
+rendered JSON.</p>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/comparison" term="comparison" label="comparison"/><category scheme="https://jaas.projects.metio.wtf/tags/grafana-operator" term="grafana-operator" label="grafana-operator"/></entry><entry><title type="html">JaaS vs jsonnet-controller</title><link href="https://jaas.projects.metio.wtf/comparisons/jsonnet-controller/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/comparisons/grafana-operator/?utm_source=atom_feed" rel="related" type="text/html" title="JaaS and grafana-operator"/><link href="https://jaas.projects.metio.wtf/comparisons/tanka/?utm_source=atom_feed" rel="related" type="text/html" title="JaaS vs Tanka"/><link href="https://jaas.projects.metio.wtf/comparisons/jsonnet-cli/?utm_source=atom_feed" rel="related" type="text/html" title="JaaS vs the jsonnet CLI"/><link href="https://jaas.projects.metio.wtf/comparisons/flux-operator/?utm_source=atom_feed" rel="related" type="text/html" title="vs Flux Operator ResourceSet"/><id>https://jaas.projects.metio.wtf/comparisons/jsonnet-controller/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-26T15:54:29+02:00</updated><content type="html"><![CDATA[<blockquote>How JaaS separates rendering from deployment, where jsonnet-controller builds and applies Jsonnet in one controller.</blockquote><p><a href="https://github.com/pelotech/jsonnet-controller">pelotech/jsonnet-controller</a>
+ is
+a Flux-style controller that builds Jsonnet inside the controller and applies the
+result to the cluster, with a configuration model compatible with
+<a href="https://github.com/kubecfg/kubecfg">kubecfg</a>
+. JaaS and jsonnet-controller both
+turn Jsonnet into Kubernetes objects under Flux, but they draw the boundary
+between rendering and deployment in different places.</p>
+<h2 id="coupled-build-and-apply-vs-a-rendering-service">Coupled build-and-apply vs a rendering service</h2>
+<p>jsonnet-controller couples the two halves: one controller reads a Jsonnet
+source, evaluates it, and applies the resulting objects to the cluster. The
+rendered output lives inside the controller&rsquo;s reconcile loop; the unit of
+configuration is &ldquo;build this Jsonnet and apply it here.&rdquo;</p>
+<p>JaaS separates them. The JaaS operator renders a <code>JsonnetSnippet</code> and publishes
+the result as a content-addressed Flux <code>ExternalArtifact</code> — a tarball any
+source-controller-speaking consumer can fetch. JaaS does not apply anything. A
+separate consumer (a Flux <code>Kustomization</code>, a <code>HelmRelease</code>, or a
+<a href="https://stageset.projects.metio.wtf/">stageset-controller</a>
+ <code>StageSet</code>) reads the
+artifact and applies it. The rendered bytes are a first-class, addressable object
+that more than one consumer can reference, pin to a revision, or roll back to.</p>
+<p>That same rendering is also reachable over HTTP, so callers that are not Flux
+consumers — a CI step, another service — can request a render from the same
+engine that produces the in-cluster artifacts. See
+<a href="/operator/operator-mode/">operator mode</a>
+ for how a snippet becomes an artifact.</p>
+<h2 id="where-jsonnet-controller-fits">Where jsonnet-controller fits</h2>
+<p>jsonnet-controller is the more direct choice when its model matches your needs:</p>
+<ul>
+<li><strong>kubecfg compatibility.</strong> If you already organise Jsonnet the kubecfg way —
+its import conventions, its top-level structure — jsonnet-controller consumes
+that directly without restructuring.</li>
+<li><strong>One object per build-and-apply.</strong> When you want a single Flux-style
+resource that both renders a source and applies it, with no intermediate
+artifact to manage, jsonnet-controller keeps the pipeline to one moving part.</li>
+</ul>
+<p>JaaS is the better fit when you want the rendered output to be an addressable,
+revisioned artifact that several consumers can share, when you want the same
+renderer available over HTTP to non-Flux callers, or when you want rendering and
+deployment owned by separate, independently-evolving controllers.</p>
+<h2 id="the-deployment-side-comparison">The deployment-side comparison</h2>
+<p>The comparison above is from the rendering angle — rendering as a service that
+produces an artifact, versus build-and-apply in one controller. For the
+deployment-side comparison against jsonnet-controller — ordered and gated apply,
+health gating between stages, rollback — see stageset-controller&rsquo;s own page:
+<a href="https://stageset.projects.metio.wtf/comparisons/jsonnet-controller/">stageset-controller vs jsonnet-controller</a>
+.</p>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/comparison" term="comparison" label="comparison"/><category scheme="https://jaas.projects.metio.wtf/tags/jsonnet-controller" term="jsonnet-controller" label="jsonnet-controller"/></entry><entry><title type="html">JaaS vs Tanka</title><link href="https://jaas.projects.metio.wtf/comparisons/tanka/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/comparisons/grafana-operator/?utm_source=atom_feed" rel="related" type="text/html" title="JaaS and grafana-operator"/><link href="https://jaas.projects.metio.wtf/comparisons/jsonnet-controller/?utm_source=atom_feed" rel="related" type="text/html" title="JaaS vs jsonnet-controller"/><link href="https://jaas.projects.metio.wtf/comparisons/jsonnet-cli/?utm_source=atom_feed" rel="related" type="text/html" title="JaaS vs the jsonnet CLI"/><link href="https://jaas.projects.metio.wtf/comparisons/flux-operator/?utm_source=atom_feed" rel="related" type="text/html" title="vs Flux Operator ResourceSet"/><id>https://jaas.projects.metio.wtf/comparisons/tanka/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-26T15:54:29+02:00</updated><content type="html"><![CDATA[<blockquote>How JaaS replaces a client-side <code>tk apply</code> workflow with server-side rendering and a Flux pull loop.</blockquote><p><a href="https://tanka.dev">Grafana Tanka</a>
+ and JaaS both render Kubernetes manifests
+from Jsonnet, and both build on the same <a href="https://github.com/jsonnet-bundler/jsonnet-bundler"><code>jsonnet-bundler</code></a>
+
+vendoring conventions. The difference is <em>where the rendering runs and how the
+result reaches the cluster</em>.</p>
+<h2 id="the-two-models">The two models</h2>
+<p>Tanka renders and applies from a developer workstation or a CI runner. You
+organise your code as environments (<code>environments/&lt;env&gt;/main.jsonnet</code> plus a
+<code>spec.json</code>), run <code>tk show</code> or <code>tk export</code> to inspect the rendered objects, and
+<code>tk apply</code> to push them to the cluster the environment names in its <code>apiServer</code>
+field. The workstation or CI runner needs the Jsonnet toolchain, the vendored
+library tree, and credentials for the target cluster.</p>
+<p>JaaS renders in-cluster. A <code>JsonnetSnippet</code> names the same Jsonnet entry file;
+the JaaS operator evaluates it continuously and publishes the result as a Flux
+<code>ExternalArtifact</code>. A Flux <code>Kustomization</code> (or <code>HelmRelease</code>, or for ordered
+rollouts a <a href="https://stageset.projects.metio.wtf/">stageset-controller</a>
+
+<code>StageSet</code>) consumes that artifact and applies it through the cluster&rsquo;s own
+GitOps pull loop. No workstation or CI runner holds cluster credentials, and
+developers do not need the Jsonnet toolchain or the vendor tree to ship a
+change.</p>
+<h2 id="when-tanka-is-the-better-fit">When Tanka is the better fit</h2>
+<p>Tanka stays the stronger choice when its model matches the work:</p>
+<ul>
+<li><strong>Ad-hoc and exploratory renders.</strong> <code>tk show</code> / <code>tk diff</code> give an immediate,
+local preview of exactly what would be applied, with no operator, no
+<code>ExternalArtifact</code>, and no consumer to configure.</li>
+<li><strong>Environments-as-code as the organising abstraction.</strong> Tanka&rsquo;s
+environment/<code>spec.json</code> model — <code>namespace</code>, <code>injectLabels</code>, <code>apiServer</code>
+per environment, <code>tk env list</code> to enumerate them — is a first-class feature
+with no direct JaaS equivalent; JaaS pushes namespace and label concerns down
+to the consuming Flux <code>Kustomization</code> instead.</li>
+<li><strong>Direct, imperative apply.</strong> When a human running <code>tk apply</code> against a
+named cluster is the intended workflow — small teams, bootstrap steps,
+break-glass operations — a pull loop adds machinery you may not need.</li>
+</ul>
+<p>JaaS becomes the better fit when you want a pull-based GitOps loop, continuous
+reconciliation and drift correction, server-side rendering so laptops and CI
+hold no cluster credentials, per-tenant RBAC isolation on each render, and —
+through stageset-controller — ordered, gated progressive delivery.</p>
+<h2 id="your-imports-resolve-identically">Your imports resolve identically</h2>
+<p>JaaS&rsquo;s importer implements the <strong>same resolution as <code>jsonnet -J vendor</code></strong>, the
+scheme Tanka uses. A bare <code>import 'foo/main.libsonnet'</code> finds the library by
+alias; an absolute <code>import 'github.com/.../gen/...'</code> resolves against the
+vendored tree; sibling and <code>../</code> relative imports resolve from the importing
+file. A <code>jb</code>-vendored tree (k8s-libsonnet, grafonnet, and the like) renders the
+same bytes through JaaS as it does under <code>tk show</code>. Migration is mostly about
+<em>where the files live</em>, not <em>rewriting Jsonnet</em>. See
+<a href="/rendering/jsonnet-libraries/">Jsonnet libraries</a>
+ for how libraries reach a
+snippet.</p>
+<p>One behaviour to plan for: Tanka walks the evaluated object and extracts every
+nested <code>{apiVersion, kind, …}</code> into a resource stream. JaaS publishes exactly
+what the entry file evaluates to. Make the entry file emit a flat manifest
+stream — wrap resources in a <code>v1</code> <code>List</code>, or apply <code>std.objectValues(...)</code> over
+your Tanka object — so the consuming Flux <code>Kustomization</code> applies every
+resource.</p>
+<h2 id="a-migration-path">A migration path</h2>
+<table>
+	<thead>
+			<tr>
+					<th>Tanka</th>
+					<th>JaaS / Flux</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><code>vendor/</code> (jb-installed libs)</td>
+					<td><code>JsonnetLibrary</code> with a <code>sourceRef</code>, or OCI-mounted libraries</td>
+			</tr>
+			<tr>
+					<td><code>lib/</code> (project-shared libs)</td>
+					<td><code>JsonnetLibrary</code> with inline <code>files</code> in the same namespace</td>
+			</tr>
+			<tr>
+					<td><code>environments/&lt;env&gt;/main.jsonnet</code></td>
+					<td>one <code>JsonnetSnippet</code> (<code>spec.entryFile</code> + <code>spec.files</code>/<code>spec.sourceRef</code>)</td>
+			</tr>
+			<tr>
+					<td><code>import</code> resolution (<code>-J vendor</code>)</td>
+					<td>identical — JaaS&rsquo;s in-memory importer</td>
+			</tr>
+			<tr>
+					<td>per-env <code>spec.json</code> / conditionals</td>
+					<td><code>spec.externalVariables</code> (<code>std.extVar</code>) and <code>spec.tlas</code> (top-level args)</td>
+			</tr>
+			<tr>
+					<td><code>spec.json</code> <code>namespace</code></td>
+					<td>Flux <code>Kustomization.spec.targetNamespace</code></td>
+			</tr>
+			<tr>
+					<td><code>spec.json</code> <code>injectLabels</code></td>
+					<td>Flux <code>Kustomization.spec.commonMetadata.labels</code></td>
+			</tr>
+			<tr>
+					<td><code>tk show</code> / <code>tk export</code></td>
+					<td>the JaaS operator, continuously → <code>ExternalArtifact</code></td>
+			</tr>
+			<tr>
+					<td><code>tk apply</code></td>
+					<td>Flux kustomize-/helm-controller (pull)</td>
+			</tr>
+			<tr>
+					<td><code>tk diff</code></td>
+					<td>Flux drift detection; stageset verification between stages</td>
+			</tr>
+			<tr>
+					<td><code>tk env list</code></td>
+					<td><code>kubectl get jsonnetsnippets -A</code></td>
+			</tr>
+	</tbody>
+</table>
+<p>The conversion in three moves:</p>
+<ol>
+<li>
+<p><strong>Move the libraries.</strong> Shared, versioned libraries (k8s-libsonnet,
+grafonnet) become a <code>JsonnetLibrary</code> backed by an <code>OCIRepository</code>, or a
+static OCI-mounted library on the operator. A project-local <code>lib/</code> becomes a
+<code>JsonnetLibrary</code> with inline <code>files</code>. The import alias is preserved either
+way.</p>
+</li>
+<li>
+<p><strong>Turn each environment into a <code>JsonnetSnippet</code>.</strong> <code>environments/team-a/main.jsonnet</code>
+becomes one snippet. Prefer <code>spec.sourceRef</code> (a Flux
+<code>GitRepository</code>/<code>OCIRepository</code>/<code>Bucket</code>) over inline <code>files</code> for real
+repositories, so Flux versions the source and JaaS re-renders on every
+commit. Per-environment differences move to <code>spec.externalVariables</code> and
+<code>spec.tlas</code>, so two environments sharing one library become two snippets that
+differ only in those fields.</p>
+</li>
+<li>
+<p><strong>Replace apply with GitOps.</strong> <code>tk apply</code> goes away. A Flux <code>Kustomization</code>
+points its <code>sourceRef</code> at the snippet&rsquo;s <code>ExternalArtifact</code>; Flux applies it
+and reconciles it continuously. The
+<a href="/guides/deploying-manifests/">Deploying manifests</a>
+ tutorial walks this
+end to end.</p>
+</li>
+</ol>
+<h2 id="what-changes">What changes</h2>
+<p>There is no single <code>tk diff</code> preview — use Flux&rsquo;s drift detection and
+stageset&rsquo;s between-stage verification instead. Namespace and label injection moves from
+<code>spec.json</code> to the consuming Flux <code>Kustomization</code>, where both are first-class
+fields. Your Jsonnet and libraries come across unchanged.</p>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/comparison" term="comparison" label="comparison"/><category scheme="https://jaas.projects.metio.wtf/tags/tanka" term="tanka" label="tanka"/></entry><entry><title type="html">JaaS vs the jsonnet CLI</title><link href="https://jaas.projects.metio.wtf/comparisons/jsonnet-cli/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/comparisons/grafana-operator/?utm_source=atom_feed" rel="related" type="text/html" title="JaaS and grafana-operator"/><link href="https://jaas.projects.metio.wtf/comparisons/tanka/?utm_source=atom_feed" rel="related" type="text/html" title="JaaS vs Tanka"/><link href="https://jaas.projects.metio.wtf/comparisons/jsonnet-controller/?utm_source=atom_feed" rel="related" type="text/html" title="JaaS vs jsonnet-controller"/><link href="https://jaas.projects.metio.wtf/comparisons/flux-operator/?utm_source=atom_feed" rel="related" type="text/html" title="vs Flux Operator ResourceSet"/><id>https://jaas.projects.metio.wtf/comparisons/jsonnet-cli/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-26T15:54:29+02:00</updated><content type="html"><![CDATA[<blockquote>What the JaaS service adds over running the jsonnet and jb command-line tools yourself.</blockquote><p>The <a href="https://jsonnet.org/"><code>jsonnet</code></a>
+ command-line tool — usually paired with
+<a href="https://github.com/jsonnet-bundler/jsonnet-bundler"><code>jsonnet-bundler</code></a>
+ (<code>jb</code>)
+for vendoring libraries — evaluates Jsonnet to JSON on your machine. JaaS runs
+the <strong>same go-jsonnet core</strong> as a service. This is not a question of which
+implementation is correct; it is a question of <em>where the evaluation runs and
+what surrounds it</em>.</p>
+<h2 id="what-the-service-adds">What the service adds</h2>
+<p>Over a local binary invocation, JaaS adds:</p>
+<ul>
+<li><strong>An HTTP endpoint other systems can call.</strong> <code>GET /jsonnet/&lt;snippet&gt;</code> returns
+the evaluated JSON, with Top Level Arguments supplied as query parameters and
+external variables configured on the service. Anything that speaks HTTP can
+request a render without installing the toolchain or the vendor tree. See the
+<a href="/rendering/rendering-endpoint/">rendering endpoint</a>
+ usage page.</li>
+<li><strong>An operator that turns a snippet into a revisioned Flux artifact.</strong> With
+<code>--enable-flux-integration</code>, a <code>JsonnetSnippet</code> is evaluated continuously and
+published as a content-addressed <code>ExternalArtifact</code> that Flux consumers apply
+in-cluster — re-rendered automatically when its source changes. See
+<a href="/operator/operator-mode/">operator mode</a>
+.</li>
+<li><strong>Import resolution that matches <code>jsonnet -J vendor</code>.</strong> JaaS resolves imports
+with the same semantics as the CLI&rsquo;s JPATH/vendor search, so the JSON a
+snippet produces under the service matches what the CLI produces locally.</li>
+<li><strong>Evaluation caps.</strong> <code>--evaluation-timeout</code> bounds wall-clock time per render,
+<code>--max-stack</code> bounds call-stack depth, and <code>--max-concurrent-evals</code> bounds how
+many evaluations run at once — so one expensive snippet cannot exhaust a
+shared server. The CLI imposes none of these on its own.</li>
+<li><strong>Read-scope sandboxing.</strong> Snippet-name resolution goes through Go&rsquo;s
+<code>os.Root</code>, which rejects <code>..</code> traversal and symlinks that escape the
+configured snippet directory, so a crafted request cannot read arbitrary
+files. The <a href="/rendering/evaluation-and-security/">evaluation and security</a>
+ page
+details the caps and the boundaries.</li>
+</ul>
+<h2 id="when-the-plain-cli-is-the-right-tool">When the plain CLI is the right tool</h2>
+<p>The CLI is the better choice for work that is local and one-off:</p>
+<ul>
+<li><strong>One-off local renders</strong> — inspecting what a snippet produces, debugging a
+library, iterating on a dashboard before committing it.</li>
+<li><strong>CI scripts</strong> — a build step that renders Jsonnet to JSON and hands it to
+another tool, where standing up a service would add a moving part for no gain.</li>
+<li><strong>Anywhere a service is unwanted</strong> — no HTTP endpoint to call, no cluster, no
+artifact to consume.</li>
+</ul>
+<p>Because JaaS runs the same go-jsonnet core, these are not mutually exclusive:
+you can keep <code>jsonnet</code> and <code>jb</code> on your workstation and in CI, and run JaaS
+in-cluster for the server-side and GitOps paths, with both producing the same
+JSON for the same input. The <a href="/get-started/local-rendering/">local rendering</a>
+
+tutorial shows JaaS used purely as a renderer, which keeps the local and
+in-cluster output aligned.</p>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/comparison" term="comparison" label="comparison"/><category scheme="https://jaas.projects.metio.wtf/tags/jsonnet-cli" term="jsonnet-cli" label="jsonnet-cli"/></entry><entry><title type="html">vs Flux Operator ResourceSet</title><link href="https://jaas.projects.metio.wtf/comparisons/flux-operator/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/integrations/flux-operator/?utm_source=atom_feed" rel="related" type="text/html" title="Flux Operator (ResourceSet) integration"/><link href="https://jaas.projects.metio.wtf/comparisons/grafana-operator/?utm_source=atom_feed" rel="related" type="text/html" title="JaaS and grafana-operator"/><link href="https://jaas.projects.metio.wtf/comparisons/tanka/?utm_source=atom_feed" rel="related" type="text/html" title="JaaS vs Tanka"/><link href="https://jaas.projects.metio.wtf/comparisons/jsonnet-controller/?utm_source=atom_feed" rel="related" type="text/html" title="JaaS vs jsonnet-controller"/><link href="https://jaas.projects.metio.wtf/comparisons/jsonnet-cli/?utm_source=atom_feed" rel="related" type="text/html" title="JaaS vs the jsonnet CLI"/><id>https://jaas.projects.metio.wtf/comparisons/flux-operator/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-26T15:54:29+02:00</updated><content type="html"><![CDATA[<blockquote>JaaS renders Jsonnet into an ExternalArtifact; the Flux Operator&rsquo;s ResourceSet fans out instances from inputs — complementary tools that compose.</blockquote><p>JaaS and the <a href="https://fluxoperator.dev/">Flux Operator</a>
+&rsquo;s <code>ResourceSet</code> solve
+different halves of the same delivery problem, so reach for them together rather
+than choosing between them. JaaS <em>renders content</em>: it evaluates a <code>JsonnetSnippet</code>
+and publishes the resulting JSON as a Flux <code>ExternalArtifact</code>. A <code>ResourceSet</code>
+<em>fans out instances</em>: it takes a set of inputs and templates one copy of a set of
+Kubernetes or Flux objects per input. Neither does the other&rsquo;s job — a
+<code>ResourceSet</code> has no Jsonnet evaluator, and JaaS has no input matrix — so the two
+slot together cleanly.</p>
+<h2 id="what-each-one-produces">What each one produces</h2>
+<p>JaaS turns Jsonnet into bytes. You hand the operator a <code>JsonnetSnippet</code> (inline
+<code>spec.files</code> or a <code>spec.sourceRef</code> to a Flux source), it runs go-jsonnet, and it
+writes the evaluated JSON to a content-addressed <code>ExternalArtifact</code> that any Flux
+consumer can fetch and pin. The input is a Jsonnet program plus its top-level
+arguments and external variables; the output is one rendered document.</p>
+<p><code>ResourceSet</code> turns a list of inputs into a fleet of objects. You give it
+<code>.spec.inputs</code> (static value sets) and <code>.spec.inputsFrom</code> (references to
+<code>ResourceSetInputProvider</code> objects that export inputs from Git branches, pull
+requests, OCI tags, or a static list), combine them with <code>.spec.inputStrategy</code>
+(<code>Flatten</code> or <code>Permute</code>), and template the result into <code>.spec.resources</code> (or
+<code>.spec.resourcesTemplate</code>) using Go templates with <code>&lt;&lt; inputs.x &gt;&gt;</code> delimiters.
+The output is N rendered objects, one per resolved input.</p>
+<h2 id="where-each-one-fits">Where each one fits</h2>
+<table>
+	<thead>
+			<tr>
+					<th>You want to…</th>
+					<th>Reach for</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>Evaluate Jsonnet (grafonnet dashboards, manifest libraries) into JSON</td>
+					<td>JaaS <code>JsonnetSnippet</code></td>
+			</tr>
+			<tr>
+					<td>Re-render automatically when a Flux source republishes</td>
+					<td>JaaS <code>spec.sourceRef</code></td>
+			</tr>
+			<tr>
+					<td>Create one copy of a resource per tenant, cluster, or environment</td>
+					<td><code>ResourceSet</code></td>
+			</tr>
+			<tr>
+					<td>Drive that fan-out from Git branches, PRs, or OCI tags</td>
+					<td><code>ResourceSetInputProvider</code></td>
+			</tr>
+			<tr>
+					<td>Gate when inputs refresh to a time window</td>
+					<td><code>ResourceSetInputProvider</code> <code>.spec.schedule</code></td>
+			</tr>
+	</tbody>
+</table>
+<p>A <code>ResourceSet</code> can template a <code>JsonnetSnippet</code> as one of its <code>.spec.resources</code>,
+which is exactly where they compose: the <code>ResourceSet</code> produces one snippet per
+input, and JaaS renders each one. You get per-tenant or per-cluster Jsonnet output
+without authoring a snippet by hand for every instance.</p>
+<h2 id="they-compose">They compose</h2>
+<p>The practical pattern — a <code>ResourceSet</code> that templates a <code>JsonnetSnippet</code> per
+input so JaaS renders per-cluster or per-tenant content — has a complete, working
+example on the <a href="/integrations/flux-operator/">Flux Operator integration</a>
+ page.</p>
+<p>Neither tool replaces the other: drop the Flux Operator if you only ever render
+one document per snippet, and drop JaaS if your objects need no Jsonnet
+evaluation. When both are true — many instances, each rendered from Jsonnet — run
+them side by side.</p>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/comparison" term="comparison" label="comparison"/><category scheme="https://jaas.projects.metio.wtf/tags/flux-operator" term="flux-operator" label="flux-operator"/><category scheme="https://jaas.projects.metio.wtf/tags/resourceset" term="resourceset" label="resourceset"/></entry></feed>

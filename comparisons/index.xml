@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Comparisons on Jsonnet-as-a-Service</title><link>https://jaas.projects.metio.wtf/comparisons/</link><description>Recent content in Comparisons on Jsonnet-as-a-Service</description><generator>Hugo</generator><language>en</language><atom:link href="https://jaas.projects.metio.wtf/comparisons/index.xml" rel="self" type="application/rss+xml"/><item><title>JaaS and grafana-operator</title><link>https://jaas.projects.metio.wtf/comparisons/grafana-operator/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/comparisons/grafana-operator/</guid><description>&lt;p&gt;JaaS and the &lt;a href="https://grafana.github.io/grafana-operator/"&gt;grafana-operator&lt;/a&gt;
+ are
+not alternatives — they do different jobs and are commonly used together. JaaS
+&lt;em&gt;produces&lt;/em&gt; dashboard JSON from Jsonnet; grafana-operator &lt;em&gt;consumes&lt;/em&gt; dashboard
+JSON and reconciles it into a Grafana instance.&lt;/p&gt;
+&lt;h2 id="division-of-labour"&gt;Division of labour&lt;/h2&gt;
+&lt;p&gt;grafana-operator manages Grafana itself. It reconciles &lt;code&gt;GrafanaDashboard&lt;/code&gt;,
+&lt;code&gt;GrafanaDatasource&lt;/code&gt;, &lt;code&gt;GrafanaFolder&lt;/code&gt;, and related resources into one or more
+Grafana instances, handling authentication, folder placement, datasource wiring,
+and drift correction inside Grafana. A &lt;code&gt;GrafanaDashboard&lt;/code&gt; can take its dashboard
+model from inline JSON, a URL, a ConfigMap, a &lt;code&gt;grafana.com&lt;/code&gt; dashboard ID, or a
+remote source.&lt;/p&gt;</description></item><item><title>JaaS vs jsonnet-controller</title><link>https://jaas.projects.metio.wtf/comparisons/jsonnet-controller/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/comparisons/jsonnet-controller/</guid><description>&lt;p&gt;&lt;a href="https://github.com/pelotech/jsonnet-controller"&gt;pelotech/jsonnet-controller&lt;/a&gt;
+ is
+a Flux-style controller that builds Jsonnet inside the controller and applies the
+result to the cluster, with a configuration model compatible with
+&lt;a href="https://github.com/kubecfg/kubecfg"&gt;kubecfg&lt;/a&gt;
+. JaaS and jsonnet-controller both
+turn Jsonnet into Kubernetes objects under Flux, but they draw the boundary
+between rendering and deployment in different places.&lt;/p&gt;
+&lt;h2 id="coupled-build-and-apply-vs-a-rendering-service"&gt;Coupled build-and-apply vs a rendering service&lt;/h2&gt;
+&lt;p&gt;jsonnet-controller couples the two halves: one controller reads a Jsonnet
+source, evaluates it, and applies the resulting objects to the cluster. The
+rendered output lives inside the controller&amp;rsquo;s reconcile loop; the unit of
+configuration is &amp;ldquo;build this Jsonnet and apply it here.&amp;rdquo;&lt;/p&gt;</description></item><item><title>JaaS vs Tanka</title><link>https://jaas.projects.metio.wtf/comparisons/tanka/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/comparisons/tanka/</guid><description>&lt;p&gt;&lt;a href="https://tanka.dev"&gt;Grafana Tanka&lt;/a&gt;
+ and JaaS both render Kubernetes manifests
+from Jsonnet, and both build on the same &lt;a href="https://github.com/jsonnet-bundler/jsonnet-bundler"&gt;&lt;code&gt;jsonnet-bundler&lt;/code&gt;&lt;/a&gt;
+
+vendoring conventions. The difference is &lt;em&gt;where the rendering runs and how the
+result reaches the cluster&lt;/em&gt;.&lt;/p&gt;
+&lt;h2 id="the-two-models"&gt;The two models&lt;/h2&gt;
+&lt;p&gt;Tanka renders and applies from a developer workstation or a CI runner. You
+organise your code as environments (&lt;code&gt;environments/&amp;lt;env&amp;gt;/main.jsonnet&lt;/code&gt; plus a
+&lt;code&gt;spec.json&lt;/code&gt;), run &lt;code&gt;tk show&lt;/code&gt; or &lt;code&gt;tk export&lt;/code&gt; to inspect the rendered objects, and
+&lt;code&gt;tk apply&lt;/code&gt; to push them to the cluster the environment names in its &lt;code&gt;apiServer&lt;/code&gt;
+field. The workstation or CI runner needs the Jsonnet toolchain, the vendored
+library tree, and credentials for the target cluster.&lt;/p&gt;</description></item><item><title>JaaS vs the jsonnet CLI</title><link>https://jaas.projects.metio.wtf/comparisons/jsonnet-cli/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/comparisons/jsonnet-cli/</guid><description>&lt;p&gt;The &lt;a href="https://jsonnet.org/"&gt;&lt;code&gt;jsonnet&lt;/code&gt;&lt;/a&gt;
+ command-line tool — usually paired with
+&lt;a href="https://github.com/jsonnet-bundler/jsonnet-bundler"&gt;&lt;code&gt;jsonnet-bundler&lt;/code&gt;&lt;/a&gt;
+ (&lt;code&gt;jb&lt;/code&gt;)
+for vendoring libraries — evaluates Jsonnet to JSON on your machine. JaaS runs
+the &lt;strong&gt;same go-jsonnet core&lt;/strong&gt; as a service. This is not a question of which
+implementation is correct; it is a question of &lt;em&gt;where the evaluation runs and
+what surrounds it&lt;/em&gt;.&lt;/p&gt;
+&lt;h2 id="what-the-service-adds"&gt;What the service adds&lt;/h2&gt;
+&lt;p&gt;Over a local binary invocation, JaaS adds:&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;An HTTP endpoint other systems can call.&lt;/strong&gt; &lt;code&gt;GET /jsonnet/&amp;lt;snippet&amp;gt;&lt;/code&gt; returns
+the evaluated JSON, with Top Level Arguments supplied as query parameters and
+external variables configured on the service. Anything that speaks HTTP can
+request a render without installing the toolchain or the vendor tree. See the
+&lt;a href="https://jaas.projects.metio.wtf/rendering/rendering-endpoint/"&gt;rendering endpoint&lt;/a&gt;
+ usage page.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;An operator that turns a snippet into a revisioned Flux artifact.&lt;/strong&gt; With
+&lt;code&gt;--enable-flux-integration&lt;/code&gt;, a &lt;code&gt;JsonnetSnippet&lt;/code&gt; is evaluated continuously and
+published as a content-addressed &lt;code&gt;ExternalArtifact&lt;/code&gt; that Flux consumers apply
+in-cluster — re-rendered automatically when its source changes. See
+&lt;a href="https://jaas.projects.metio.wtf/operator/operator-mode/"&gt;operator mode&lt;/a&gt;
+.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Import resolution that matches &lt;code&gt;jsonnet -J vendor&lt;/code&gt;.&lt;/strong&gt; JaaS resolves imports
+with the same semantics as the CLI&amp;rsquo;s JPATH/vendor search, so the JSON a
+snippet produces under the service matches what the CLI produces locally.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Evaluation caps.&lt;/strong&gt; &lt;code&gt;--evaluation-timeout&lt;/code&gt; bounds wall-clock time per render,
+&lt;code&gt;--max-stack&lt;/code&gt; bounds call-stack depth, and &lt;code&gt;--max-concurrent-evals&lt;/code&gt; bounds how
+many evaluations run at once — so one expensive snippet cannot exhaust a
+shared server. The CLI imposes none of these on its own.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Read-scope sandboxing.&lt;/strong&gt; Snippet-name resolution goes through Go&amp;rsquo;s
+&lt;code&gt;os.Root&lt;/code&gt;, which rejects &lt;code&gt;..&lt;/code&gt; traversal and symlinks that escape the
+configured snippet directory, so a crafted request cannot read arbitrary
+files. The &lt;a href="https://jaas.projects.metio.wtf/rendering/evaluation-and-security/"&gt;evaluation and security&lt;/a&gt;
+ page
+details the caps and the boundaries.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h2 id="when-the-plain-cli-is-the-right-tool"&gt;When the plain CLI is the right tool&lt;/h2&gt;
+&lt;p&gt;The CLI is the better choice for work that is local and one-off:&lt;/p&gt;</description></item><item><title>vs Flux Operator ResourceSet</title><link>https://jaas.projects.metio.wtf/comparisons/flux-operator/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/comparisons/flux-operator/</guid><description>&lt;p&gt;JaaS and the &lt;a href="https://fluxoperator.dev/"&gt;Flux Operator&lt;/a&gt;
+&amp;rsquo;s &lt;code&gt;ResourceSet&lt;/code&gt; solve
+different halves of the same delivery problem, so reach for them together rather
+than choosing between them. JaaS &lt;em&gt;renders content&lt;/em&gt;: it evaluates a &lt;code&gt;JsonnetSnippet&lt;/code&gt;
+and publishes the resulting JSON as a Flux &lt;code&gt;ExternalArtifact&lt;/code&gt;. A &lt;code&gt;ResourceSet&lt;/code&gt;
+&lt;em&gt;fans out instances&lt;/em&gt;: it takes a set of inputs and templates one copy of a set of
+Kubernetes or Flux objects per input. Neither does the other&amp;rsquo;s job — a
+&lt;code&gt;ResourceSet&lt;/code&gt; has no Jsonnet evaluator, and JaaS has no input matrix — so the two
+slot together cleanly.&lt;/p&gt;</description></item></channel></rss>

@@ -1,0 +1,545 @@
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en"><generator uri="https://gohugo.io/" version="0.163.3">Hugo</generator><title type="html">Externalartifact on Jsonnet-as-a-Service</title><link href="https://jaas.projects.metio.wtf/tags/externalartifact/" rel="alternate" type="text/html" title="html"/><link href="https://jaas.projects.metio.wtf/tags/externalartifact/index.xml" rel="alternate" type="application/rss+xml" title="rss"/><link href="https://jaas.projects.metio.wtf/tags/externalartifact/atom.xml" rel="self" type="application/atom+xml" title="atom"/><updated>2026-07-02T07:56:37+00:00</updated><author><name>metio.wtf</name></author><id>https://jaas.projects.metio.wtf/tags/externalartifact/</id><entry><title type="html">Deploying manifests with StageSet</title><link href="https://jaas.projects.metio.wtf/guides/deploying-manifests/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/guides/grafana-dashboards/?utm_source=atom_feed" rel="related" type="text/html" title="Grafana dashboards"/><link href="https://jaas.projects.metio.wtf/get-started/quickstart/?utm_source=atom_feed" rel="related" type="text/html" title="Quickstart"/><id>https://jaas.projects.metio.wtf/guides/deploying-manifests/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-26T15:54:29+02:00</updated><content type="html"><![CDATA[<blockquote>Render Kubernetes manifests in Jsonnet, publish them as an ExternalArtifact, and hand them to stageset-controller for a gated rollout.</blockquote><p>JaaS pairs with <a href="https://stageset.projects.metio.wtf/">stageset-controller</a>
+ to
+deploy Kubernetes manifests as code: you author the manifests in Jsonnet, the
+JaaS operator renders and publishes them as a Flux <code>ExternalArtifact</code>, and
+stageset-controller rolls that artifact out across ordered, gated stages.</p>
+<p>This tutorial covers the JaaS side — authoring the manifests with top-level
+arguments and external variables, and publishing the rendered JSON. For the
+rollout side (the <code>StageSet</code> resource, its stages, gates, and actions), see the
+links at the end.</p>
+<h2 id="prerequisites">Prerequisites</h2>
+<ul>
+<li>The JaaS operator installed and a tenant ServiceAccount granted the
+<code>externalartifacts</code> write verbs. The <a href="/get-started/quickstart/">Quickstart</a>
+
+covers both.</li>
+<li>stageset-controller installed, if you intend to follow the handoff section and
+roll the manifests out.</li>
+</ul>
+<p>This tutorial uses the namespace <code>default</code> and the tenant ServiceAccount
+<code>manifests-tenant</code>.</p>
+<h2 id="step-1--grant-the-tenant-serviceaccount-its-verbs">Step 1 — Grant the tenant ServiceAccount its verbs</h2>
+<p>The snippet publishes an <code>ExternalArtifact</code>, so the tenant needs the
+<code>externalartifacts</code> write verbs:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">cat <span class="s">&lt;&lt;EOF | kubectl apply -f -
+</span></span></span><span class="line"><span class="cl"><span class="s">apiVersion: v1
+</span></span></span><span class="line"><span class="cl"><span class="s">kind: ServiceAccount
+</span></span></span><span class="line"><span class="cl"><span class="s">metadata:
+</span></span></span><span class="line"><span class="cl"><span class="s">  name: manifests-tenant
+</span></span></span><span class="line"><span class="cl"><span class="s">  namespace: default
+</span></span></span><span class="line"><span class="cl"><span class="s">---
+</span></span></span><span class="line"><span class="cl"><span class="s">apiVersion: rbac.authorization.k8s.io/v1
+</span></span></span><span class="line"><span class="cl"><span class="s">kind: Role
+</span></span></span><span class="line"><span class="cl"><span class="s">metadata:
+</span></span></span><span class="line"><span class="cl"><span class="s">  namespace: default
+</span></span></span><span class="line"><span class="cl"><span class="s">  name: manifests-tenant
+</span></span></span><span class="line"><span class="cl"><span class="s">rules:
+</span></span></span><span class="line"><span class="cl"><span class="s">  - apiGroups: [source.toolkit.fluxcd.io]
+</span></span></span><span class="line"><span class="cl"><span class="s">    resources: [externalartifacts]
+</span></span></span><span class="line"><span class="cl"><span class="s">    verbs: [get, create, update, patch]
+</span></span></span><span class="line"><span class="cl"><span class="s">---
+</span></span></span><span class="line"><span class="cl"><span class="s">apiVersion: rbac.authorization.k8s.io/v1
+</span></span></span><span class="line"><span class="cl"><span class="s">kind: RoleBinding
+</span></span></span><span class="line"><span class="cl"><span class="s">metadata:
+</span></span></span><span class="line"><span class="cl"><span class="s">  namespace: default
+</span></span></span><span class="line"><span class="cl"><span class="s">  name: manifests-tenant
+</span></span></span><span class="line"><span class="cl"><span class="s">subjects:
+</span></span></span><span class="line"><span class="cl"><span class="s">  - kind: ServiceAccount
+</span></span></span><span class="line"><span class="cl"><span class="s">    name: manifests-tenant
+</span></span></span><span class="line"><span class="cl"><span class="s">    namespace: default
+</span></span></span><span class="line"><span class="cl"><span class="s">roleRef:
+</span></span></span><span class="line"><span class="cl"><span class="s">  apiGroup: rbac.authorization.k8s.io
+</span></span></span><span class="line"><span class="cl"><span class="s">  kind: Role
+</span></span></span><span class="line"><span class="cl"><span class="s">  name: manifests-tenant
+</span></span></span><span class="line"><span class="cl"><span class="s">EOF</span>
+</span></span></code></pre></div><p>Verify the ServiceAccount and binding:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace default get serviceaccount manifests-tenant
+</span></span><span class="line"><span class="cl">kubectl --namespace default get rolebinding manifests-tenant
+</span></span></code></pre></div><h2 id="step-2--author-and-apply-the-manifest-snippet">Step 2 — Author and apply the manifest snippet</h2>
+<p>The snippet renders a <code>List</code> of a <code>Deployment</code> and a <code>Service</code> from top-level
+arguments (<code>spec.tlas</code>) and an external variable (<code>spec.externalVariables</code>). A
+single-value TLA arrives as a string; the snippet parses the replica count with
+<code>std.parseInt</code>. <code>spec.output</code> stays at its default <code>rendered</code> so the artifact
+carries the evaluated manifest JSON:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">cat <span class="s">&lt;&lt;EOF | kubectl apply -f -
+</span></span></span><span class="line"><span class="cl"><span class="s">apiVersion: jaas.metio.wtf/v1
+</span></span></span><span class="line"><span class="cl"><span class="s">kind: JsonnetSnippet
+</span></span></span><span class="line"><span class="cl"><span class="s">metadata:
+</span></span></span><span class="line"><span class="cl"><span class="s">  name: web-app
+</span></span></span><span class="line"><span class="cl"><span class="s">  namespace: default
+</span></span></span><span class="line"><span class="cl"><span class="s">spec:
+</span></span></span><span class="line"><span class="cl"><span class="s">  serviceAccountName: manifests-tenant
+</span></span></span><span class="line"><span class="cl"><span class="s">  output: rendered
+</span></span></span><span class="line"><span class="cl"><span class="s">  files:
+</span></span></span><span class="line"><span class="cl"><span class="s">    main.jsonnet: |
+</span></span></span><span class="line"><span class="cl"><span class="s">      function(name=&#39;web&#39;, replicas=&#39;2&#39;)
+</span></span></span><span class="line"><span class="cl"><span class="s">        local image = std.extVar(&#39;image&#39;);
+</span></span></span><span class="line"><span class="cl"><span class="s">        local labels = { &#39;app.kubernetes.io/name&#39;: name };
+</span></span></span><span class="line"><span class="cl"><span class="s">        {
+</span></span></span><span class="line"><span class="cl"><span class="s">          apiVersion: &#39;v1&#39;,
+</span></span></span><span class="line"><span class="cl"><span class="s">          kind: &#39;List&#39;,
+</span></span></span><span class="line"><span class="cl"><span class="s">          items: [
+</span></span></span><span class="line"><span class="cl"><span class="s">            {
+</span></span></span><span class="line"><span class="cl"><span class="s">              apiVersion: &#39;apps/v1&#39;,
+</span></span></span><span class="line"><span class="cl"><span class="s">              kind: &#39;Deployment&#39;,
+</span></span></span><span class="line"><span class="cl"><span class="s">              metadata: { name: name, labels: labels },
+</span></span></span><span class="line"><span class="cl"><span class="s">              spec: {
+</span></span></span><span class="line"><span class="cl"><span class="s">                replicas: std.parseInt(replicas),
+</span></span></span><span class="line"><span class="cl"><span class="s">                selector: { matchLabels: labels },
+</span></span></span><span class="line"><span class="cl"><span class="s">                template: {
+</span></span></span><span class="line"><span class="cl"><span class="s">                  metadata: { labels: labels },
+</span></span></span><span class="line"><span class="cl"><span class="s">                  spec: {
+</span></span></span><span class="line"><span class="cl"><span class="s">                    containers: [{
+</span></span></span><span class="line"><span class="cl"><span class="s">                      name: name,
+</span></span></span><span class="line"><span class="cl"><span class="s">                      image: image,
+</span></span></span><span class="line"><span class="cl"><span class="s">                      ports: [{ containerPort: 8080 }],
+</span></span></span><span class="line"><span class="cl"><span class="s">                    }],
+</span></span></span><span class="line"><span class="cl"><span class="s">                  },
+</span></span></span><span class="line"><span class="cl"><span class="s">                },
+</span></span></span><span class="line"><span class="cl"><span class="s">              },
+</span></span></span><span class="line"><span class="cl"><span class="s">            },
+</span></span></span><span class="line"><span class="cl"><span class="s">            {
+</span></span></span><span class="line"><span class="cl"><span class="s">              apiVersion: &#39;v1&#39;,
+</span></span></span><span class="line"><span class="cl"><span class="s">              kind: &#39;Service&#39;,
+</span></span></span><span class="line"><span class="cl"><span class="s">              metadata: { name: name, labels: labels },
+</span></span></span><span class="line"><span class="cl"><span class="s">              spec: {
+</span></span></span><span class="line"><span class="cl"><span class="s">                selector: labels,
+</span></span></span><span class="line"><span class="cl"><span class="s">                ports: [{ port: 80, targetPort: 8080 }],
+</span></span></span><span class="line"><span class="cl"><span class="s">              },
+</span></span></span><span class="line"><span class="cl"><span class="s">            },
+</span></span></span><span class="line"><span class="cl"><span class="s">          ],
+</span></span></span><span class="line"><span class="cl"><span class="s">        }
+</span></span></span><span class="line"><span class="cl"><span class="s">  tlas:
+</span></span></span><span class="line"><span class="cl"><span class="s">    name: [web]
+</span></span></span><span class="line"><span class="cl"><span class="s">    replicas: [&#34;3&#34;]
+</span></span></span><span class="line"><span class="cl"><span class="s">  externalVariables:
+</span></span></span><span class="line"><span class="cl"><span class="s">    image: &#34;ghcr.io/example/web:1.4.0&#34;
+</span></span></span><span class="line"><span class="cl"><span class="s">EOF</span>
+</span></span></code></pre></div><p>Each <code>spec.tlas</code> value is a list, matching the HTTP query-parameter convention:
+a single element becomes a string TLA, multiple elements a JSON-encoded array.
+External variables seed <code>std.extVar</code> lookups.</p>
+<h2 id="step-3--confirm-the-manifests-rendered">Step 3 — Confirm the manifests rendered</h2>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace default get jsonnetsnippet web-app
+</span></span><span class="line"><span class="cl"><span class="c1"># NAME      READY   URL                                                                                     AGE</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># web-app   True    http://jaas-storage.jaas-system.svc.cluster.local:8082/default/web-app/&lt;sha256&gt;.tar.gz  5s</span>
+</span></span></code></pre></div><p>If <code>READY</code> is <code>False</code>, describe the snippet — the Ready condition&rsquo;s <code>Reason</code> and
+<code>Message</code> name the cause:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace default describe jsonnetsnippet web-app
+</span></span></code></pre></div><h2 id="step-4--inspect-the-published-manifests">Step 4 — Inspect the published manifests</h2>
+<p>Fetch the artifact from a one-shot pod to see the rendered manifests:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl"><span class="nv">URL</span><span class="o">=</span><span class="k">$(</span>kubectl --namespace default get jsonnetsnippet web-app -o <span class="nv">jsonpath</span><span class="o">=</span><span class="s1">&#39;{.status.artifactURL}&#39;</span><span class="k">)</span>
+</span></span><span class="line"><span class="cl">kubectl run --rm -i --restart<span class="o">=</span>Never --image<span class="o">=</span>docker.io/curlimages/curl:8.10.1 fetch -- <span class="se">\
+</span></span></span><span class="line"><span class="cl">    sh -c <span class="s2">&#34;curl -fsSL &#39;</span><span class="nv">$URL</span><span class="s2">&#39; | tar -xzO rendered.json&#34;</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># {</span>
+</span></span><span class="line"><span class="cl"><span class="c1">#    &#34;apiVersion&#34;: &#34;v1&#34;,</span>
+</span></span><span class="line"><span class="cl"><span class="c1">#    &#34;kind&#34;: &#34;List&#34;,</span>
+</span></span><span class="line"><span class="cl"><span class="c1">#    &#34;items&#34;: [ { &#34;kind&#34;: &#34;Deployment&#34;, ... }, { &#34;kind&#34;: &#34;Service&#34;, ... } ]</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># }</span>
+</span></span></code></pre></div><p><code>rendered.json</code> is the manifest set a Flux consumer applies to the cluster.</p>
+<h2 id="handoff-roll-the-manifests-out-with-stageset">Handoff: roll the manifests out with StageSet</h2>
+<p>The published <code>ExternalArtifact</code> is now ready for a Flux consumer. A consumer
+references it in one of two ways:</p>
+<ul>
+<li><strong>Directly</strong> — name the <code>ExternalArtifact</code> (which shares the snippet&rsquo;s name and
+namespace) in a <code>sourceRef</code>.</li>
+<li><strong>Producer-aware</strong> — name the producing <code>JsonnetSnippet</code> and let the consumer
+resolve it to the <code>ExternalArtifact</code>. JaaS writes a three-field back-pointer
+(<code>apiVersion</code>, <code>kind</code>, <code>name</code>) under the artifact&rsquo;s <code>spec.sourceRef</code> for this,
+which is the contract producer-aware resolvers match on.</li>
+</ul>
+<p>stageset-controller consumes the published artifact the producer-aware way and
+rolls it out across ordered, gated stages. The <code>StageSet</code> resource, its stages,
+gates, and actions live on the stageset-controller documentation:</p>
+<ul>
+<li><strong>stageset-controller producer-aware sources guide:</strong>
+<a href="https://stageset.projects.metio.wtf/rendering/producer-aware-sources/">https://stageset.projects.metio.wtf/rendering/producer-aware-sources/</a>
+</li>
+<li><strong>stageset-controller project:</strong> <a href="https://stageset.projects.metio.wtf/">https://stageset.projects.metio.wtf/</a>
+</li>
+</ul>
+<p>Follow that guide for the rollout side; it picks up exactly where this tutorial
+leaves off — at the published <code>ExternalArtifact</code>.</p>
+<h2 id="where-to-go-next">Where to go next</h2>
+<ul>
+<li><a href="/operator/operator-mode/">Operator mode</a>
+ — the full operator reference,
+including the <code>ExternalArtifact</code> <code>spec.sourceRef</code> back-pointer contract that
+producer-aware consumers match on.</li>
+<li><a href="/operator/snippet-sources/">Snippet sources</a>
+ — back the manifests with a
+<code>GitRepository</code> or OCIRepository instead of inline <code>spec.files</code>.</li>
+</ul>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/stageset" term="stageset" label="stageset"/><category scheme="https://jaas.projects.metio.wtf/tags/manifests" term="manifests" label="manifests"/><category scheme="https://jaas.projects.metio.wtf/tags/externalartifact" term="externalartifact" label="externalartifact"/></entry><entry><title type="html">Grafana dashboards</title><link href="https://jaas.projects.metio.wtf/guides/grafana-dashboards/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/observability/dashboard/?utm_source=atom_feed" rel="related" type="text/html" title="Dashboard"/><link href="https://jaas.projects.metio.wtf/guides/deploying-manifests/?utm_source=atom_feed" rel="related" type="text/html" title="Deploying manifests with StageSet"/><link href="https://jaas.projects.metio.wtf/get-started/quickstart/?utm_source=atom_feed" rel="related" type="text/html" title="Quickstart"/><id>https://jaas.projects.metio.wtf/guides/grafana-dashboards/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-26T15:54:29+02:00</updated><content type="html"><![CDATA[<blockquote>Author a Grafana dashboard in Jsonnet with grafonnet, render it through the JaaS operator, and publish the dashboard JSON as an ExternalArtifact.</blockquote><p>JaaS pairs with the
+<a href="https://grafana.github.io/grafana-operator/">grafana-operator</a>
+ to manage
+Grafana dashboards as code: you author the dashboard in Jsonnet, the JaaS
+operator renders it and publishes the dashboard JSON as a Flux
+<code>ExternalArtifact</code>, and the grafana-operator reconciles that artifact into a live
+Grafana instance.</p>
+<p>This tutorial covers the JaaS side — authoring the dashboard, importing
+grafonnet as a <code>JsonnetLibrary</code>, and publishing the rendered JSON. For the
+grafana-operator side (the <code>GrafanaDashboard</code> CR, datasources, folders), see the
+links at the end.</p>
+<h2 id="prerequisites">Prerequisites</h2>
+<ul>
+<li>The JaaS operator installed and a tenant ServiceAccount granted the
+<code>externalartifacts</code> write verbs. The <a href="/get-started/quickstart/">Quickstart</a>
+
+covers both.</li>
+<li>The grafana-operator installed, if you intend to follow the handoff section
+and reconcile the dashboard into Grafana.</li>
+</ul>
+<p>This tutorial uses the namespace <code>default</code> and the tenant ServiceAccount
+<code>dashboards-tenant</code>.</p>
+<h2 id="step-1--grant-the-tenant-serviceaccount-its-verbs">Step 1 — Grant the tenant ServiceAccount its verbs</h2>
+<p>The snippet imports a <code>JsonnetLibrary</code>, so on top of the <code>externalartifacts</code>
+write verbs the tenant needs <code>get</code> on <code>jsonnetlibraries</code>:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">cat <span class="s">&lt;&lt;EOF | kubectl apply -f -
+</span></span></span><span class="line"><span class="cl"><span class="s">apiVersion: v1
+</span></span></span><span class="line"><span class="cl"><span class="s">kind: ServiceAccount
+</span></span></span><span class="line"><span class="cl"><span class="s">metadata:
+</span></span></span><span class="line"><span class="cl"><span class="s">  name: dashboards-tenant
+</span></span></span><span class="line"><span class="cl"><span class="s">  namespace: default
+</span></span></span><span class="line"><span class="cl"><span class="s">---
+</span></span></span><span class="line"><span class="cl"><span class="s">apiVersion: rbac.authorization.k8s.io/v1
+</span></span></span><span class="line"><span class="cl"><span class="s">kind: Role
+</span></span></span><span class="line"><span class="cl"><span class="s">metadata:
+</span></span></span><span class="line"><span class="cl"><span class="s">  namespace: default
+</span></span></span><span class="line"><span class="cl"><span class="s">  name: dashboards-tenant
+</span></span></span><span class="line"><span class="cl"><span class="s">rules:
+</span></span></span><span class="line"><span class="cl"><span class="s">  - apiGroups: [source.toolkit.fluxcd.io]
+</span></span></span><span class="line"><span class="cl"><span class="s">    resources: [externalartifacts]
+</span></span></span><span class="line"><span class="cl"><span class="s">    verbs: [get, create, update, patch]
+</span></span></span><span class="line"><span class="cl"><span class="s">  - apiGroups: [jaas.metio.wtf]
+</span></span></span><span class="line"><span class="cl"><span class="s">    resources: [jsonnetlibraries]
+</span></span></span><span class="line"><span class="cl"><span class="s">    verbs: [get]
+</span></span></span><span class="line"><span class="cl"><span class="s">---
+</span></span></span><span class="line"><span class="cl"><span class="s">apiVersion: rbac.authorization.k8s.io/v1
+</span></span></span><span class="line"><span class="cl"><span class="s">kind: RoleBinding
+</span></span></span><span class="line"><span class="cl"><span class="s">metadata:
+</span></span></span><span class="line"><span class="cl"><span class="s">  namespace: default
+</span></span></span><span class="line"><span class="cl"><span class="s">  name: dashboards-tenant
+</span></span></span><span class="line"><span class="cl"><span class="s">subjects:
+</span></span></span><span class="line"><span class="cl"><span class="s">  - kind: ServiceAccount
+</span></span></span><span class="line"><span class="cl"><span class="s">    name: dashboards-tenant
+</span></span></span><span class="line"><span class="cl"><span class="s">    namespace: default
+</span></span></span><span class="line"><span class="cl"><span class="s">roleRef:
+</span></span></span><span class="line"><span class="cl"><span class="s">  apiGroup: rbac.authorization.k8s.io
+</span></span></span><span class="line"><span class="cl"><span class="s">  kind: Role
+</span></span></span><span class="line"><span class="cl"><span class="s">  name: dashboards-tenant
+</span></span></span><span class="line"><span class="cl"><span class="s">EOF</span>
+</span></span></code></pre></div><p>Verify the ServiceAccount and binding:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace default get serviceaccount dashboards-tenant
+</span></span><span class="line"><span class="cl">kubectl --namespace default get rolebinding dashboards-tenant
+</span></span></code></pre></div><h2 id="step-2--publish-the-dashboard-helpers-as-a-jsonnetlibrary">Step 2 — Publish the dashboard helpers as a JsonnetLibrary</h2>
+<p>A <code>JsonnetLibrary</code> holds reusable <code>.libsonnet</code> files that snippets in the same
+namespace import by alias. The example below carries a minimal set of dashboard
+constructors. In a production setup this is where grafonnet lives — see
+<a href="/rendering/jsonnet-libraries/">Jsonnet libraries</a>
+ for serving the full grafonnet
+tree from an OCIRepository.</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">cat <span class="s">&lt;&lt;EOF | kubectl apply -f -
+</span></span></span><span class="line"><span class="cl"><span class="s">apiVersion: jaas.metio.wtf/v1
+</span></span></span><span class="line"><span class="cl"><span class="s">kind: JsonnetLibrary
+</span></span></span><span class="line"><span class="cl"><span class="s">metadata:
+</span></span></span><span class="line"><span class="cl"><span class="s">  name: grafana-helpers
+</span></span></span><span class="line"><span class="cl"><span class="s">  namespace: default
+</span></span></span><span class="line"><span class="cl"><span class="s">spec:
+</span></span></span><span class="line"><span class="cl"><span class="s">  files:
+</span></span></span><span class="line"><span class="cl"><span class="s">    dashboard.libsonnet: |
+</span></span></span><span class="line"><span class="cl"><span class="s">      {
+</span></span></span><span class="line"><span class="cl"><span class="s">        new(title): {
+</span></span></span><span class="line"><span class="cl"><span class="s">          title: title,
+</span></span></span><span class="line"><span class="cl"><span class="s">          schemaVersion: 38,
+</span></span></span><span class="line"><span class="cl"><span class="s">          panels: [],
+</span></span></span><span class="line"><span class="cl"><span class="s">        },
+</span></span></span><span class="line"><span class="cl"><span class="s">      }
+</span></span></span><span class="line"><span class="cl"><span class="s">    panel.libsonnet: |
+</span></span></span><span class="line"><span class="cl"><span class="s">      {
+</span></span></span><span class="line"><span class="cl"><span class="s">        timeseries(title, expr): {
+</span></span></span><span class="line"><span class="cl"><span class="s">          type: &#39;timeseries&#39;,
+</span></span></span><span class="line"><span class="cl"><span class="s">          title: title,
+</span></span></span><span class="line"><span class="cl"><span class="s">          targets: [{ expr: expr }],
+</span></span></span><span class="line"><span class="cl"><span class="s">        },
+</span></span></span><span class="line"><span class="cl"><span class="s">        stat(title, expr): {
+</span></span></span><span class="line"><span class="cl"><span class="s">          type: &#39;stat&#39;,
+</span></span></span><span class="line"><span class="cl"><span class="s">          title: title,
+</span></span></span><span class="line"><span class="cl"><span class="s">          targets: [{ expr: expr }],
+</span></span></span><span class="line"><span class="cl"><span class="s">        },
+</span></span></span><span class="line"><span class="cl"><span class="s">      }
+</span></span></span><span class="line"><span class="cl"><span class="s">EOF</span>
+</span></span></code></pre></div><p>Verify the library:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace default get jsonnetlibrary grafana-helpers
+</span></span></code></pre></div><h2 id="step-3--author-and-apply-the-dashboard-snippet">Step 3 — Author and apply the dashboard snippet</h2>
+<p>The <code>JsonnetSnippet</code> imports the library by the alias declared in
+<code>spec.libraries[*].importPath</code>, composes a dashboard from its constructors, and
+leaves <code>spec.output</code> at its default <code>rendered</code> so the published artifact carries
+the evaluated dashboard JSON:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">cat <span class="s">&lt;&lt;EOF | kubectl apply -f -
+</span></span></span><span class="line"><span class="cl"><span class="s">apiVersion: jaas.metio.wtf/v1
+</span></span></span><span class="line"><span class="cl"><span class="s">kind: JsonnetSnippet
+</span></span></span><span class="line"><span class="cl"><span class="s">metadata:
+</span></span></span><span class="line"><span class="cl"><span class="s">  name: api-latency
+</span></span></span><span class="line"><span class="cl"><span class="s">  namespace: default
+</span></span></span><span class="line"><span class="cl"><span class="s">spec:
+</span></span></span><span class="line"><span class="cl"><span class="s">  serviceAccountName: dashboards-tenant
+</span></span></span><span class="line"><span class="cl"><span class="s">  output: rendered
+</span></span></span><span class="line"><span class="cl"><span class="s">  files:
+</span></span></span><span class="line"><span class="cl"><span class="s">    main.jsonnet: |
+</span></span></span><span class="line"><span class="cl"><span class="s">      local dashboard = import &#39;grafana/dashboard.libsonnet&#39;;
+</span></span></span><span class="line"><span class="cl"><span class="s">      local panel = import &#39;grafana/panel.libsonnet&#39;;
+</span></span></span><span class="line"><span class="cl"><span class="s">      dashboard.new(&#39;API Latency&#39;) + {
+</span></span></span><span class="line"><span class="cl"><span class="s">        panels: [
+</span></span></span><span class="line"><span class="cl"><span class="s">          panel.timeseries(&#39;p99 by route&#39;, &#39;histogram_quantile(0.99, rate(http_request_duration_seconds_bucket[5m]))&#39;),
+</span></span></span><span class="line"><span class="cl"><span class="s">          panel.stat(&#39;error rate&#39;, &#39;sum(rate(http_requests_total{code=~&#34;5..&#34;}[5m]))&#39;),
+</span></span></span><span class="line"><span class="cl"><span class="s">        ],
+</span></span></span><span class="line"><span class="cl"><span class="s">      }
+</span></span></span><span class="line"><span class="cl"><span class="s">  libraries:
+</span></span></span><span class="line"><span class="cl"><span class="s">    - kind: JsonnetLibrary
+</span></span></span><span class="line"><span class="cl"><span class="s">      name: grafana-helpers
+</span></span></span><span class="line"><span class="cl"><span class="s">      importPath: grafana
+</span></span></span><span class="line"><span class="cl"><span class="s">EOF</span>
+</span></span></code></pre></div><p>The <code>importPath: grafana</code> ties <code>import 'grafana/dashboard.libsonnet'</code> to the
+<code>grafana-helpers</code> library. It defaults to the library&rsquo;s <code>metadata.name</code>, so
+naming the library <code>grafana</code> would let you drop the field. <code>kind</code> is always
+<code>JsonnetLibrary</code>.</p>
+<h2 id="step-4--confirm-the-dashboard-rendered">Step 4 — Confirm the dashboard rendered</h2>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace default get jsonnetsnippet api-latency
+</span></span><span class="line"><span class="cl"><span class="c1"># NAME          READY   URL                                                                                         AGE</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># api-latency   True    http://jaas-storage.jaas-system.svc.cluster.local:8082/default/api-latency/&lt;sha256&gt;.tar.gz  5s</span>
+</span></span></code></pre></div><p>If <code>READY</code> is <code>False</code>, describe the snippet — the Ready condition&rsquo;s <code>Reason</code> and
+<code>Message</code> name the cause (an RBAC gap on the library, an import alias collision,
+or a Jsonnet error):</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace default describe jsonnetsnippet api-latency
+</span></span></code></pre></div><h2 id="step-5--inspect-the-published-dashboard-json">Step 5 — Inspect the published dashboard JSON</h2>
+<p>Fetch the artifact from a one-shot pod to see the rendered dashboard:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl"><span class="nv">URL</span><span class="o">=</span><span class="k">$(</span>kubectl --namespace default get jsonnetsnippet api-latency -o <span class="nv">jsonpath</span><span class="o">=</span><span class="s1">&#39;{.status.artifactURL}&#39;</span><span class="k">)</span>
+</span></span><span class="line"><span class="cl">kubectl run --rm -i --restart<span class="o">=</span>Never --image<span class="o">=</span>docker.io/curlimages/curl:8.10.1 fetch -- <span class="se">\
+</span></span></span><span class="line"><span class="cl">    sh -c <span class="s2">&#34;curl -fsSL &#39;</span><span class="nv">$URL</span><span class="s2">&#39; | tar -xzO rendered.json&#34;</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># {</span>
+</span></span><span class="line"><span class="cl"><span class="c1">#    &#34;panels&#34;: [ ... ],</span>
+</span></span><span class="line"><span class="cl"><span class="c1">#    &#34;schemaVersion&#34;: 38,</span>
+</span></span><span class="line"><span class="cl"><span class="c1">#    &#34;title&#34;: &#34;API Latency&#34;</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># }</span>
+</span></span></code></pre></div><p><code>rendered.json</code> is the Grafana dashboard model — the exact JSON the
+grafana-operator hands to Grafana&rsquo;s dashboard API.</p>
+<h2 id="use-real-grafonnet-instead-of-the-toy-helpers">Use real grafonnet instead of the toy helpers</h2>
+<p><code>grafana-helpers</code> kept this tutorial self-contained, but in production you import
+the real <a href="https://github.com/grafana/grafonnet">grafonnet</a>
+ library from a JOI
+image rather than hand-rolling constructors. Install it as a <code>JsonnetLibrary</code>
+with the <a href="https://github.com/metio/helm-charts/tree/main/charts/joi"><code>joi</code> Helm chart</a>
+:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">helm upgrade --install joi oci://ghcr.io/metio/helm-charts/joi <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --namespace default <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --set libraries.grafonnet.enabled<span class="o">=</span><span class="nb">true</span>
+</span></span></code></pre></div><p>That renders an <code>OCIRepository</code> plus a <code>JsonnetLibrary</code> named <code>grafonnet</code>,
+sourcing <code>ghcr.io/metio/joi-grafana-grafonnet</code>. The snippet then references that
+library in place of <code>grafana-helpers</code> and imports the real grafonnet API by its
+full jb-vendor path:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l">jaas.metio.wtf/v1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">JsonnetSnippet</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">metadata</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">api-latency</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">default</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">spec</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">serviceAccountName</span><span class="p">:</span><span class="w"> </span><span class="l">dashboards-tenant</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">libraries</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span>- <span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">JsonnetLibrary</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">grafonnet</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">files</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">main.jsonnet</span><span class="p">:</span><span class="w"> </span><span class="p">|</span><span class="sd">
+</span></span></span><span class="line"><span class="cl"><span class="sd">      local g = import &#39;github.com/grafana/grafonnet/gen/grafonnet-latest/main.libsonnet&#39;;
+</span></span></span><span class="line"><span class="cl"><span class="sd">      g.dashboard.new(&#39;API Latency&#39;)
+</span></span></span><span class="line"><span class="cl"><span class="sd">      + g.dashboard.withUid(&#39;api-latency&#39;)</span><span class="w">
+</span></span></span></code></pre></div><p>The rest of the flow is the same — the snippet reconciles and publishes an
+<code>ExternalArtifact</code> exactly as in Steps 4–5; only the source of the library
+differs.</p>
+<h2 id="handoff-reconcile-the-dashboard-into-grafana">Handoff: reconcile the dashboard into Grafana</h2>
+<p>The published <code>ExternalArtifact</code> is now ready for the grafana-operator to
+consume. The grafana-operator reconciles a JaaS-published dashboard into Grafana
+through a <code>GrafanaDashboard</code> CR that references the artifact. That configuration
+— the <code>GrafanaDashboard</code> resource, the datasource and folder wiring, and the
+<code>Grafana</code> instance — lives on the grafana-operator&rsquo;s own documentation:</p>
+<ul>
+<li><strong>grafana-operator JaaS example:</strong>
+<a href="https://grafana.github.io/grafana-operator/docs/examples/dashboard/jaas/readme/">https://grafana.github.io/grafana-operator/docs/examples/dashboard/jaas/readme/</a>
+</li>
+<li><strong>grafana-operator project:</strong> <a href="https://grafana.github.io/grafana-operator/">https://grafana.github.io/grafana-operator/</a>
+</li>
+</ul>
+<p>Follow that example for the Grafana side; it picks up exactly where this
+tutorial leaves off — at the published <code>ExternalArtifact</code>.</p>
+<h2 id="consume-the-ready-made-jaas-dashboard">Consume the ready-made JaaS dashboard</h2>
+<p>You don&rsquo;t have to author a dashboard to get one. JaaS publishes a maintained
+operator dashboard (SLOs + internals) as a single-layer OCI image you render
+through a <code>JsonnetSnippet</code> and hand to the grafana-operator. See
+<a href="/observability/dashboard/">Dashboard</a>
+ for that flow — it&rsquo;s the same
+OCIRepository → <code>JsonnetSnippet</code> → <code>GrafanaDashboard</code> pattern, with the dashboard
+already written.</p>
+<h2 id="where-to-go-next">Where to go next</h2>
+<ul>
+<li><a href="/rendering/jsonnet-libraries/">Jsonnet libraries</a>
+ — serve the full grafonnet
+tree as a <code>JsonnetLibrary</code> backed by an OCIRepository, with the empty-<code>path</code>
+whole-vendor-tree pattern.</li>
+<li><a href="/operator/snippet-sources/">Snippet sources</a>
+ — back the dashboard with a
+<code>GitRepository</code> or OCIRepository instead of inline <code>spec.files</code>, and point
+<code>spec.entryFile</code> at one dashboard in a multi-dashboard tree.</li>
+</ul>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/grafana" term="grafana" label="grafana"/><category scheme="https://jaas.projects.metio.wtf/tags/grafonnet" term="grafonnet" label="grafonnet"/><category scheme="https://jaas.projects.metio.wtf/tags/externalartifact" term="externalartifact" label="externalartifact"/></entry><entry><title type="html">Quickstart</title><link href="https://jaas.projects.metio.wtf/get-started/quickstart/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/get-started/kubernetes/?utm_source=atom_feed" rel="related" type="text/html" title="Kubernetes"/><link href="https://jaas.projects.metio.wtf/security/admission-webhook/?utm_source=atom_feed" rel="related" type="text/html" title="Admission webhook"/><link href="https://jaas.projects.metio.wtf/observability/alerting/?utm_source=atom_feed" rel="related" type="text/html" title="Alerting"/><link href="https://jaas.projects.metio.wtf/operator/creating-sources/?utm_source=atom_feed" rel="related" type="text/html" title="Creating source artifacts"/><link href="https://jaas.projects.metio.wtf/observability/dashboard/?utm_source=atom_feed" rel="related" type="text/html" title="Dashboard"/><id>https://jaas.projects.metio.wtf/get-started/quickstart/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-26T15:54:29+02:00</updated><content type="html"><![CDATA[<blockquote>Install the JaaS operator and publish your first ExternalArtifact from an inline-files JsonnetSnippet.</blockquote><p>This tutorial takes you from an empty cluster to one published Flux
+<code>ExternalArtifact</code> carrying rendered JSON. The path is operator mode with no
+optional knobs — no webhook, no S3, no Flux source CRs — and a single
+<code>JsonnetSnippet</code> whose source is inline <code>spec.files</code>.</p>
+<h2 id="prerequisites">Prerequisites</h2>
+<ul>
+<li>
+<p>A Kubernetes cluster. <code>kind</code>, <code>minikube</code>, or a managed cluster all work.</p>
+</li>
+<li>
+<p><code>kubectl</code> configured to talk to it.</p>
+</li>
+<li>
+<p><code>helm</code> 3.x.</p>
+</li>
+<li>
+<p>Flux installed, at <strong>v2.7.0 or newer</strong>. A <code>JsonnetSnippet</code> publishes its
+result as a Flux <code>ExternalArtifact</code>, and the <code>ExternalArtifact</code> CRD lands in
+source-controller v1.7.0 (Flux v2.7.0) — earlier bundles have no such CRD and
+the publish path fails. Install all of Flux:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl apply -f https://github.com/fluxcd/flux2/releases/download/v2.7.0/install.yaml
+</span></span></code></pre></div></li>
+</ul>
+<h2 id="step-1--install-the-chart">Step 1 — Install the chart</h2>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">helm upgrade --install jaas oci://ghcr.io/metio/helm-charts/jaas <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --namespace jaas-system --create-namespace <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --set operator.enabled<span class="o">=</span><span class="nb">true</span> <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --set operator.defaultServiceAccount<span class="o">=</span>default <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --wait --timeout 5m
+</span></span></code></pre></div><p><code>operator.defaultServiceAccount=default</code> tells the operator which
+ServiceAccount to impersonate in a tenant namespace when a snippet does not name
+its own. That is fine for this tutorial; production assigns a dedicated SA per
+tenant — see <a href="/security/tenancy-and-rbac/">Tenancy and RBAC</a>
+.</p>
+<p>Verify the operator is running:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace jaas-system get deploy jaas
+</span></span><span class="line"><span class="cl"><span class="c1"># NAME   READY   UP-TO-DATE   AVAILABLE   AGE</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># jaas   1/1     1            1           30s</span>
+</span></span></code></pre></div><h2 id="step-2--grant-the-tenant-serviceaccount-the-minimum-verbs">Step 2 — Grant the tenant ServiceAccount the minimum verbs</h2>
+<p>The <code>default</code> ServiceAccount&rsquo;s built-in RBAC does not include the verbs the
+operator needs to publish the artifact. In the tenant namespace — here <code>default</code>
+— apply a <code>Role</code> and <code>RoleBinding</code>:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">cat <span class="s">&lt;&lt;EOF | kubectl apply -f -
+</span></span></span><span class="line"><span class="cl"><span class="s">apiVersion: rbac.authorization.k8s.io/v1
+</span></span></span><span class="line"><span class="cl"><span class="s">kind: Role
+</span></span></span><span class="line"><span class="cl"><span class="s">metadata:
+</span></span></span><span class="line"><span class="cl"><span class="s">  namespace: default
+</span></span></span><span class="line"><span class="cl"><span class="s">  name: jaas-tenant
+</span></span></span><span class="line"><span class="cl"><span class="s">rules:
+</span></span></span><span class="line"><span class="cl"><span class="s">  - apiGroups: [source.toolkit.fluxcd.io]
+</span></span></span><span class="line"><span class="cl"><span class="s">    resources: [externalartifacts]
+</span></span></span><span class="line"><span class="cl"><span class="s">    verbs: [get, create, update, patch]
+</span></span></span><span class="line"><span class="cl"><span class="s">---
+</span></span></span><span class="line"><span class="cl"><span class="s">apiVersion: rbac.authorization.k8s.io/v1
+</span></span></span><span class="line"><span class="cl"><span class="s">kind: RoleBinding
+</span></span></span><span class="line"><span class="cl"><span class="s">metadata:
+</span></span></span><span class="line"><span class="cl"><span class="s">  namespace: default
+</span></span></span><span class="line"><span class="cl"><span class="s">  name: jaas-tenant
+</span></span></span><span class="line"><span class="cl"><span class="s">subjects:
+</span></span></span><span class="line"><span class="cl"><span class="s">  - kind: ServiceAccount
+</span></span></span><span class="line"><span class="cl"><span class="s">    name: default
+</span></span></span><span class="line"><span class="cl"><span class="s">    namespace: default
+</span></span></span><span class="line"><span class="cl"><span class="s">roleRef:
+</span></span></span><span class="line"><span class="cl"><span class="s">  apiGroup: rbac.authorization.k8s.io
+</span></span></span><span class="line"><span class="cl"><span class="s">  kind: Role
+</span></span></span><span class="line"><span class="cl"><span class="s">  name: jaas-tenant
+</span></span></span><span class="line"><span class="cl"><span class="s">EOF</span>
+</span></span></code></pre></div><p>The operator impersonates the tenant ServiceAccount to upsert the
+<code>ExternalArtifact</code> it publishes. Without <code>create</code>, <code>update</code>, and <code>patch</code> on
+<code>externalartifacts</code>, the first reconcile fails with <code>Reason=RBACDenied</code>.</p>
+<p>Verify the binding:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace default get rolebinding jaas-tenant
+</span></span><span class="line"><span class="cl"><span class="c1"># NAME          ROLE               AGE</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># jaas-tenant   Role/jaas-tenant   5s</span>
+</span></span></code></pre></div><h2 id="step-3--apply-your-first-snippet">Step 3 — Apply your first snippet</h2>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">cat <span class="s">&lt;&lt;EOF | kubectl apply -f -
+</span></span></span><span class="line"><span class="cl"><span class="s">apiVersion: jaas.metio.wtf/v1
+</span></span></span><span class="line"><span class="cl"><span class="s">kind: JsonnetSnippet
+</span></span></span><span class="line"><span class="cl"><span class="s">metadata:
+</span></span></span><span class="line"><span class="cl"><span class="s">  name: hello
+</span></span></span><span class="line"><span class="cl"><span class="s">  namespace: default
+</span></span></span><span class="line"><span class="cl"><span class="s">spec:
+</span></span></span><span class="line"><span class="cl"><span class="s">  serviceAccountName: default
+</span></span></span><span class="line"><span class="cl"><span class="s">  files:
+</span></span></span><span class="line"><span class="cl"><span class="s">    main.jsonnet: |
+</span></span></span><span class="line"><span class="cl"><span class="s">      {
+</span></span></span><span class="line"><span class="cl"><span class="s">        greeting: &#34;hello from jaas&#34;,
+</span></span></span><span class="line"><span class="cl"><span class="s">        rendered_at: std.extVar(&#34;now&#34;),
+</span></span></span><span class="line"><span class="cl"><span class="s">      }
+</span></span></span><span class="line"><span class="cl"><span class="s">  externalVariables:
+</span></span></span><span class="line"><span class="cl"><span class="s">    now: &#34;quickstart&#34;
+</span></span></span><span class="line"><span class="cl"><span class="s">EOF</span>
+</span></span></code></pre></div><p>This is a complete <code>JsonnetSnippet</code>. Three fields carry it:</p>
+<ul>
+<li><code>spec.serviceAccountName</code> — the ServiceAccount the operator impersonates for
+this snippet&rsquo;s API calls.</li>
+<li><code>spec.files.&lt;filename&gt;</code> — inline Jsonnet source. The default entry file is
+<code>main.jsonnet</code>; override it with <code>spec.entryFile</code>.</li>
+<li><code>spec.externalVariables</code> — <code>std.extVar()</code> lookups available to the snippet.</li>
+</ul>
+<p>Verify the resource exists:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace default get jsonnetsnippet hello
+</span></span></code></pre></div><h2 id="step-4--confirm-it-reconciled">Step 4 — Confirm it reconciled</h2>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace default get jsonnetsnippet hello
+</span></span><span class="line"><span class="cl"><span class="c1"># NAME    READY   URL                                                                                    AGE</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># hello   True    http://jaas-storage.jaas-system.svc.cluster.local:8082/default/hello/&lt;sha256&gt;.tar.gz   5s</span>
+</span></span></code></pre></div><p>The <code>URL</code> column is the artifact&rsquo;s address. If <code>READY</code> is <code>False</code>, describe the
+resource — the <code>Reason</code> and <code>Message</code> on the Ready condition name the problem
+(most commonly an RBAC gap or a Jsonnet syntax error):</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace default describe jsonnetsnippet hello
+</span></span></code></pre></div><p>The <code>ExternalArtifact</code> is the resource downstream Flux consumers read:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace default get externalartifact hello -o yaml
+</span></span><span class="line"><span class="cl"><span class="c1"># status:</span>
+</span></span><span class="line"><span class="cl"><span class="c1">#   artifact:</span>
+</span></span><span class="line"><span class="cl"><span class="c1">#     url: http://jaas-storage.jaas-system.svc.cluster.local:8082/default/hello/&lt;sha256&gt;.tar.gz</span>
+</span></span><span class="line"><span class="cl"><span class="c1">#     digest: sha256:&lt;hex&gt;</span>
+</span></span><span class="line"><span class="cl"><span class="c1">#     revision: sha256:&lt;hex&gt;</span>
+</span></span><span class="line"><span class="cl"><span class="c1">#     size: &lt;bytes&gt;</span>
+</span></span></code></pre></div><h2 id="step-5--fetch-the-rendered-bytes">Step 5 — Fetch the rendered bytes</h2>
+<p>The URL resolves in-cluster only. Fetch the tarball from a one-shot pod:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl"><span class="nv">URL</span><span class="o">=</span><span class="k">$(</span>kubectl --namespace default get jsonnetsnippet hello -o <span class="nv">jsonpath</span><span class="o">=</span><span class="s1">&#39;{.status.artifactURL}&#39;</span><span class="k">)</span>
+</span></span><span class="line"><span class="cl">kubectl run --rm -i --restart<span class="o">=</span>Never --image<span class="o">=</span>docker.io/curlimages/curl:8.10.1 fetch -- <span class="se">\
+</span></span></span><span class="line"><span class="cl">    sh -c <span class="s2">&#34;curl -fsSL &#39;</span><span class="nv">$URL</span><span class="s2">&#39; | tar -xzO rendered.json&#34;</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># {</span>
+</span></span><span class="line"><span class="cl"><span class="c1">#    &#34;greeting&#34;: &#34;hello from jaas&#34;,</span>
+</span></span><span class="line"><span class="cl"><span class="c1">#    &#34;rendered_at&#34;: &#34;quickstart&#34;</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># }</span>
+</span></span></code></pre></div><p>The tarball carries a single <code>rendered.json</code> because <code>spec.output</code> defaults to
+<code>rendered</code> (the evaluated JSON). Setting <code>spec.output: source</code> publishes the raw
+<code>.jsonnet</code> files instead, for consumers that re-evaluate themselves.</p>
+<h2 id="clean-up">Clean up</h2>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace default delete jsonnetsnippet hello
+</span></span><span class="line"><span class="cl">kubectl --namespace default delete rolebinding jaas-tenant
+</span></span><span class="line"><span class="cl">kubectl --namespace default delete role jaas-tenant
+</span></span><span class="line"><span class="cl">helm --namespace jaas-system uninstall jaas
+</span></span><span class="line"><span class="cl">kubectl delete namespace jaas-system
+</span></span></code></pre></div><p>The chart&rsquo;s pre-delete hook waits for the snippet&rsquo;s finalizer to drop — which
+removes the <code>ExternalArtifact</code> — before the operator pod is removed, so the
+uninstall leaves no orphans.</p>
+<h2 id="where-to-go-next">Where to go next</h2>
+<ul>
+<li><a href="/guides/grafana-dashboards/">Grafana dashboards</a>
+ — render grafonnet
+dashboards and hand them to the grafana-operator.</li>
+<li><a href="/guides/deploying-manifests/">Deploying manifests with StageSet</a>
+ — render
+Kubernetes manifests and roll them out with stageset-controller.</li>
+<li><a href="/operator/operator-mode/">Operator mode</a>
+ — the full operator reference: source
+kinds, leader election, the artifact contract.</li>
+<li><a href="/rendering/">Usage</a>
+ — every configuration knob, one page per concern.</li>
+</ul>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/operator" term="operator" label="operator"/><category scheme="https://jaas.projects.metio.wtf/tags/externalartifact" term="externalartifact" label="externalartifact"/><category scheme="https://jaas.projects.metio.wtf/tags/helm" term="helm" label="helm"/></entry></feed>

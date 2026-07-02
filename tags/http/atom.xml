@@ -1,0 +1,231 @@
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en"><generator uri="https://gohugo.io/" version="0.163.3">Hugo</generator><title type="html">Http on Jsonnet-as-a-Service</title><link href="https://jaas.projects.metio.wtf/tags/http/" rel="alternate" type="text/html" title="html"/><link href="https://jaas.projects.metio.wtf/tags/http/index.xml" rel="alternate" type="application/rss+xml" title="rss"/><link href="https://jaas.projects.metio.wtf/tags/http/atom.xml" rel="self" type="application/atom+xml" title="atom"/><updated>2026-07-02T07:56:37+00:00</updated><author><name>metio.wtf</name></author><id>https://jaas.projects.metio.wtf/tags/http/</id><entry><title type="html">Local rendering</title><link href="https://jaas.projects.metio.wtf/get-started/local-rendering/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/rendering/rendering-endpoint/?utm_source=atom_feed" rel="related" type="text/html" title="Rendering endpoint"/><id>https://jaas.projects.metio.wtf/get-started/local-rendering/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-26T15:54:29+02:00</updated><content type="html"><![CDATA[<blockquote>Run JaaS as a cluster-free Jsonnet renderer over HTTP, with snippet directories, library paths, TLAs, and external variables.</blockquote><p>JaaS runs as a cluster-free Jsonnet renderer: point it at a directory of
+snippets and a directory of libraries, then <code>GET</code> a snippet name to receive the
+evaluated JSON. No Kubernetes, no operator mode, no Flux. The evaluation core is
+the same one the operator uses, so a snippet that renders correctly here renders
+identically in-cluster.</p>
+<p>This tutorial runs against this repository&rsquo;s <code>examples/</code> layout, so clone the
+repo first:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">git clone https://github.com/metio/jaas
+</span></span><span class="line"><span class="cl"><span class="nb">cd</span> jaas
+</span></span></code></pre></div><h2 id="step-1--get-the-binary-or-container-image">Step 1 — Get the binary or container image</h2>
+<p>Pre-built binaries are attached to each
+<a href="https://github.com/metio/jaas/releases">GitHub release</a>
+. Download the archive
+for your platform, unpack it, and the <code>jaas</code> binary is inside.</p>
+<p>A container image is published at <code>ghcr.io/metio/jaas:latest</code>:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">docker pull ghcr.io/metio/jaas:latest
+</span></span></code></pre></div><p>The examples below use a <code>jaas</code> binary on your <code>PATH</code>. To run the container
+instead, mount <code>examples/</code> and map the port — for example
+<code>docker run --rm -p 8080:8080 -v &quot;$PWD/examples:/examples&quot; ghcr.io/metio/jaas:latest</code>
+with the flags adjusted to the in-container <code>/examples</code> paths, and
+<code>--listen-address 0.0.0.0</code> so the port is reachable from the host.</p>
+<h2 id="step-2--run-jaas-over-the-examples-directory">Step 2 — Run JaaS over the examples directory</h2>
+<p>Start JaaS with one snippet directory and one library path:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">jaas <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --snippet-directory examples/snippets/dashboards <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --library-path examples/libraries
+</span></span></code></pre></div><p><code>--snippet-directory</code> exposes each subdirectory as a snippet whose name is the
+directory name and whose entry file is <code>main.jsonnet</code>. <code>--library-path</code> makes the
+libraries under <code>examples/libraries</code> importable by alias. Both flags repeat, so
+you can pass several of each. The Jsonnet server binds <code>127.0.0.1:8080</code> by
+default.</p>
+<p>Confirm it started by hitting the readiness probe on the management server:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">curl -i http://127.0.0.1:8081/ready
+</span></span><span class="line"><span class="cl"><span class="c1"># HTTP/1.1 200 OK</span>
+</span></span></code></pre></div><h2 id="step-3--render-a-snippet">Step 3 — Render a snippet</h2>
+<p><code>examples/snippets/dashboards/inheritance</code> is a self-contained snippet. Request
+it by directory name:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">curl http://127.0.0.1:8080/jsonnet/inheritance
+</span></span></code></pre></div><p>JaaS returns the evaluated Jsonnet as JSON with <code>Content-Type: application/json</code>. The <code>library-precedence</code> snippet imports the <code>examplonet</code>
+library you exposed with <code>--library-path</code>:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">curl http://127.0.0.1:8080/jsonnet/library-precedence
+</span></span></code></pre></div><p>A snippet name that resolves to no file returns a <code>404</code> with a JSON error body; a
+Jsonnet error returns a <code>400</code> whose body is a generic <code>evaluation_failed</code>. The full
+go-jsonnet diagnostic (with file and line) is written to the terminal where jaas
+runs, so locally you see it right next to the request.</p>
+<h2 id="step-4--pass-a-top-level-argument">Step 4 — Pass a top-level argument</h2>
+<p>Top-level arguments arrive as URL query parameters. The <code>multi-tla</code> snippet is
+<code>function(tags=[&quot;default&quot;])</code> and joins its <code>tags</code> argument. Repeating a query
+key passes a list, which becomes a JSON array TLA:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">curl <span class="s1">&#39;http://127.0.0.1:8080/jsonnet/multi-tla?tags=prod&amp;tags=eu-west&#39;</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># {</span>
+</span></span><span class="line"><span class="cl"><span class="c1">#    &#34;count&#34;: 2,</span>
+</span></span><span class="line"><span class="cl"><span class="c1">#    &#34;joined&#34;: &#34;prod, eu-west&#34;,</span>
+</span></span><span class="line"><span class="cl"><span class="c1">#    &#34;list&#34;: [ &#34;prod&#34;, &#34;eu-west&#34; ]</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># }</span>
+</span></span></code></pre></div><p>A single occurrence of a query key (<code>?tags=prod</code>) passes a string instead of a
+one-element array.</p>
+<h2 id="step-5--set-an-external-variable">Step 5 — Set an external variable</h2>
+<p>External variables are supplied through environment variables prefixed
+<code>JAAS_EXT_VAR_</code>. The variable after the prefix is the <code>std.extVar</code> key. Restart
+JaaS with the variables the <code>example1</code> snippet reads (<code>name</code> and <code>key</code>):</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl"><span class="nv">JAAS_EXT_VAR_name</span><span class="o">=</span>Alice <span class="se">\
+</span></span></span><span class="line"><span class="cl"><span class="nv">JAAS_EXT_VAR_key</span><span class="o">=</span>secret-value <span class="se">\
+</span></span></span><span class="line"><span class="cl">jaas <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --snippet-directory examples/snippets/dashboards <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --library-path examples/libraries
+</span></span></code></pre></div><p>Then render the snippet:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">curl http://127.0.0.1:8080/jsonnet/example1
+</span></span><span class="line"><span class="cl"><span class="c1"># {</span>
+</span></span><span class="line"><span class="cl"><span class="c1">#    ...</span>
+</span></span><span class="line"><span class="cl"><span class="c1">#    &#34;person1&#34;: {</span>
+</span></span><span class="line"><span class="cl"><span class="c1">#       &#34;external&#34;: &#34;secret-value&#34;,</span>
+</span></span><span class="line"><span class="cl"><span class="c1">#       &#34;name&#34;: &#34;Alice&#34;,</span>
+</span></span><span class="line"><span class="cl"><span class="c1">#       &#34;welcome&#34;: &#34;Hello Alice!&#34;</span>
+</span></span><span class="line"><span class="cl"><span class="c1">#    },</span>
+</span></span><span class="line"><span class="cl"><span class="c1">#    ...</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># }</span>
+</span></span></code></pre></div><p><code>std.extVar('name')</code> and <code>std.extVar('key')</code> resolve to the values from the
+environment. External variables are read once at startup, not per request.</p>
+<h2 id="same-core-as-the-operator">Same core as the operator</h2>
+<p>The <code>jaas</code> binary evaluates Jsonnet through the same evaluation core whether it
+serves HTTP locally or reconciles a <code>JsonnetSnippet</code> in operator mode. Local
+rendering is the fast feedback loop for snippet authoring: a snippet that renders
+here — with the same libraries available — renders identically when the operator
+publishes it as an <code>ExternalArtifact</code>.</p>
+<h2 id="where-to-go-next">Where to go next</h2>
+<ul>
+<li><a href="/rendering/rendering-endpoint/">Rendering endpoint</a>
+ — the request shape, snippet
+resolution, the management probes, and the stable error contract.</li>
+<li><a href="/rendering/snippets-and-libraries/">Snippets and libraries</a>
+ — declaring snippets
+with <code>--snippet</code> and <code>--snippet-directory</code>, and libraries with <code>--library-path</code>.</li>
+<li><a href="/rendering/external-variables-and-tlas/">External variables and TLAs</a>
+ — the full
+<code>JAAS_EXT_VAR_*</code> and query-parameter rules.</li>
+</ul>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/local" term="local" label="local"/><category scheme="https://jaas.projects.metio.wtf/tags/renderer" term="renderer" label="renderer"/><category scheme="https://jaas.projects.metio.wtf/tags/http" term="http" label="http"/></entry><entry><title type="html">Rendering endpoint</title><link href="https://jaas.projects.metio.wtf/rendering/rendering-endpoint/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/get-started/local-rendering/?utm_source=atom_feed" rel="related" type="text/html" title="Local rendering"/><id>https://jaas.projects.metio.wtf/rendering/rendering-endpoint/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-26T15:54:29+02:00</updated><content type="html"><![CDATA[<blockquote>The GET /jsonnet/{snippet} request, snippet resolution, the management probes, and the stable error contract.</blockquote><p>Send a <code>GET</code> to the rendering endpoint with a snippet name and JaaS returns the
+evaluated Jsonnet as JSON:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">curl http://127.0.0.1:8080/jsonnet/example1
+</span></span></code></pre></div><p>The Jsonnet server binds <code>127.0.0.1:8080</code> by default (<code>--listen-address</code>,
+<code>--port</code>). The URL shape is <code>GET /&lt;jsonnet-endpoint-path&gt;/{snippet...}</code>, where
+<code>{snippet...}</code> is a trailing path segment that may contain slashes. A successful
+response carries <code>Content-Type: application/json</code> and the rendered document.</p>
+<h2 id="the-endpoint-path">The endpoint path</h2>
+<p>The leading path segment defaults to <code>jsonnet</code> and is set with
+<code>--jsonnet-endpoint-path</code>. Running with <code>--jsonnet-endpoint-path render</code> moves the
+endpoint to <code>GET /render/{snippet...}</code>:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">./jaas --jsonnet-endpoint-path render --snippet-directory examples/snippets/dashboards
+</span></span><span class="line"><span class="cl">curl http://127.0.0.1:8080/render/example1
+</span></span></code></pre></div><h2 id="snippet-resolution">Snippet resolution</h2>
+<p>The <code>{snippet...}</code> segment names which file JaaS evaluates. Resolution checks
+the <code>--snippet</code> files first, then looks for <code>&lt;name&gt;/main.jsonnet</code> under each
+<code>--snippet-directory</code>. See
+<a href="/rendering/snippets-and-libraries/">Snippets and libraries</a>
+ for how to declare
+both.</p>
+<p>Resolution is sandboxed through Go&rsquo;s <code>os.Root</code>, which rejects <code>..</code> traversal and
+symlinks that escape the configured directory. A crafted URL never reaches a
+file outside the snippet roots:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">curl -i http://127.0.0.1:8080/jsonnet/../etc/passwd
+</span></span><span class="line"><span class="cl"><span class="c1"># HTTP/1.1 404 Not Found</span>
+</span></span></code></pre></div><h2 id="management-probes">Management probes</h2>
+<p>A second HTTP server — the management server — exposes the Kubernetes lifecycle
+probes. It binds <code>127.0.0.1:8081</code> by default (<code>--management-listen-address</code>,
+<code>--management-port</code>):</p>
+<table>
+	<thead>
+			<tr>
+					<th>Path</th>
+					<th>Meaning</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><code>/live</code></td>
+					<td>Liveness. Unconditional <code>200</code>.</td>
+			</tr>
+			<tr>
+					<td><code>/start</code></td>
+					<td>Startup. Consults health state; <code>200</code> once started, otherwise <code>503</code> + JSON.</td>
+			</tr>
+			<tr>
+					<td><code>/ready</code></td>
+					<td>Readiness. Consults health state; <code>200</code> when ready, otherwise <code>503</code> + JSON.</td>
+			</tr>
+	</tbody>
+</table>
+<p>A not-ready probe returns a JSON body naming the state:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">curl -i http://127.0.0.1:8081/ready
+</span></span><span class="line"><span class="cl"><span class="c1"># HTTP/1.1 503 Service Unavailable</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># {&#34;status&#34;:&#34;not ready&#34;}</span>
+</span></span></code></pre></div><h2 id="error-contract">Error contract</h2>
+<p>Every non-2xx response is an <a href="https://www.rfc-editor.org/rfc/rfc9457">RFC 9457</a>
+
+problem document with <code>Content-Type: application/problem+json</code> so programmatic
+callers can pick the failure apart:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-json" data-lang="json"><span class="line"><span class="cl"><span class="p">{</span>
+</span></span><span class="line"><span class="cl">  <span class="nt">&#34;type&#34;</span><span class="p">:</span>    <span class="s2">&#34;https://jaas.projects.metio.wtf/errors/snippet_not_found&#34;</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">  <span class="nt">&#34;title&#34;</span><span class="p">:</span>   <span class="s2">&#34;Snippet not found&#34;</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">  <span class="nt">&#34;status&#34;</span><span class="p">:</span>  <span class="mi">404</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">  <span class="nt">&#34;detail&#34;</span><span class="p">:</span>  <span class="s2">&#34;snippet \&#34;missing\&#34; not found&#34;</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">  <span class="nt">&#34;code&#34;</span><span class="p">:</span>    <span class="s2">&#34;snippet_not_found&#34;</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">  <span class="nt">&#34;snippet&#34;</span><span class="p">:</span> <span class="s2">&#34;missing&#34;</span>
+</span></span><span class="line"><span class="cl"><span class="p">}</span>
+</span></span></code></pre></div><ul>
+<li><code>type</code> — the RFC 9457 problem-type URI, formed as
+<code>https://jaas.projects.metio.wtf/errors/</code> + the <code>code</code>.</li>
+<li><code>title</code> — a short, human-readable summary of the problem.</li>
+<li><code>status</code> — the HTTP status, mirrored into the body.</li>
+<li><code>detail</code> — human-readable specifics for this occurrence.</li>
+<li><code>code</code> — the stable short identifier. Callers match on this; these strings do
+not change. It is the matcher that pairs with the <code>type</code> URI.</li>
+<li><code>snippet</code> — echoes the requested name when one was parsed, and is omitted
+otherwise.</li>
+</ul>
+<p>Error bodies use <code>application/problem+json</code>; a successful <code>200</code> response stays
+<code>application/json</code> and carries the rendered document.</p>
+<table>
+	<thead>
+			<tr>
+					<th><code>code</code></th>
+					<th style="text-align: right"><code>status</code></th>
+					<th>When</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><code>method_not_allowed</code></td>
+					<td style="text-align: right"><code>405</code></td>
+					<td>Anything other than <code>GET</code> on the endpoint.</td>
+			</tr>
+			<tr>
+					<td><code>snippet_not_found</code></td>
+					<td style="text-align: right"><code>404</code></td>
+					<td>The requested snippet name resolves to no file.</td>
+			</tr>
+			<tr>
+					<td><code>evaluation_timeout</code></td>
+					<td style="text-align: right"><code>504</code></td>
+					<td>Evaluation exceeded <code>--evaluation-timeout</code>.</td>
+			</tr>
+			<tr>
+					<td><code>evaluation_unavailable</code></td>
+					<td style="text-align: right"><code>503</code></td>
+					<td>The concurrent-eval cap (<code>--max-concurrent-evals</code>) is full.</td>
+			</tr>
+			<tr>
+					<td><code>evaluation_failed</code></td>
+					<td style="text-align: right"><code>400</code></td>
+					<td>go-jsonnet returned an error (syntax, missing import, stack-limit exceeded).</td>
+			</tr>
+	</tbody>
+</table>
+<p>For <code>evaluation_failed</code>, <code>detail</code> is the constant <code>&quot;evaluation failed&quot;</code>. The full
+go-jsonnet diagnostic — syntax error, missing import, stack-limit, with file and
+line numbers — is written to the server logs instead of the response body, since
+it names on-disk snippet paths. Read the controller logs to debug a failing
+snippet; in operator mode the snippet&rsquo;s failure also surfaces on its
+<code>JsonnetSnippet</code> status condition.</p>
+<p>A client that closes the connection mid-evaluation receives no body and no
+status line — the handler detects the cancellation and returns without writing
+anything.</p>
+<p>The timeout, stack, and concurrency caps that drive <code>evaluation_timeout</code> and
+<code>evaluation_unavailable</code> are documented in
+<a href="/rendering/evaluation-and-security/">Evaluation and security</a>
+. To pass values into
+a render, see
+<a href="/rendering/external-variables-and-tlas/">External variables and TLAs</a>
+.</p>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/http" term="http" label="http"/><category scheme="https://jaas.projects.metio.wtf/tags/endpoint" term="endpoint" label="endpoint"/><category scheme="https://jaas.projects.metio.wtf/tags/errors" term="errors" label="errors"/></entry></feed>
