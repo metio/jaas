@@ -31,7 +31,7 @@ RUN ARCH="$(dpkg --print-architecture)" \
 # the version the crate-ci/typos action ships so a local run catches exactly
 # what CI does — Renovate bumps it from the upstream releases.
 # renovate: datasource=github-releases depName=crate-ci/typos
-ARG TYPOS_VERSION=1.47.2
+ARG TYPOS_VERSION=1.48.0
 RUN ARCH="$(uname -m)" \
     && case "$ARCH" in x86_64) T=x86_64 ;; aarch64) T=aarch64 ;; *) T="$ARCH" ;; esac \
     && curl -fsSL "https://github.com/crate-ci/typos/releases/download/v${TYPOS_VERSION}/typos-v${TYPOS_VERSION}-${T}-unknown-linux-musl.tar.gz" \
