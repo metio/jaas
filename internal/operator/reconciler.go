@@ -800,6 +800,12 @@ func (r *SnippetReconciler) reconcileSpec(ctx context.Context, logger *slog.Logg
 		if errors.Is(err, ErrArtifactTooLarge) {
 			return r.failReady(ctx, snip, ReasonArtifactTooLarge, err.Error())
 		}
+		// A source entry name every consumer would silently drop is a
+		// spec problem too — publishing it would ship an artifact whose
+		// file never arrives downstream.
+		if errors.Is(err, ErrUnsafeEntryName) {
+			return r.failReady(ctx, snip, ReasonInvalidSpec, err.Error())
+		}
 		// RBAC denial / missing CRD during the ExternalArtifact
 		// upsert — non-recoverable by retry until the cluster
 		// operator grants the verb. Stop engaging backoff.

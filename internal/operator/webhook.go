@@ -15,6 +15,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	jaasv1 "github.com/metio/jaas/api/v1"
+	"github.com/metio/jaas/internal/sources"
 )
 
 // SnippetValidator is the admission webhook for JsonnetSnippet. It rejects:
@@ -79,6 +80,17 @@ func (v *SnippetValidator) validate(ctx context.Context, snip *jaasv1.JsonnetSni
 	}
 	if dup := duplicateLibraryImportPath(snip); dup != "" {
 		return nil, fmt.Errorf("spec.libraries import path %q is used by more than one entry; each library must resolve to a distinct import path", dup)
+	}
+	// Output=source ships the file NAMES to consumers, whose extractors
+	// silently drop names outside the safe charset — the file would just
+	// never arrive downstream. Reject at admission so the author hears it
+	// on apply; the Publisher enforces the same rule as the fallback.
+	if snip.Spec.Output == jaasv1.OutputSource {
+		for name := range snip.Spec.Files {
+			if !sources.SafeEntryName(name) {
+				return nil, fmt.Errorf("spec.files key %q would be silently dropped by artifact consumers in output=source mode (allowed: [A-Za-z0-9._/-] segments, no dot-prefixed segments, no traversal)", name)
+			}
+		}
 	}
 	if v.Client != nil {
 		cycle, path, err := detectSourceRefCycle(ctx, v.Client, snip)

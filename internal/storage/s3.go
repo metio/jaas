@@ -100,8 +100,10 @@ type S3Config struct {
 	// a bucket with anonymous read+write ACL (testing).
 	UseAnonymous bool
 
-	// ReadTimeout caps a single GetObject stream. Zero uses the
-	// surrounding http.Server's write timeout.
+	// ReadTimeout caps the time to first byte of a GetObject (dial,
+	// request, response headers). The body stream itself is bounded by the
+	// surrounding http.Server's write timeout, matching the local backend.
+	// Zero disables the first-byte bound.
 	ReadTimeout time.Duration
 }
 
@@ -531,11 +533,19 @@ func (b *S3Backend) HTTPHandler() http.Handler {
 		if b.prefix != "" {
 			key = b.prefix + "/" + key
 		}
-		ctx := r.Context()
+		// readTimeout bounds only the TIME TO FIRST BYTE (dial, request,
+		// response headers via Stat) — not the body stream. The minio object
+		// reader is bound to the ctx given at GetObject for its whole life, so
+		// a WithTimeout here would sever slow-but-progressing streams mid-body
+		// after 200 + Content-Length are on the wire; the local backend has no
+		// such internal cap. The body is bounded by the surrounding
+		// http.Server's write timeout, the same budget the local backend
+		// streams under, so the two backends behave alike.
+		ctx, cancel := context.WithCancel(r.Context())
+		defer cancel()
+		var ttfb *time.Timer
 		if b.readTimeout > 0 {
-			var cancel context.CancelFunc
-			ctx, cancel = context.WithTimeout(ctx, b.readTimeout)
-			defer cancel()
+			ttfb = time.AfterFunc(b.readTimeout, cancel)
 		}
 		obj, err := b.client.GetObject(ctx, b.bucket, key, minio.GetObjectOptions{})
 		if err != nil {
@@ -544,6 +554,9 @@ func (b *S3Backend) HTTPHandler() http.Handler {
 		}
 		defer obj.Close()
 		info, err := obj.Stat()
+		if ttfb != nil {
+			ttfb.Stop()
+		}
 		if err != nil {
 			s3WriteError(w, err)
 			return

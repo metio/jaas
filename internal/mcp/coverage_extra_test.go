@@ -361,3 +361,26 @@ func TestMutateSnippet_PatchError(t *testing.T) {
 		t.Fatalf("error should mention the failed update, got %q", textContent(t, res))
 	}
 }
+
+// TestConfinedImporter_RightmostRootWins pins the JPATH precedence contract:
+// go-jsonnet's FileImporter iterates JPaths in reverse, so on a collision the
+// RIGHTMOST --library-path wins — the confined importer must agree, or the
+// same flags resolve differently on the confined MCP path than on the
+// HTTP/stdio paths. TestExamples_LibraryPrecedence pins the FileImporter side.
+func TestConfinedImporter_RightmostRootWins(t *testing.T) {
+	rootA := t.TempDir()
+	rootB := t.TempDir()
+	for root, body := range map[string]string{rootA: `{ from: "A" }`, rootB: `{ from: "B" }`} {
+		if err := os.WriteFile(filepath.Join(root, "shared.libsonnet"), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	imp := newConfinedImporter([]string{rootA, rootB})
+	contents, foundAt, err := imp.Import("", "shared.libsonnet")
+	if err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+	if got := contents.String(); got != `{ from: "B" }` {
+		t.Fatalf("resolved %q from %q — leftmost root won; the rightmost --library-path must take precedence", got, foundAt)
+	}
+}

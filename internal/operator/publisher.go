@@ -25,6 +25,7 @@ import (
 	fluxpatch "github.com/fluxcd/pkg/runtime/patch"
 
 	jaasv1 "github.com/metio/jaas/api/v1"
+	"github.com/metio/jaas/internal/sources"
 	"github.com/metio/jaas/internal/storage"
 )
 
@@ -86,6 +87,11 @@ type Publisher struct {
 // ReasonArtifactTooLarge on the Ready condition.
 var ErrArtifactTooLarge = errors.New("publisher: artifact exceeds MaxArtifactBytes")
 
+// ErrUnsafeEntryName is returned from Publish in Output=source mode when a
+// source file's name would be silently dropped by every consumer's extractor —
+// a snippet-author problem the reconciler surfaces as InvalidSpec.
+var ErrUnsafeEntryName = errors.New("publisher: source entry name would be dropped by consumers")
+
 // NewPublisher returns a Publisher whose Clock falls back to time.Now.
 func NewPublisher(store storage.Backend, baseURL string) *Publisher {
 	return &Publisher{Store: store, BaseURL: baseURL, Clock: time.Now}
@@ -128,14 +134,27 @@ func (p *Publisher) Publish(ctx context.Context, c client.Client, snip *jaasv1.J
 	// is the whole sourceFiles tree — len(rendered) would not measure that.
 	// Summing the built entries' bytes is the right measure because those
 	// are exactly the bytes Store.Put writes into the tarball.
-	if p.MaxArtifactBytes > 0 {
-		var total int64
-		for _, e := range entries {
-			total += int64(len(e.Content))
+	//
+	// Two layers: MaxArtifactBytes is the operator's own knob (zero = no
+	// operator cap), but the CONSUMER caps are unconditional — every fetcher
+	// (jaas's chaining fetcher, stageset's artifact fetcher) hard-caps
+	// extraction at sources.DefaultMaxPerEntryBytes per entry and
+	// sources.DefaultMaxExtractedBytes aggregate, so publishing past those
+	// bounds stamps Ready=True on an artifact no consumer can ever fetch.
+	var total int64
+	for _, e := range entries {
+		if int64(len(e.Content)) > sources.DefaultMaxPerEntryBytes {
+			return PublishResult{}, fmt.Errorf("%w: entry %q is %d bytes; consumers cap extraction at %d bytes per entry",
+				ErrArtifactTooLarge, e.Path, len(e.Content), sources.DefaultMaxPerEntryBytes)
 		}
-		if total > p.MaxArtifactBytes {
-			return PublishResult{}, fmt.Errorf("%w: %d > %d", ErrArtifactTooLarge, total, p.MaxArtifactBytes)
-		}
+		total += int64(len(e.Content))
+	}
+	if total > sources.DefaultMaxExtractedBytes {
+		return PublishResult{}, fmt.Errorf("%w: %d bytes total; consumers cap extraction at %d bytes",
+			ErrArtifactTooLarge, total, sources.DefaultMaxExtractedBytes)
+	}
+	if p.MaxArtifactBytes > 0 && total > p.MaxArtifactBytes {
+		return PublishResult{}, fmt.Errorf("%w: %d > %d", ErrArtifactTooLarge, total, p.MaxArtifactBytes)
 	}
 	res, err := p.Store.Put(ctx, snip.Namespace, snip.Name, revision, entries)
 	if err != nil {
@@ -225,6 +244,15 @@ func (p *Publisher) buildEntries(snip *jaasv1.JsonnetSnippet, rendered string, s
 	case jaasv1.OutputSource:
 		entries := make([]storage.FileEntry, 0, len(sourceFiles))
 		for path, body := range sourceFiles {
+			// Source mode ships the file NAMES to consumers, and every
+			// consumer's extractor silently drops names it considers unsafe —
+			// the file would just never arrive downstream. Refuse to publish
+			// such an entry instead. Inline spec.files keys are the
+			// unvalidated door (fetched trees already passed a fetcher's own
+			// normalisation on the way in).
+			if !sources.SafeEntryName(path) {
+				return nil, "", fmt.Errorf("%w: %q (allowed: [A-Za-z0-9._/-] segments, no dot-prefixed segments, no traversal)", ErrUnsafeEntryName, path)
+			}
 			entries = append(entries, storage.FileEntry{Path: path, Content: []byte(body)})
 		}
 		return entries, sourceArchiveRevision(sourceFiles), nil

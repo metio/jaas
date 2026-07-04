@@ -1757,3 +1757,22 @@ func TestRun_ErrorBody_AllPathsCarryContentLengthHeader(t *testing.T) {
 		t.Errorf("Content-Length missing on 404; headers = %v", resp.Header)
 	}
 }
+
+// The MCP transport is streamable HTTP (standing GET SSE stream, hanging
+// POSTs); a whole-request read or write deadline severs those streams
+// mid-session. Only the header read may be bounded (slowloris guard).
+func TestNewMCPHTTPServer_BoundsOnlyHeaderRead(t *testing.T) {
+	srv := newMCPHTTPServer(":8084", http.NotFoundHandler())
+	if srv.ReadTimeout != 0 {
+		t.Errorf("ReadTimeout = %v, want 0 — a request-read deadline severs the standing MCP streams", srv.ReadTimeout)
+	}
+	if srv.WriteTimeout != 0 {
+		t.Errorf("WriteTimeout = %v, want 0 — a write deadline severs the SSE stream", srv.WriteTimeout)
+	}
+	if srv.ReadHeaderTimeout <= 0 {
+		t.Error("ReadHeaderTimeout must be set as the slowloris guard")
+	}
+	if srv.Addr != ":8084" {
+		t.Errorf("Addr = %q", srv.Addr)
+	}
+}

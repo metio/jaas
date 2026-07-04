@@ -435,22 +435,18 @@ func run(args, env []string, stdout, stderr io.Writer, sigs <-chan os.Signal) in
 				slog.ErrorContext(ctx, "Cannot build MCP Kubernetes client", slog.Any("error", err))
 				return 1
 			}
-			mcpServer = &http.Server{
-				Addr:        *f.MCPBindAddress,
-				ReadTimeout: *f.ReadTimeout,
-				Handler: mcp.NewHTTPHandler(mcp.Config{
-					Version:           version,
-					Logger:            slog.Default(),
-					LibraryPaths:      *f.LibraryPaths,
-					ExtVars:           extVars,
-					MaxStack:          *f.MaxStack,
-					EvaluationTimeout: *f.EvaluationTimeout,
-					KubeClient:        mcpKubeClient,
-					RunbookBaseURL:    operator.RunbookBaseURL,
-					AllowMutations:    *f.MCPAllowMutations,
-					Store:             opStore,
-				}),
-			}
+			mcpServer = newMCPHTTPServer(*f.MCPBindAddress, mcp.NewHTTPHandler(mcp.Config{
+				Version:           version,
+				Logger:            slog.Default(),
+				LibraryPaths:      *f.LibraryPaths,
+				ExtVars:           extVars,
+				MaxStack:          *f.MaxStack,
+				EvaluationTimeout: *f.EvaluationTimeout,
+				KubeClient:        mcpKubeClient,
+				RunbookBaseURL:    operator.RunbookBaseURL,
+				AllowMutations:    *f.MCPAllowMutations,
+				Store:             opStore,
+			}))
 			mcpListener, err = net.Listen("tcp", mcpServer.Addr)
 			if err != nil {
 				_ = managementListener.Close()
@@ -717,6 +713,21 @@ func loadKubeconfig(path string) (*rest.Config, error) {
 		return clientcmd.BuildConfigFromFlags("", path)
 	}
 	return ctrl.GetConfig()
+}
+
+// newMCPHTTPServer builds the MCP endpoint's http.Server. The MCP transport
+// is streamable HTTP: a standing GET carries the SSE stream and hanging POSTs
+// carry tool-call responses, both alive far longer than any request-read
+// budget — a ReadTimeout (or WriteTimeout) arms a whole-request deadline that
+// severs those streams mid-session. The server therefore bounds only the
+// request HEADERS (the slowloris guard) and leaves the bodies to the
+// protocol's own lifecycle.
+func newMCPHTTPServer(addr string, handler http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              addr,
+		ReadHeaderTimeout: 10 * time.Second,
+		Handler:           handler,
+	}
 }
 
 // newStorageBackend selects and constructs the operator's artifact store from

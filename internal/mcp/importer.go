@@ -11,6 +11,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 
 	"github.com/google/go-jsonnet"
 )
@@ -56,8 +57,11 @@ func (imp *confinedImporter) Import(importedFrom, importedPath string) (jsonnet.
 	if root, dir, ok := imp.locate(importedFrom); ok {
 		candidates = append(candidates, candidate{root, path.Join(dir, importedPath)})
 	}
-	// (2) Each root, searched in order — the JPATH semantics.
-	for _, root := range imp.roots {
+	// (2) Each root, searched RIGHTMOST FIRST — go-jsonnet's FileImporter
+	// iterates JPaths in reverse, so the rightmost --library-path wins on a
+	// collision. The confined importer must agree, or the same flags resolve
+	// differently between the HTTP/stdio paths and the confined MCP path.
+	for _, root := range slices.Backward(imp.roots) {
 		candidates = append(candidates, candidate{root, importedPath})
 	}
 

@@ -443,3 +443,57 @@ func TestSnippetValidator_NoWarningsOnHealthyShape(t *testing.T) {
 		t.Errorf("expected no warnings on healthy shape, got %v", warnings)
 	}
 }
+
+// Output=source ships file NAMES to consumers, whose extractors silently drop
+// unsafe ones — admission rejects such keys so the author hears it on apply.
+func TestSnippetValidator_SourceModeUnsafeFileNameRejected(t *testing.T) {
+	v := &SnippetValidator{}
+	snip := &jaasv1.JsonnetSnippet{
+		Spec: jaasv1.JsonnetSnippetSpec{
+			Output: jaasv1.OutputSource,
+			SnippetSource: jaasv1.SnippetSource{Files: map[string]string{
+				"main.jsonnet":      "{}",
+				"deploy config.yml": "{}", // space: every consumer drops it
+			}},
+		},
+	}
+	if _, err := v.ValidateCreate(context.Background(), snip); err == nil {
+		t.Fatal("a source-mode file name consumers drop must be rejected at admission")
+	} else if !strings.Contains(err.Error(), "deploy config.yml") {
+		t.Errorf("error should name the offending key, got: %v", err)
+	}
+}
+
+// Rendered mode publishes only rendered.json — the same key stays legal there,
+// where it is purely a local eval file name.
+func TestSnippetValidator_RenderedModeFileNamesUnrestricted(t *testing.T) {
+	v := &SnippetValidator{}
+	snip := &jaasv1.JsonnetSnippet{
+		Spec: jaasv1.JsonnetSnippetSpec{
+			SnippetSource: jaasv1.SnippetSource{Files: map[string]string{
+				"main.jsonnet":      "{}",
+				"deploy config.yml": "{}",
+			}},
+		},
+	}
+	if _, err := v.ValidateCreate(context.Background(), snip); err != nil {
+		t.Fatalf("rendered mode must not restrict local file names: %v", err)
+	}
+}
+
+// Safe source-mode names pass admission.
+func TestSnippetValidator_SourceModeSafeFileNamesPass(t *testing.T) {
+	v := &SnippetValidator{}
+	snip := &jaasv1.JsonnetSnippet{
+		Spec: jaasv1.JsonnetSnippetSpec{
+			Output: jaasv1.OutputSource,
+			SnippetSource: jaasv1.SnippetSource{Files: map[string]string{
+				"main.jsonnet":          "{}",
+				"lib/helpers.libsonnet": "{}",
+			}},
+		},
+	}
+	if _, err := v.ValidateCreate(context.Background(), snip); err != nil {
+		t.Fatalf("consumer-safe source names must pass admission: %v", err)
+	}
+}

@@ -951,3 +951,25 @@ func isSafePathByte(b byte) bool {
 		return false
 	}
 }
+
+// Consumer-contract exports: the Publisher refuses to publish what these
+// bounds would make every consumer refuse to fetch — a Ready=True artifact
+// nobody can consume is worse than a failed publish.
+
+// DefaultMaxPerEntryBytes is the per-entry extraction cap every fetcher
+// applies (jaas's own chaining fetcher and stageset's artifact fetcher use
+// the same value).
+const DefaultMaxPerEntryBytes = defaultMaxPerEntryBytes
+
+// DefaultMaxExtractedBytes is the aggregate extracted-content cap.
+const DefaultMaxExtractedBytes = defaultMaxExtractedBytes
+
+// SafeEntryName reports whether consumers will keep a tar entry of this name.
+// The extractor silently DROPS entries that fail normalisation (unsafe bytes
+// outside [A-Za-z0-9._/-], dot-prefixed segments, traversal, backslash), so a
+// producer publishing such a name ships an artifact whose file quietly never
+// arrives; producers validate here instead.
+func SafeEntryName(name string) bool {
+	_, ok := normaliseEntry(name, "")
+	return ok
+}
