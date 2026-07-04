@@ -208,6 +208,12 @@ func TestEvaluateWithDeadline_PanicInGoroutineSurfacesAsError(t *testing.T) {
 	if !strings.Contains(err.Error(), "panicked") {
 		t.Errorf("err = %v, want the 'panicked' marker so log readers can filter", err)
 	}
+	// The goroutine stack must NOT be in the returned error: it travels to the
+	// MCP network transport, so an internal stack would leak to unauthenticated
+	// callers. The stack is logged server-side instead.
+	if strings.Contains(err.Error(), ".go:") || strings.Contains(err.Error(), "goroutine ") {
+		t.Errorf("err leaks a stack trace to callers: %v", err)
+	}
 	if out != "" {
 		t.Errorf("out = %q, want empty on panic path", out)
 	}

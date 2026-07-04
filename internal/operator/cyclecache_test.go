@@ -8,6 +8,7 @@ package operator
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"log/slog"
 	"strings"
 	"testing"
@@ -373,5 +374,39 @@ func TestReconcile_CycleCachePopulatedOnFirstReconcile(t *testing.T) {
 	}.NamespacedName)
 	if v, _, ok := r.CycleCache.Lookup(snip.UID, snip.Generation); !ok || v.hasCycle {
 		t.Errorf("cycle cache not populated with no-cycle verdict: hit=%v verdict=%+v", ok, v)
+	}
+}
+
+// TestCycleCache_ForgetLeavesNoPerKeyState pins that churn does not leak: after
+// storing and forgetting many distinct UIDs, no per-key state remains. The
+// invalidation counter is a single scalar, not a per-key map, so a long-lived
+// operator processing a high volume of short-lived snippets does not grow the
+// cache without bound.
+func TestCycleCache_ForgetLeavesNoPerKeyState(t *testing.T) {
+	c := newCycleCache()
+	for i := range 1000 {
+		uid := types.UID(fmt.Sprintf("uid-%d", i))
+		c.Store(uid, 1, 0, false, "")
+		c.Forget(uid)
+	}
+	c.mu.Lock()
+	n := len(c.entries)
+	c.mu.Unlock()
+	if n != 0 {
+		t.Fatalf("cache retains %d entries after forgetting every key; per-key state leaks", n)
+	}
+}
+
+// TestCycleCache_ForgetOfAnotherKeyDropsInFlightStore documents the deliberate
+// trade of the single-counter design: a Forget of ANY key invalidates every
+// in-flight walk's pending Store, so an unrelated snippet's deletion makes this
+// walk re-run. That is safe (the verdict is recomputed) and rare, and it is the
+// price of bounding the cache to O(live snippets) rather than O(ever-seen).
+func TestCycleCache_ForgetOfAnotherKeyDropsInFlightStore(t *testing.T) {
+	c := newCycleCache()
+	_, gen, _ := c.Lookup("uid-a", 1) // start walking A
+	c.Forget("uid-b")                 // an unrelated snippet is deleted mid-walk
+	if c.Store("uid-a", 1, gen, false, "no cycle") {
+		t.Error("Store wrote despite a concurrent Forget of another key; expected a safe re-walk")
 	}
 }

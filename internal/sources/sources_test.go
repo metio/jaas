@@ -1177,6 +1177,20 @@ func TestNew_TransportHasNoProxy(t *testing.T) {
 	}
 }
 
+// New()'s total-request timeout must be generous enough to stream the largest
+// artifact the fetcher accepts (64 MiB), matching the stageset fetcher's budget
+// for the same ExternalArtifact contract. A 30s budget starved a slow-link
+// download well within the byte cap.
+func TestNew_TotalTimeoutFitsMaxArchive(t *testing.T) {
+	f := New()
+	if f.HTTPClient == nil {
+		t.Fatal("New(): HTTPClient not set")
+	}
+	if f.HTTPClient.Timeout < 5*time.Minute {
+		t.Errorf("HTTPClient.Timeout = %s, want >= 5m so a 64 MiB artifact fits over a slow link", f.HTTPClient.Timeout)
+	}
+}
+
 func TestNew_InstallsCheckRedirect_ValidatesEveryHop(t *testing.T) {
 	f := New()
 	if f.HTTPClient == nil || f.HTTPClient.CheckRedirect == nil {

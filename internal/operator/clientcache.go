@@ -29,12 +29,12 @@ import (
 type tenantClientCache struct {
 	mu      sync.Mutex
 	entries map[string]tenantClientEntry
-	// epochs increments per key on every Forget. Get hands the caller the
-	// current epoch; Put writes only when it's unchanged, so a Forget
+	// gen is a single monotonic counter bumped on every Forget. Get hands the
+	// caller the current gen; Put writes only when it's unchanged, so a Forget
 	// landing between a concurrent Get-miss and its rebuild+Put can't be
 	// resurrected. Makes the cache correct at any MaxConcurrentReconciles,
 	// mirroring tokenCache and cycleCache.
-	epochs map[string]int64
+	gen int64
 }
 
 type tenantClientEntry struct {
@@ -43,12 +43,12 @@ type tenantClientEntry struct {
 }
 
 func newTenantClientCache() *tenantClientCache {
-	return &tenantClientCache{entries: map[string]tenantClientEntry{}, epochs: map[string]int64{}}
+	return &tenantClientCache{entries: map[string]tenantClientEntry{}}
 }
 
 // Get returns the cached client when one exists for key AND was built with
 // the supplied token. A token mismatch returns miss. The second return is
-// the key's current epoch, which the caller hands back to Put so a Forget
+// the current gen, which the caller hands back to Put so a Forget
 // in between drops the stale write.
 func (c *tenantClientCache) Get(key, token string) (client.Client, int64, bool) {
 	if c == nil {
@@ -56,16 +56,16 @@ func (c *tenantClientCache) Get(key, token string) (client.Client, int64, bool) 
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	epoch := c.epochs[key]
+	gen := c.gen
 	e, ok := c.entries[key]
 	if !ok || e.token != token {
-		return nil, epoch, false
+		return nil, gen, false
 	}
-	return e.client, epoch, true
+	return e.client, gen, true
 }
 
 // Put stores cl under key with the token it was built with, provided the
-// key's epoch hasn't moved since epochAtGet. A mismatch means a Forget
+// gen hasn't moved since epochAtGet. A mismatch means a Forget
 // evicted the entry mid-rebuild; the write is dropped. A subsequent
 // Get(key, token) returns cl until Forget evicts it or a different token
 // triggers a replace.
@@ -75,13 +75,13 @@ func (c *tenantClientCache) Put(key, token string, epochAtGet int64, cl client.C
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.epochs[key] != epochAtGet {
+	if c.gen != epochAtGet {
 		return
 	}
 	c.entries[key] = tenantClientEntry{token: token, client: cl}
 }
 
-// Forget evicts the cached client for key and bumps its epoch. Called from
+// Forget evicts the cached client for key and bumps gen. Called from
 // the finalizer path in lock-step with tokenCache.Forget so a re-created
 // snippet against the same SA mints a fresh token AND rebuilds the client
 // around it. nil-safe.
@@ -92,5 +92,5 @@ func (c *tenantClientCache) Forget(key string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	delete(c.entries, key)
-	c.epochs[key]++
+	c.gen++
 }

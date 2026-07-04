@@ -247,7 +247,13 @@ func New() *Fetcher {
 		Control:   f.controlConn,
 	}).DialContext
 	f.HTTPClient = &http.Client{
-		Timeout:       30 * time.Second,
+		// A total-request budget generous enough to stream the largest
+		// artifact the fetcher will accept: the 64 MiB decompressed cap
+		// (defaultMaxArchiveBytes) needs more than a 30s wall clock over a
+		// slow link. Matches the stageset fetcher's 5m budget for the same
+		// ExternalArtifact contract; the byte caps, not this timeout, bound
+		// what a malicious source can stream.
+		Timeout:       5 * time.Minute,
 		CheckRedirect: f.checkRedirect,
 		Transport:     transport,
 	}

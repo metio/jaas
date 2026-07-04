@@ -161,18 +161,51 @@ func TestPut_DigestIsIndependentOfFileOrder(t *testing.T) {
 	}
 }
 
-func TestPut_OverwritesPreviousFileAtSameRevision(t *testing.T) {
+// A revision is content-addressed, so re-Putting the same revision is a no-op on
+// disk: the file is NOT rewritten and its mtime is preserved. Re-stamping the
+// mtime would keep advancing the "newest revision" boundary Prune anchors its
+// grace window on, so a just-evicted revision would never be collected while
+// GCGrace > 0. Put still returns the correct Result derived from the existing
+// file.
+func TestPut_SameRevisionIsIdempotentAndPreservesMtime(t *testing.T) {
 	s := newTestStore(t)
-	if _, err := s.Put(context.Background(), "ns", "n", "r", []FileEntry{{Path: "f", Content: []byte("v1")}}); err != nil {
-		t.Fatal(err)
-	}
-	got, err := s.Put(context.Background(), "ns", "n", "r", []FileEntry{{Path: "f", Content: []byte("v2")}})
+	entries := []FileEntry{{Path: "f", Content: []byte("v1")}}
+
+	first, err := s.Put(context.Background(), "ns", "n", "r", entries)
 	if err != nil {
 		t.Fatal(err)
 	}
-	members := readTarMembers(t, s.fs.Name(), got.Path)
-	if members["f"] != "v2" {
-		t.Errorf("got %q, want overwrite with v2", members["f"])
+	path := filepath.Join(s.fs.Name(), first.Path)
+	before, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat after first Put: %v", err)
+	}
+
+	// Age the file so a rewrite would move the mtime forward observably.
+	old := before.ModTime().Add(-time.Hour)
+	if err := os.Chtimes(path, old, old); err != nil {
+		t.Fatalf("chtimes: %v", err)
+	}
+
+	second, err := s.Put(context.Background(), "ns", "n", "r", entries)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	after, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat after second Put: %v", err)
+	}
+	if !after.ModTime().Equal(old) {
+		t.Errorf("mtime moved on a same-revision re-Put (%v -> %v); the file was rewritten", old, after.ModTime())
+	}
+	// The Result is still correct — same digest and size as the first Put.
+	if second.DigestSHA256 != first.DigestSHA256 || second.SizeBytes != first.SizeBytes {
+		t.Errorf("re-Put Result = (%s, %d), want (%s, %d)", second.DigestSHA256, second.SizeBytes, first.DigestSHA256, first.SizeBytes)
+	}
+	// Content is intact.
+	if m := readTarMembers(t, s.fs.Name(), second.Path); m["f"] != "v1" {
+		t.Errorf("content = %q, want v1", m["f"])
 	}
 }
 

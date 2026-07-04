@@ -43,7 +43,11 @@ import (
 type cycleCache struct {
 	mu      sync.Mutex
 	entries map[types.UID]cycleVerdict
-	epochs  map[types.UID]int64
+	// gen is a single monotonic counter bumped on every Forget (see Store).
+	// A single counter rather than a per-UID map bounds memory under snippet
+	// churn: an unrelated snippet's Forget may make an in-flight walk re-walk,
+	// which is safe and cheap.
+	gen int64
 }
 
 type cycleVerdict struct {
@@ -55,7 +59,6 @@ type cycleVerdict struct {
 func newCycleCache() *cycleCache {
 	return &cycleCache{
 		entries: map[types.UID]cycleVerdict{},
-		epochs:  map[types.UID]int64{},
 	}
 }
 
@@ -71,7 +74,7 @@ func (c *cycleCache) Lookup(uid types.UID, generation int64) (cycleVerdict, int6
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	epoch := c.epochs[uid]
+	epoch := c.gen
 	v, ok := c.entries[uid]
 	if !ok || v.generation != generation {
 		return cycleVerdict{}, epoch, false
@@ -90,7 +93,7 @@ func (c *cycleCache) Store(uid types.UID, generation int64, epochAtLookup int64,
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.epochs[uid] != epochAtLookup {
+	if c.gen != epochAtLookup {
 		return false
 	}
 	c.entries[uid] = cycleVerdict{generation: generation, hasCycle: hasCycle, path: path}
@@ -108,7 +111,7 @@ func (c *cycleCache) Forget(uid types.UID) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	delete(c.entries, uid)
-	c.epochs[uid]++
+	c.gen++
 }
 
 // hasCycleSourceEdge reports whether snip carries any spec.sourceRef or

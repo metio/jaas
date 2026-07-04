@@ -83,14 +83,16 @@ type tokenCache struct {
 	mu     sync.Mutex
 	tokens map[string]cachedToken
 
-	// epochs increments per key on every Forget. A Mint captures the
-	// key's epoch before calling the apiserver and drops its cache write
-	// if the epoch moved in the meantime — so a Forget landing between a
-	// concurrent Mint completing and its write can't be silently
-	// resurrected. Without this the cache is only correct while reconciles
-	// serialize (MaxConcurrentReconciles == 1); the guard makes it correct
-	// at any concurrency, mirroring cycleCache.
-	epochs map[string]int64
+	// gen is a single monotonic counter bumped on every Forget. A Mint
+	// captures gen before calling the apiserver and drops its cache write if
+	// gen moved in the meantime — so a Forget landing between a concurrent
+	// Mint completing and its write can't be silently resurrected. Without
+	// this the cache is only correct while reconciles serialize
+	// (MaxConcurrentReconciles == 1); the guard makes it correct at any
+	// concurrency, mirroring cycleCache. A single counter (rather than a
+	// per-key map) bounds memory: an unrelated key's Forget may make an
+	// in-flight Mint re-mint, which is safe and rare.
+	gen int64
 
 	// flight dedupes concurrent Mint calls for the same key. The first
 	// caller wins; subsequent callers wait and observe the cached result.
@@ -106,7 +108,6 @@ func newTokenCache(minter tokenMinter) *tokenCache {
 		refreshMargin: defaultTokenMargin,
 		now:           time.Now,
 		tokens:        map[string]cachedToken{},
-		epochs:        map[string]int64{},
 	}
 }
 
@@ -133,7 +134,7 @@ func (c *tokenCache) Token(ctx context.Context, namespace, serviceAccount string
 		// write below drops the entry rather than resurrecting a token
 		// the deletion path intended to evict.
 		c.mu.Lock()
-		epochAtMint := c.epochs[key]
+		genAtMint := c.gen
 		c.mu.Unlock()
 		// Detach the mint from the first caller's ctx. singleflight
 		// returns the same (result, err) pair to every waiter, so a
@@ -158,7 +159,7 @@ func (c *tokenCache) Token(ctx context.Context, namespace, serviceAccount string
 			return "", err
 		}
 		c.mu.Lock()
-		if c.epochs[key] == epochAtMint {
+		if c.gen == genAtMint {
 			margin := c.refreshMarginFor(expires)
 			c.tokens[key] = cachedToken{token: token, expires: expires, refreshAt: expires.Add(-margin)}
 		}
@@ -217,5 +218,5 @@ func (c *tokenCache) Forget(namespace, serviceAccount string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	delete(c.tokens, key)
-	c.epochs[key]++
+	c.gen++
 }

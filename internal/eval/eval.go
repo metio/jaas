@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"runtime/debug"
 	"sync/atomic"
 	"time"
@@ -172,7 +173,15 @@ func evaluateWithDeadline(ctx context.Context, eval func() (string, error), time
 		// classifiable failure.
 		defer func() {
 			if r := recover(); r != nil {
-				ch <- result{err: fmt.Errorf("jsonnet evaluation panicked: %v\n%s", r, debug.Stack())}
+				// Log the goroutine stack server-side for diagnosis, but keep
+				// it OUT of the returned error: that error travels to the MCP
+				// network transport verbatim (minus library-path scrubbing),
+				// so embedding debug.Stack() would hand an unauthenticated
+				// caller the operator's internal stack. The caller gets only
+				// the panic value.
+				slog.Error("jsonnet evaluation panicked",
+					slog.Any("panic", r), slog.String("stack", string(debug.Stack())))
+				ch <- result{err: fmt.Errorf("jsonnet evaluation panicked: %v", r)}
 			}
 		}()
 		out, err := eval()

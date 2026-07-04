@@ -156,6 +156,21 @@ func (s *Store) Put(_ context.Context, namespace, name, revision string, entries
 	finalRel := filepath.Join(dir, RevisionFilename(revision))
 	tmpRel := finalRel + ".tmp"
 
+	// A revision is content-addressed: the same revision means byte-identical
+	// tarball bytes (deterministic entry ordering + zero ModTime). If it is
+	// already on disk, rewriting it would only re-stamp its mtime — which
+	// keeps advancing the "newest revision" boundary Prune anchors its grace
+	// window on, so a just-evicted revision's grace never elapses and it is
+	// never collected. Skip the write and re-derive the Result from the
+	// existing file, leaving its mtime untouched.
+	if info, statErr := s.fs.Stat(finalRel); statErr == nil && !info.IsDir() {
+		digest, err := s.digestOf(finalRel)
+		if err != nil {
+			return Result{}, err
+		}
+		return Result{Path: finalRel, SizeBytes: info.Size(), DigestSHA256: digest}, nil
+	}
+
 	digest, size, err := s.writeTarGz(tmpRel, entries)
 	if err != nil {
 		_ = s.fs.Remove(tmpRel)
@@ -196,6 +211,22 @@ func (s *Store) Open(_ context.Context, namespace, name, revision string) (io.Re
 		return nil, fmt.Errorf("storage: open %q: %w", rel, err)
 	}
 	return f, nil
+}
+
+// digestOf returns the hex SHA-256 of an already-stored tarball, read through
+// the same traversal-guarded FS view as the HTTP handler. Used when Put finds
+// the revision already on disk and re-derives the Result without rewriting.
+func (s *Store) digestOf(relPath string) (string, error) {
+	f, err := s.fs.FS().Open(filepath.ToSlash(relPath))
+	if err != nil {
+		return "", fmt.Errorf("storage: open %q: %w", relPath, err)
+	}
+	defer f.Close()
+	hasher := sha256.New()
+	if _, err := io.Copy(hasher, f); err != nil {
+		return "", fmt.Errorf("storage: hash %q: %w", relPath, err)
+	}
+	return hex.EncodeToString(hasher.Sum(nil)), nil
 }
 
 func (s *Store) writeTarGz(relPath string, entries []FileEntry) (string, int64, error) {
