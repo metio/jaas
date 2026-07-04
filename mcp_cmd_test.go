@@ -36,14 +36,14 @@ func TestRun_MCPSubcommand_UnknownFlagReturnsTwo(t *testing.T) {
 	}
 }
 
-func TestRun_MCPSubcommand_InvalidExtVarReturnsOne(t *testing.T) {
+func TestRun_MCPSubcommand_InvalidExtVarReturnsTwo(t *testing.T) {
 	withRestoredSlogDefault(t)
 	var stdout, stderr bytes.Buffer
 	sigs := make(chan os.Signal, 1)
-	// `FOO` has no '=', so ParseExtVars rejects it — a runtime input error
-	// (exit 1), surfaced before the stdio transport starts.
-	if code := run([]string{"mcp", "--ext-var", "FOO"}, nil, &stdout, &stderr, sigs); code != 1 {
-		t.Errorf("exit code = %d, want 1 for an invalid --ext-var; stderr=%q", code, stderr.String())
+	// `FOO` has no '=', so ParseExtVars rejects it — flag misuse (exit 2),
+	// surfaced before the stdio transport starts.
+	if code := run([]string{"mcp", "--ext-var", "FOO"}, nil, &stdout, &stderr, sigs); code != 2 {
+		t.Errorf("exit code = %d, want 2 for an invalid --ext-var; stderr=%q", code, stderr.String())
 	}
 }
 

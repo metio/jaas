@@ -100,7 +100,8 @@ func main() {
 // through its parameters so tests can drive them in isolation.
 //
 // Return value follows the Unix convention: 0 success, 1 runtime failure
-// (bind / shutdown error surfaced before normal exit), 2 flag parse error.
+// (bind / shutdown error surfaced before normal exit), 2 flag misuse — a parse
+// error, an out-of-set flag value, or a missing required flag combination.
 func run(args, env []string, stdout, stderr io.Writer, sigs <-chan os.Signal) int {
 	// The `mcp` subcommand serves the cluster-free Jsonnet renderer over the
 	// Model Context Protocol on stdio. It owns a focused flag subset, so it is
@@ -218,7 +219,7 @@ func run(args, env []string, stdout, stderr io.Writer, sigs <-chan os.Signal) in
 	cliExtVars, err := operator.ParseExtVars(*f.ExtVarFlags)
 	if err != nil {
 		fmt.Fprintf(stderr, "Invalid --ext-var: %v\n", err)
-		return 1
+		return 2
 	}
 
 	// CLI --ext-var overlays env-derived JAAS_EXT_VAR_* on key conflicts;
@@ -243,18 +244,18 @@ func run(args, env []string, stdout, stderr io.Writer, sigs <-chan os.Signal) in
 		rerenderRatePerSec, err := operator.ParseRerenderRate(*f.RerenderRate)
 		if err != nil {
 			fmt.Fprintf(stderr, "Invalid --rerender-rate: %v\n", err)
-			return 1
+			return 2
 		}
 		if *f.RerenderBurst < 1 {
 			fmt.Fprintf(stderr, "Invalid --rerender-burst: must be >= 1, got %d\n", *f.RerenderBurst)
-			return 1
+			return 2
 		}
 		if *f.StorageBaseURL == "" {
 			fmt.Fprintln(stderr, "Invalid --storage-base-url: required when --enable-flux-integration is set")
-			return 1
+			return 2
 		}
-		var ok bool
-		opStore, ok = newStorageBackend(ctx, stderr, *f.StorageBackend, *f.StoragePath, storage.S3Config{
+		var code int
+		opStore, code = newStorageBackend(ctx, stderr, *f.StorageBackend, *f.StoragePath, storage.S3Config{
 			Endpoint:        *f.S3Endpoint,
 			Bucket:          *f.S3Bucket,
 			Prefix:          *f.S3Prefix,
@@ -266,8 +267,8 @@ func run(args, env []string, stdout, stderr io.Writer, sigs <-chan os.Signal) in
 			UseAnonymous:    *f.S3Anonymous,
 			ReadTimeout:     *f.StorageReadTimeout,
 		})
-		if !ok {
-			return 1
+		if code != 0 {
+			return code
 		}
 		defer func() { _ = opStore.Close() }()
 
@@ -312,7 +313,7 @@ func run(args, env []string, stdout, stderr io.Writer, sigs <-chan os.Signal) in
 			case "self-signed":
 				if *f.WebhookVWCName == "" {
 					fmt.Fprintln(stderr, "Invalid --webhook-validating-config-name: required when --webhook-cert-mode=self-signed")
-					return 1
+					return 2
 				}
 				ns := resolveSelfSignedNamespace(*f.WebhookServiceNamespace, *f.LeaderElectionNamespace, env)
 				done, err := provisionSelfSignedWebhookCert(ctx, opRestCfg, selfsignedConfig{
@@ -332,7 +333,7 @@ func run(args, env []string, stdout, stderr io.Writer, sigs <-chan os.Signal) in
 					slog.String("vwc", *f.WebhookVWCName))
 			default:
 				fmt.Fprintf(stderr, "Invalid --webhook-cert-mode %q: must be \"cert-manager\" or \"self-signed\"\n", *f.WebhookCertMode)
-				return 1
+				return 2
 			}
 		}
 	}
@@ -719,36 +720,38 @@ func loadKubeconfig(path string) (*rest.Config, error) {
 }
 
 // newStorageBackend selects and constructs the operator's artifact store from
-// the backend flags. A flag-validation problem (missing path / endpoint /
-// unknown backend) is written to stderr; a construction failure is logged via
-// slog. Either way it returns ok=false so the caller can exit non-zero.
-func newStorageBackend(ctx context.Context, stderr io.Writer, backend, localPath string, s3cfg storage.S3Config) (storage.Backend, bool) {
+// the backend flags. It returns the exit code the caller should use: 0 on
+// success, 2 for flag misuse (missing path / endpoint / unknown backend —
+// written to stderr as an "Invalid --flag" message), and 1 for a construction
+// failure (logged via slog). The two failure classes carry different codes so
+// flag misuse stays a usage error, matching run's convention.
+func newStorageBackend(ctx context.Context, stderr io.Writer, backend, localPath string, s3cfg storage.S3Config) (storage.Backend, int) {
 	switch backend {
 	case "local":
 		if localPath == "" {
 			fmt.Fprintln(stderr, "Invalid --storage-path: required when --storage-backend=local")
-			return nil, false
+			return nil, 2
 		}
 		store, err := storage.New(localPath)
 		if err != nil {
 			slog.ErrorContext(ctx, "Cannot open storage", slog.String("path", localPath), slog.Any("error", err))
-			return nil, false
+			return nil, 1
 		}
-		return store, true
+		return store, 0
 	case "s3":
 		if s3cfg.Endpoint == "" || s3cfg.Bucket == "" {
 			fmt.Fprintln(stderr, "Invalid S3 config: --s3-endpoint and --s3-bucket are required when --storage-backend=s3")
-			return nil, false
+			return nil, 2
 		}
 		b, err := storage.NewS3(s3cfg)
 		if err != nil {
 			slog.ErrorContext(ctx, "Cannot init S3 backend", slog.Any("error", err))
-			return nil, false
+			return nil, 1
 		}
-		return b, true
+		return b, 0
 	default:
 		fmt.Fprintf(stderr, "Invalid --storage-backend %q: must be \"local\" or \"s3\"\n", backend)
-		return nil, false
+		return nil, 2
 	}
 }
 

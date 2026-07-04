@@ -155,9 +155,9 @@ func TestRun_FluxIntegration_InvalidWebhookCertModeFailsWithExit2(t *testing.T) 
 }
 
 // TestRun_FluxIntegration_SelfSignedRequiresVWCName pins that the self-signed
-// cert mode rejects a missing --webhook-validating-config-name (exit 1) before
-// it tries to provision anything — the named VWC is where the issued CA bundle
-// is stamped, so the mode is inoperable without it.
+// cert mode rejects a missing --webhook-validating-config-name (exit 2, flag
+// misuse) before it tries to provision anything — the named VWC is where the
+// issued CA bundle is stamped, so the mode is inoperable without it.
 func TestRun_FluxIntegration_SelfSignedRequiresVWCName(t *testing.T) {
 	kubeconfig := envtestMainSetup(t)
 
@@ -180,8 +180,8 @@ func TestRun_FluxIntegration_SelfSignedRequiresVWCName(t *testing.T) {
 		"--leader-election-namespace=default",
 		"--metrics-bind-address=0",
 	}, nil, &stdout, &stderr, sigs)
-	if code != 1 {
-		t.Fatalf("exit code = %d, want 1; stderr=%q stdout=%q", code, stderr.String(), stdout.String())
+	if code != 2 {
+		t.Fatalf("exit code = %d, want 2; stderr=%q stdout=%q", code, stderr.String(), stdout.String())
 	}
 	if !strings.Contains(stderr.String(), "Invalid --webhook-validating-config-name") {
 		t.Errorf("stderr = %q, want it to name the missing --webhook-validating-config-name", stderr.String())

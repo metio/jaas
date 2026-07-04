@@ -948,9 +948,9 @@ func TestRunStorageSweep_SurvivesErrorAndCountsRemovals(t *testing.T) {
 func TestNewStorageBackend(t *testing.T) {
 	t.Run("local missing path", func(t *testing.T) {
 		var stderr bytes.Buffer
-		b, ok := newStorageBackend(context.Background(), &stderr, "local", "", storage.S3Config{})
-		if ok || b != nil {
-			t.Errorf("got (%v, %v), want (nil, false)", b, ok)
+		b, code := newStorageBackend(context.Background(), &stderr, "local", "", storage.S3Config{})
+		if code != 2 || b != nil {
+			t.Errorf("got (%v, %d), want (nil, 2) — missing path is flag misuse", b, code)
 		}
 		if !strings.Contains(stderr.String(), "storage-path") {
 			t.Errorf("stderr = %q, want it to name -storage-path", stderr.String())
@@ -958,16 +958,16 @@ func TestNewStorageBackend(t *testing.T) {
 	})
 	t.Run("local ok", func(t *testing.T) {
 		var stderr bytes.Buffer
-		b, ok := newStorageBackend(context.Background(), &stderr, "local", t.TempDir(), storage.S3Config{})
-		if !ok || b == nil {
-			t.Fatalf("got (%v, %v), want a backend", b, ok)
+		b, code := newStorageBackend(context.Background(), &stderr, "local", t.TempDir(), storage.S3Config{})
+		if code != 0 || b == nil {
+			t.Fatalf("got (%v, %d), want a backend and code 0", b, code)
 		}
 		_ = b.Close()
 	})
 	t.Run("s3 missing endpoint/bucket", func(t *testing.T) {
 		var stderr bytes.Buffer
-		if _, ok := newStorageBackend(context.Background(), &stderr, "s3", "", storage.S3Config{}); ok {
-			t.Error("want ok=false for missing S3 endpoint/bucket")
+		if _, code := newStorageBackend(context.Background(), &stderr, "s3", "", storage.S3Config{}); code != 2 {
+			t.Errorf("code = %d, want 2 for missing S3 endpoint/bucket (flag misuse)", code)
 		}
 		if !strings.Contains(stderr.String(), "s3-endpoint") {
 			t.Errorf("stderr = %q, want it to name -s3-endpoint", stderr.String())
@@ -975,17 +975,17 @@ func TestNewStorageBackend(t *testing.T) {
 	})
 	t.Run("s3 ok", func(t *testing.T) {
 		var stderr bytes.Buffer
-		b, ok := newStorageBackend(context.Background(), &stderr, "s3", "",
+		b, code := newStorageBackend(context.Background(), &stderr, "s3", "",
 			storage.S3Config{Endpoint: "s3.example.com", Bucket: "b", UseSSL: true})
-		if !ok || b == nil {
-			t.Fatalf("got (%v, %v), want a backend", b, ok)
+		if code != 0 || b == nil {
+			t.Fatalf("got (%v, %d), want a backend and code 0", b, code)
 		}
 		_ = b.Close()
 	})
 	t.Run("unknown backend", func(t *testing.T) {
 		var stderr bytes.Buffer
-		if _, ok := newStorageBackend(context.Background(), &stderr, "bogus", "", storage.S3Config{}); ok {
-			t.Error("want ok=false for an unknown backend")
+		if _, code := newStorageBackend(context.Background(), &stderr, "bogus", "", storage.S3Config{}); code != 2 {
+			t.Errorf("code = %d, want 2 for an unknown backend (flag misuse)", code)
 		}
 		if !strings.Contains(stderr.String(), "storage-backend") {
 			t.Errorf("stderr = %q, want it to name -storage-backend", stderr.String())
@@ -1533,26 +1533,26 @@ func TestRun_ExtVarFlag_OverlaysJaasExtVarEnvOnConflict(t *testing.T) {
 	}
 }
 
-func TestRun_ExtVarFlag_InvalidFormatReturnsOne(t *testing.T) {
+func TestRun_ExtVarFlag_InvalidFormatReturnsTwo(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	sigs := make(chan os.Signal, 1)
 	withRestoredSlogDefault(t)
 	code := run([]string{"--ext-var=noequals"}, nil, &stdout, &stderr, sigs)
-	if code != 1 {
-		t.Errorf("exit code = %d, want 1; stderr=%q", code, stderr.String())
+	if code != 2 {
+		t.Errorf("exit code = %d, want 2 (a malformed flag value is flag misuse); stderr=%q", code, stderr.String())
 	}
 	if !strings.Contains(stderr.String(), "Invalid --ext-var") {
 		t.Errorf("stderr = %q, want it to mention --ext-var", stderr.String())
 	}
 }
 
-func TestRun_ExtVarFlag_EmptyKeyReturnsOne(t *testing.T) {
+func TestRun_ExtVarFlag_EmptyKeyReturnsTwo(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	sigs := make(chan os.Signal, 1)
 	withRestoredSlogDefault(t)
 	code := run([]string{"--ext-var==orphan-value"}, nil, &stdout, &stderr, sigs)
-	if code != 1 {
-		t.Errorf("exit code = %d, want 1; stderr=%q", code, stderr.String())
+	if code != 2 {
+		t.Errorf("exit code = %d, want 2; stderr=%q", code, stderr.String())
 	}
 }
 
@@ -1564,28 +1564,28 @@ func TestRun_FluxIntegration_DefaultDisabledLeavesOperatorOff(t *testing.T) {
 	}
 }
 
-func TestRun_FluxIntegration_InvalidRerenderRateReturnsOne(t *testing.T) {
+func TestRun_FluxIntegration_InvalidRerenderRateReturnsTwo(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	sigs := make(chan os.Signal, 1)
 	withRestoredSlogDefault(t)
 	code := run([]string{"--enable-flux-integration", "--rerender-rate=garbage"},
 		nil, &stdout, &stderr, sigs)
-	if code != 1 {
-		t.Errorf("exit code = %d, want 1; stderr=%q", code, stderr.String())
+	if code != 2 {
+		t.Errorf("exit code = %d, want 2 (a malformed flag value is flag misuse); stderr=%q", code, stderr.String())
 	}
 	if !strings.Contains(stderr.String(), "Invalid --rerender-rate") {
 		t.Errorf("stderr = %q, want it to mention --rerender-rate", stderr.String())
 	}
 }
 
-func TestRun_FluxIntegration_ZeroRerenderBurstReturnsOne(t *testing.T) {
+func TestRun_FluxIntegration_ZeroRerenderBurstReturnsTwo(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	sigs := make(chan os.Signal, 1)
 	withRestoredSlogDefault(t)
 	code := run([]string{"--enable-flux-integration", "--rerender-burst=0"},
 		nil, &stdout, &stderr, sigs)
-	if code != 1 {
-		t.Errorf("exit code = %d, want 1; stderr=%q", code, stderr.String())
+	if code != 2 {
+		t.Errorf("exit code = %d, want 2 (an out-of-range flag value is flag misuse); stderr=%q", code, stderr.String())
 	}
 	if !strings.Contains(stderr.String(), "rerender-burst") {
 		t.Errorf("stderr = %q, want it to mention rerender-burst", stderr.String())
@@ -1613,26 +1613,25 @@ func TestRun_FluxIntegration_BadKubeconfigPathReturnsOne(t *testing.T) {
 	}
 }
 
-func TestRun_FluxIntegration_MissingStoragePathReturnsOne(t *testing.T) {
+func TestRun_FluxIntegration_MissingStoragePathReturnsTwo(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	sigs := make(chan os.Signal, 1)
 	withRestoredSlogDefault(t)
-	// Supply a base-url so we exit on the path check (which is now
-	// guarded by -storage-backend=local), not on the base-url check
-	// that runs first.
+	// Supply a base-url so we exit on the path check (guarded by
+	// -storage-backend=local), not on the base-url check that runs first.
 	code := run([]string{
 		"--enable-flux-integration",
 		"--storage-base-url=http://x",
 	}, nil, &stdout, &stderr, sigs)
-	if code != 1 {
-		t.Errorf("exit code = %d, want 1", code)
+	if code != 2 {
+		t.Errorf("exit code = %d, want 2 (a missing required flag combination is flag misuse)", code)
 	}
 	if !strings.Contains(stderr.String(), "storage-path") {
 		t.Errorf("stderr = %q, want it to mention storage-path", stderr.String())
 	}
 }
 
-func TestRun_FluxIntegration_MissingStorageBaseURLReturnsOne(t *testing.T) {
+func TestRun_FluxIntegration_MissingStorageBaseURLReturnsTwo(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	sigs := make(chan os.Signal, 1)
 	withRestoredSlogDefault(t)
@@ -1640,8 +1639,8 @@ func TestRun_FluxIntegration_MissingStorageBaseURLReturnsOne(t *testing.T) {
 		"--enable-flux-integration",
 		"--storage-path=" + t.TempDir(),
 	}, nil, &stdout, &stderr, sigs)
-	if code != 1 {
-		t.Errorf("exit code = %d, want 1", code)
+	if code != 2 {
+		t.Errorf("exit code = %d, want 2 (a missing required flag combination is flag misuse)", code)
 	}
 	if !strings.Contains(stderr.String(), "storage-base-url") {
 		t.Errorf("stderr = %q, want it to mention storage-base-url", stderr.String())
@@ -1712,8 +1711,8 @@ func TestRun_FluxIntegration_S3RequiresEndpointAndBucket(t *testing.T) {
 				"--storage-backend=s3",
 			}, tc.args...)
 			code := run(args, nil, &stdout, &stderr, sigs)
-			if code != 1 {
-				t.Errorf("exit code = %d, want 1", code)
+			if code != 2 {
+				t.Errorf("exit code = %d, want 2 (a missing required flag combination is flag misuse)", code)
 			}
 			if !strings.Contains(stderr.String(), tc.want) {
 				t.Errorf("stderr = %q, want it to mention %s", stderr.String(), tc.want)

@@ -29,7 +29,7 @@ import (
 // the main binary's — only the knobs that affect cluster-free rendering.
 //
 // Exit codes follow run()'s convention: 0 success, 1 runtime failure, 2 flag
-// parse error.
+// misuse — a parse error or a bad flag value.
 func runMCP(args, env []string, _, stderr io.Writer, sigs <-chan os.Signal) int {
 	fs := pflag.NewFlagSet("jaas mcp", pflag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -58,7 +58,7 @@ func runMCP(args, env []string, _, stderr io.Writer, sigs <-chan os.Signal) int 
 	cliExtVars, err := operator.ParseExtVars(*extVarFlags)
 	if err != nil {
 		fmt.Fprintf(stderr, "Invalid --ext-var: %v\n", err)
-		return 1
+		return 2
 	}
 	// CLI --ext-var overlays env-derived JAAS_EXT_VAR_* on key conflicts,
 	// matching the main binary.
