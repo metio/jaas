@@ -236,6 +236,29 @@ func (b *S3Backend) Put(ctx context.Context, namespace, name, revision string, e
 	}
 
 	key := b.objectKey(namespace, name, revision)
+
+	// A revision is content-addressed: the same revision means byte-identical
+	// tarball bytes. Re-uploading an existing revision would only re-stamp its
+	// LastModified — which keeps advancing the "newest revision" boundary Prune
+	// anchors its grace window on, so a just-superseded revision's grace never
+	// elapses and it leaks in the bucket forever (plus a wasteful full
+	// re-upload every reconcile). Skip the upload when the object already
+	// exists and re-derive the Result from the deterministic bytes (recomputed
+	// locally — no re-download), matching the local backend's skip-existing
+	// path. Only a confirmed StatObject success skips; any error (absent or
+	// transient) falls through to the idempotent upload.
+	if _, err := b.client.StatObject(ctx, b.bucket, key, minio.StatObjectOptions{}); err == nil {
+		digest, size, derr := hashTarGz(entries)
+		if derr != nil {
+			return Result{}, fmt.Errorf("storage/s3: rehash existing %q: %w", key, derr)
+		}
+		return Result{
+			Path:         path.Join(namespace, name, RevisionFilename(revision)),
+			SizeBytes:    size,
+			DigestSHA256: digest,
+		}, nil
+	}
+
 	// Bound a stuck upload without capping a large-but-progressing one.
 	// A fixed total-time ceiling truncates a legitimate big artifact on a
 	// slow link, flapping the snippet into an endless re-upload-from-zero
@@ -352,6 +375,18 @@ func watchUploadStall(ctx context.Context, progress func() int64, onStall func()
 // into hasher and counter. It writes straight into the caller's pipe so
 // the S3 upload streams with no intermediate in-memory buffer of the
 // whole tarball.
+// hashTarGz computes the sha256 digest and compressed size of the deterministic
+// tar.gz for entries without producing an upload — used by Put's skip-existing
+// path to re-derive a Result from bytes already stored, no network read.
+func hashTarGz(entries []FileEntry) (string, int64, error) {
+	hasher := sha256.New()
+	counter := &writeCounter{}
+	if err := streamTarGz(io.Discard, hasher, counter, entries); err != nil {
+		return "", 0, err
+	}
+	return hex.EncodeToString(hasher.Sum(nil)), counter.count(), nil
+}
+
 func streamTarGz(w io.Writer, hasher io.Writer, counter io.Writer, entries []FileEntry) error {
 	multi := io.MultiWriter(w, hasher, counter)
 	gz := gzip.NewWriter(multi)

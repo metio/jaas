@@ -267,3 +267,17 @@ func FuzzRenderJsonnet(f *testing.F) {
 		}
 	})
 }
+
+// The streamable-HTTP handler must bound idle sessions: with the SDK's zero
+// SessionTimeout, a stateful session created by an initialize POST is retained
+// until an explicit DELETE, so a dropped/reconnecting client — or an attacker
+// minting sessions on the unauthenticated port — grows the session map until
+// the pod OOMs. This pins the idle bound is set and sane.
+func TestMCPSessionIdleTimeout_IsBounded(t *testing.T) {
+	if mcpSessionIdleTimeout <= 0 {
+		t.Fatal("mcpSessionIdleTimeout must be positive; a zero timeout never expires idle sessions")
+	}
+	if mcpSessionIdleTimeout > time.Hour {
+		t.Errorf("mcpSessionIdleTimeout = %s; an unbounded-in-practice idle window defeats the leak guard", mcpSessionIdleTimeout)
+	}
+}

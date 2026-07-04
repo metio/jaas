@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
+	"slices"
 	"sort"
 	"strings"
 	"syscall"
@@ -932,12 +933,17 @@ func provisionSelfSignedWebhookCert(ctx context.Context, restCfg *rest.Config, c
 // against — the same alias the operator's admission webhook + reconciler
 // reject if a LibraryRef tries to shadow it.
 //
+// Paths are walked RIGHTMOST FIRST so a duplicate alias resolves to the
+// rightmost --library-path — matching the flag's documented "rightmost matching
+// library will be used" and go-jsonnet's FileImporter (which iterates JPaths in
+// reverse), so the operator eval path agrees with the HTTP and MCP paths.
+//
 // Missing or unreadable dirs are silently skipped: at startup we don't
 // want to crash the binary just because one optional mount is empty.
 func ociLibraryAliasesFromPaths(paths []string) []string {
 	seen := map[string]struct{}{}
 	var out []string
-	for _, dir := range paths {
+	for _, dir := range slices.Backward(paths) {
 		entries, err := os.ReadDir(dir)
 		if err != nil {
 			continue
@@ -960,10 +966,10 @@ func ociLibraryAliasesFromPaths(paths []string) []string {
 // ociLibrariesFromPaths walks every --library-path entry and loads
 // every `.libsonnet` / `.jsonnet` / `.json` file under each
 // subdirectory into an eval.Library, keyed by the subdirectory name.
-// First write wins on duplicate aliases (matching
-// ociLibraryAliasesFromPaths's order), so later --library-path entries
-// don't silently override earlier ones — operators see whichever was
-// declared first.
+// Paths are walked RIGHTMOST FIRST with first-write-wins, so a duplicate alias
+// resolves to the rightmost --library-path — matching the flag's documented
+// "rightmost matching library will be used" and the HTTP/MCP importers, so the
+// operator render path agrees with them.
 //
 // Returns an empty map when no paths are readable; the reconciler
 // treats nil and empty as equivalent. Path-level errors are logged at
@@ -971,7 +977,7 @@ func ociLibraryAliasesFromPaths(paths []string) []string {
 // scan continues so the binary doesn't fail to boot for one bad lib.
 func ociLibrariesFromPaths(paths []string) map[string]eval.Library {
 	out := map[string]eval.Library{}
-	for _, root := range paths {
+	for _, root := range slices.Backward(paths) {
 		entries, err := os.ReadDir(root)
 		if err != nil {
 			if !os.IsNotExist(err) {

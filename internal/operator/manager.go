@@ -104,6 +104,9 @@ var defaultBuilder builder = func(restCfg *rest.Config, opts ctrl.Options, cfg C
 			OperatorExtVars:     cfg.ExtVars,
 			KnownLibraryAliases: cfg.KnownLibraryAliases,
 			Client:              mgr.GetClient(),
+			// Uncached: the cycle walk must see dependencies in namespaces the
+			// cache does not scope / labels it filters, matching the tenant fetch.
+			APIReader: mgr.GetAPIReader(),
 		}
 		if err := validator.SetupWithManager(mgr); err != nil {
 			return nil, fmt.Errorf("setup SnippetValidator: %w", err)

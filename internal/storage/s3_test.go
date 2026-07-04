@@ -103,6 +103,7 @@ type fakeS3 struct {
 	mu         sync.Mutex
 	bucket     string
 	objects    map[string][]byte
+	writes     int                       // count of object materializations (direct PUT + multipart complete)
 	multiparts map[string]map[int][]byte // uploadID → partNumber → bytes
 	nextMPID   int
 	// failList, when non-nil, makes serveList return a 5xx body so the
@@ -176,6 +177,7 @@ func (f *fakeS3) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		f.mu.Lock()
 		f.objects[key] = body
+		f.writes++
 		f.mu.Unlock()
 		w.WriteHeader(http.StatusOK)
 	case http.MethodGet:
@@ -256,6 +258,7 @@ func (f *fakeS3) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				assembled = append(assembled, parts[n]...)
 			}
 			f.objects[key] = assembled
+			f.writes++
 			delete(f.multiparts, uploadID)
 			f.mu.Unlock()
 			w.Header().Set("Content-Type", "application/xml")
@@ -1015,5 +1018,40 @@ func TestS3_Open_RoundTripAndNotFound(t *testing.T) {
 	}
 	if _, err := b.Open(ctx, "", "snip", "rev1"); err == nil {
 		t.Error("Open with empty namespace must error")
+	}
+}
+
+// A revision is content-addressed, so re-Putting the same revision must NOT
+// re-upload: an extra PUT re-stamps the object's LastModified, which keeps
+// advancing the supersession boundary Prune's grace window anchors on so a
+// just-evicted revision would leak in the bucket forever. The second Put skips
+// the upload (StatObject hit) and still returns the correct Result.
+func TestS3_Put_SameRevisionSkipsReupload(t *testing.T) {
+	b, fake, _ := newTestS3Backend(t, "")
+	entries := []FileEntry{{Path: "f", Content: []byte("v1")}}
+
+	first, err := b.Put(context.Background(), "ns", "n", "r", entries)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fake.mu.Lock()
+	afterFirst := fake.writes
+	fake.mu.Unlock()
+	if afterFirst != 1 {
+		t.Fatalf("first Put writes = %d, want 1", afterFirst)
+	}
+
+	second, err := b.Put(context.Background(), "ns", "n", "r", entries)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fake.mu.Lock()
+	afterSecond := fake.writes
+	fake.mu.Unlock()
+	if afterSecond != 1 {
+		t.Errorf("second Put re-uploaded an existing revision (writes = %d, want 1); LastModified is re-stamped and grace-window pruning breaks", afterSecond)
+	}
+	if second.DigestSHA256 != first.DigestSHA256 || second.SizeBytes != first.SizeBytes {
+		t.Errorf("skip-existing Result = (%s, %d), want (%s, %d)", second.DigestSHA256, second.SizeBytes, first.DigestSHA256, first.SizeBytes)
 	}
 }

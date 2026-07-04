@@ -333,3 +333,52 @@ func TestEvaluateAnonymousSnippet_SubdirEntrySiblingNotShadowedByRootDecoy(t *te
 		t.Fatalf("output = %s, want the subdir sibling, not the root decoy", out)
 	}
 }
+
+// TestInMemoryImporter_DiamondImportRendersThroughVM pins go-jsonnet's contract
+// that one foundAt always yields the same Contents instance. The entry and a
+// sibling helper both import the same library, so two distinct (importedFrom,
+// importedPath) keys resolve to the one library foundAt — a diamond. Without a
+// per-foundAt Contents memo, go-jsonnet panics into "a different instance of
+// Contents returned" and the render fails. This is the shape of essentially
+// every non-trivial jb-vendored import graph (grafonnet et al).
+func TestInMemoryImporter_DiamondImportRendersThroughVM(t *testing.T) {
+	self := Library{Files: map[string]string{
+		"main.jsonnet":     `local h = import 'helper.libsonnet'; local l = import 'mylib'; { a: l.v, b: h.w }`,
+		"helper.libsonnet": `local l = import 'mylib'; { w: l.v + 1 }`,
+	}}
+	im := &InMemoryImporter{
+		Self:      self,
+		EntryPath: "main.jsonnet",
+		Libraries: map[string]Library{"mylib": {Files: map[string]string{"main.libsonnet": `{ v: 41 }`}}},
+	}
+	out, err := EvaluateAnonymousSnippet(context.Background(), "main.jsonnet", self.Files["main.jsonnet"], Options{Importer: im})
+	if err != nil {
+		t.Fatalf("diamond import must render, got: %v", err)
+	}
+	if !strings.Contains(out, `"a": 41`) || !strings.Contains(out, `"b": 42`) {
+		t.Fatalf("diamond render = %s, want a=41 b=42", out)
+	}
+}
+
+// A bare-alias diamond (two files each importing the library via its bare alias,
+// reaching the library's main.libsonnet foundAt) is the same trap by a different
+// resolution path.
+func TestInMemoryImporter_DiamondViaVendorSearchRendersThroughVM(t *testing.T) {
+	self := Library{Files: map[string]string{
+		"main.jsonnet": `local a = import 'x/util.libsonnet'; local b = import 'helper.libsonnet'; { p: a.n, q: b.m }`,
+		// helper reaches the SAME x/util.libsonnet foundAt via the vendor search.
+		"helper.libsonnet": `{ m: (import 'x/util.libsonnet').n * 2 }`,
+	}}
+	im := &InMemoryImporter{
+		Self:      self,
+		EntryPath: "main.jsonnet",
+		Libraries: map[string]Library{"x": {Files: map[string]string{"util.libsonnet": `{ n: 7 }`}}},
+	}
+	out, err := EvaluateAnonymousSnippet(context.Background(), "main.jsonnet", self.Files["main.jsonnet"], Options{Importer: im})
+	if err != nil {
+		t.Fatalf("vendor-search diamond must render, got: %v", err)
+	}
+	if !strings.Contains(out, `"p": 7`) || !strings.Contains(out, `"q": 14`) {
+		t.Fatalf("vendor-search diamond render = %s, want p=7 q=14", out)
+	}
+}

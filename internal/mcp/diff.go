@@ -30,6 +30,12 @@ import (
 // snippet, not an untrusted-input defense.
 const maxDiffArtifactBytes = 32 << 20 // 32 MiB
 
+// diffSem bounds concurrent diff_revisions executions across the whole process.
+// Sized small: the tool is an introspection convenience, and each in-flight
+// call can hold ~64 MiB of extracted content, so the cap trades a "busy" retry
+// for a hard ceiling on diff-driven heap on the unauthenticated MCP transport.
+var diffSem = make(chan struct{}, 3)
+
 type diffRevisionsInput struct {
 	Namespace string `json:"namespace" jsonschema:"the snippet's namespace"`
 	Name      string `json:"name" jsonschema:"the snippet's name"`
@@ -76,6 +82,18 @@ func (cfg Config) diffRevisionsHandler(ctx context.Context, _ *mcpsdk.CallToolRe
 	// by ValidDigest), so a plain comparison is exact.
 	if from == to {
 		return errorResult(fmt.Sprintf("from and to are the same revision %s; nothing to diff", from)), diffRevisionsOutput{}, nil
+	}
+
+	// Bound concurrent diffs: each holds up to ~64 MiB of extracted tarball
+	// content in memory (two sides capped at maxDiffArtifactBytes each), and the
+	// streamable-HTTP transport is network-reachable and unauthenticated, so
+	// unbounded concurrent calls could pin enough heap to OOM the pod. Past the
+	// limit, return a retryable busy result rather than admitting the work.
+	select {
+	case diffSem <- struct{}{}:
+		defer func() { <-diffSem }()
+	default:
+		return errorResult("diff_revisions is busy (too many concurrent diffs in flight); retry shortly"), diffRevisionsOutput{}, nil
 	}
 
 	fromFiles, err := cfg.readRevision(ctx, in.Namespace, in.Name, from)

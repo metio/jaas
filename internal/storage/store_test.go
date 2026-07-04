@@ -613,3 +613,46 @@ func TestStore_HTTPHandler_ServesTarballAndRejectsDirectories(t *testing.T) {
 		})
 	}
 }
+
+// Reverting to a still-retained on-disk revision must not prune the revision it
+// displaces within the grace window. The revived (older) revision's Put skips
+// the write but bumps its mtime to now, so the displaced newer revision gets a
+// fresh supersession anchor — otherwise selectPruneVictims falls back to the
+// displaced file's own (already-past-grace) mtime and deletes it in the same
+// reconcile, 404'ing a consumer that just pinned it.
+func TestPut_RevertToOlderRevisionDoesNotPruneDisplacedWithinGrace(t *testing.T) {
+	s := newTestStore(t)
+	root := s.fs.Name()
+	fixed := time.Now()
+	s.SetNow(func() time.Time { return fixed })
+
+	// Publish A, then B; age them so A is older than B on disk.
+	aRes, err := s.Put(context.Background(), "ns", "n", "a", []FileEntry{{Path: "f", Content: []byte("A")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bRes, err := s.Put(context.Background(), "ns", "n", "b", []FileEntry{{Path: "f", Content: []byte("B")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	aOld := fixed.Add(-time.Hour)
+	bRecent := fixed.Add(-10 * time.Minute)
+	if err := os.Chtimes(filepath.Join(root, aRes.Path), aOld, aOld); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(filepath.Join(root, bRes.Path), bRecent, bRecent); err != nil {
+		t.Fatal(err)
+	}
+
+	// Revert: re-publish A (still on disk). keep-set becomes [a].
+	if _, err := s.Put(context.Background(), "ns", "n", "a", []FileEntry{{Path: "f", Content: []byte("A")}}); err != nil {
+		t.Fatal(err)
+	}
+	// Prune with a 5m grace: B was just displaced, so it must survive its grace.
+	if err := s.Prune(context.Background(), "ns", "n", []string{"a"}, 5*time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root, bRes.Path)); err != nil {
+		t.Fatalf("displaced revision B was pruned inside its grace window on a revert: %v", err)
+	}
+}

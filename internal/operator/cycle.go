@@ -152,7 +152,7 @@ func hasCycleSourceEdge(snip *jaasv1.JsonnetSnippet) bool {
 // "ns/a → ns/b → ns/a" so operators can see exactly where the loop closes.
 // Library Gets that return NotFound are treated as leaves (no further
 // chain); other errors propagate so the caller requeues.
-func detectSourceRefCycle(ctx context.Context, c client.Client, snip *jaasv1.JsonnetSnippet) (bool, string, error) {
+func detectSourceRefCycle(ctx context.Context, c client.Reader, snip *jaasv1.JsonnetSnippet) (bool, string, error) {
 	if snip == nil {
 		return false, "", nil
 	}
@@ -207,7 +207,7 @@ func detectSourceRefCycle(ctx context.Context, c client.Client, snip *jaasv1.Jso
 // Non-ExternalArtifact sourceRefs are terminal and excluded. Missing
 // libraries are treated as no-op edges (the reconciler surfaces them as
 // LibraryNotFound on its own path).
-func snippetDependencies(ctx context.Context, c client.Client, snip *jaasv1.JsonnetSnippet) ([]types.NamespacedName, error) {
+func snippetDependencies(ctx context.Context, c client.Reader, snip *jaasv1.JsonnetSnippet) ([]types.NamespacedName, error) {
 	var ids []types.NamespacedName
 
 	if id, ok := externalArtifactDep(snip.Spec.SourceRef, snip.Namespace); ok {
@@ -250,7 +250,7 @@ func externalArtifactDep(ref *jaasv1.SourceRef, ownerNs string) (types.Namespace
 // dependency edge" (library has inline files, doesn't exist, or unknown
 // kind). The library namespace itself defaults to ownerNs — same rule the
 // reconciler applies during eval.
-func librarySourceRef(ctx context.Context, c client.Client, ref jaasv1.LibraryRef, ownerNs string) (*jaasv1.SourceRef, string, error) {
+func librarySourceRef(ctx context.Context, c client.Reader, ref jaasv1.LibraryRef, ownerNs string) (*jaasv1.SourceRef, string, error) {
 	switch ref.Kind {
 	case "JsonnetLibrary":
 		ns := ref.Namespace

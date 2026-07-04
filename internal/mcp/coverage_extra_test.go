@@ -384,3 +384,33 @@ func TestConfinedImporter_RightmostRootWins(t *testing.T) {
 		t.Fatalf("resolved %q from %q — leftmost root won; the rightmost --library-path must take precedence", got, foundAt)
 	}
 }
+
+// TestConfinedImporter_DiamondImportRendersThroughVM pins that the confined MCP
+// importer honors go-jsonnet's one-Contents-per-foundAt contract. The entry and
+// a sibling helper both import the same library file, so it resolves twice to
+// one foundAt — a diamond. Without a per-foundAt Contents memo, go-jsonnet
+// panics into an internal "different instance of Contents" error and the
+// unauthenticated network render fails for any non-trivial import graph.
+func TestConfinedImporter_DiamondImportRendersThroughVM(t *testing.T) {
+	root := t.TempDir()
+	writeFile := func(name, body string) {
+		if err := os.WriteFile(filepath.Join(root, name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeFile("lib.libsonnet", `{ v: 41 }`)
+	writeFile("helper.libsonnet", `{ w: (import "lib.libsonnet").v + 1 }`)
+
+	cfg := Config{LibraryPaths: []string{root}, ConfineImports: true}
+	res, out, err := cfg.renderHandler(context.Background(), nil,
+		renderInput{Source: `local h = import "helper.libsonnet"; local l = import "lib.libsonnet"; { a: l.v, b: h.w }`})
+	if err != nil {
+		t.Fatalf("unexpected Go error: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("diamond import through the confined importer failed: %s", textContent(t, res))
+	}
+	if !strings.Contains(out.JSON, `"a": 41`) || !strings.Contains(out.JSON, `"b": 42`) {
+		t.Fatalf("diamond render = %s, want a=41 b=42", out.JSON)
+	}
+}

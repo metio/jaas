@@ -497,3 +497,76 @@ func TestSnippetValidator_SourceModeSafeFileNamesPass(t *testing.T) {
 		t.Fatalf("consumer-safe source names must pass admission: %v", err)
 	}
 }
+
+// A slash-bearing library import alias makes the importer's foundAt encoding
+// non-injective across libraries (alias "vendor" file "lib/x" collides with
+// alias "vendor/lib" file "x"), so it must be rejected at admission — both the
+// explicit ImportPath and the Name fallback.
+func TestSnippetValidator_SlashLibraryAliasRejected(t *testing.T) {
+	cases := map[string]jaasv1.LibraryRef{
+		"import-path slash": {Kind: "JsonnetLibrary", Name: "utils", ImportPath: "vendor/lib"},
+		"name slash":        {Kind: "JsonnetLibrary", Name: "vendor/lib"},
+		"traversal":         {Kind: "JsonnetLibrary", Name: "utils", ImportPath: ".."},
+		"backslash":         {Kind: "JsonnetLibrary", Name: "utils", ImportPath: `a\b`},
+	}
+	for name, ref := range cases {
+		t.Run(name, func(t *testing.T) {
+			v := &SnippetValidator{}
+			snip := &jaasv1.JsonnetSnippet{Spec: jaasv1.JsonnetSnippetSpec{Libraries: []jaasv1.LibraryRef{ref}}}
+			_, err := v.ValidateCreate(context.Background(), snip)
+			if err == nil {
+				t.Fatal("slash/traversal alias not rejected")
+			}
+			if !strings.Contains(err.Error(), "single path segment") {
+				t.Errorf("error %q should explain the single-segment rule", err.Error())
+			}
+		})
+	}
+}
+
+// A single-segment alias with dots/dashes/underscores stays valid — the guard
+// must not overshoot the alias charset.
+func TestSnippetValidator_SingleSegmentLibraryAliasPasses(t *testing.T) {
+	v := &SnippetValidator{}
+	snip := &jaasv1.JsonnetSnippet{Spec: jaasv1.JsonnetSnippetSpec{Libraries: []jaasv1.LibraryRef{
+		{Kind: "JsonnetLibrary", Name: "graf-onnet_v2.0"},
+	}}}
+	if _, err := v.ValidateCreate(context.Background(), snip); err != nil {
+		t.Fatalf("a single-segment alias must pass: %v", err)
+	}
+}
+
+// An update that changes only fields the webhook does not validate (spec.suspend
+// here) must be admitted even when the snippet already violates an invariant an
+// EXTERNAL change introduced (an operator restart adding a colliding --ext-var,
+// a library edited into a cycle). Suspend is the documented remediation for a
+// wedged snippet, so re-validating an unchanged violation on the suspend update
+// would deny the very fix.
+func TestSnippetValidator_ValidateUpdate_SuspendTogglePassesDespiteStaleViolation(t *testing.T) {
+	v := &SnippetValidator{OperatorExtVars: map[string]string{"cluster": "prod"}}
+	spec := jaasv1.JsonnetSnippetSpec{
+		ExternalVariables: map[string]string{"cluster": "dev"}, // collides with the operator ext-var
+	}
+	old := &jaasv1.JsonnetSnippet{Spec: spec}
+	updated := old.DeepCopy()
+	updated.Spec.Suspend = true // the only change
+
+	if _, err := v.ValidateUpdate(context.Background(), old, updated); err != nil {
+		t.Fatalf("suspend toggle on an externally-invalidated snippet must be admitted: %v", err)
+	}
+}
+
+// The escape hatch is narrow: an update that DOES change a validated input is
+// still fully re-checked, so a suspend toggle cannot be used to smuggle a new
+// conflicting ext-var past admission.
+func TestSnippetValidator_ValidateUpdate_ChangingInputsStillValidated(t *testing.T) {
+	v := &SnippetValidator{OperatorExtVars: map[string]string{"cluster": "prod"}}
+	old := &jaasv1.JsonnetSnippet{}
+	updated := &jaasv1.JsonnetSnippet{Spec: jaasv1.JsonnetSnippetSpec{
+		Suspend:           true,
+		ExternalVariables: map[string]string{"cluster": "dev"}, // newly introduced conflict
+	}}
+	if _, err := v.ValidateUpdate(context.Background(), old, updated); err == nil {
+		t.Fatal("an update that introduces a conflicting ext-var must still be rejected")
+	}
+}

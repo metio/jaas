@@ -107,7 +107,7 @@ func TestMetrics_DeleteSnippetMetricsEvictsOperationalSeries(t *testing.T) {
 // TestMetrics_RecordRateLimitedBumpsCounter pins the rate-limit
 // counter wiring. The counter is the durable signal for backpressure
 // — dashboards alert on sustained non-zero values to catch a runaway
-// snippet whose update cadence outpaces --reconcile-rate-limit.
+// snippet whose update cadence outpaces --rerender-rate/--rerender-burst.
 func TestMetrics_RecordRateLimitedBumpsCounter(t *testing.T) {
 	before := testutil.ToFloat64(snippetRateLimitedTotal.WithLabelValues("team-a", "throttled"))
 	recordRateLimited("team-a", "throttled")

@@ -73,6 +73,15 @@ type InMemoryImporter struct {
 	// differently depending on the importing file.
 	cache sync.Map // map[string]cachedImport, key = importedFrom + "\x00" + importedPath
 
+	// foundAtContents satisfies go-jsonnet's *other* contract clause: for a
+	// given foundAt the SAME Contents instance must come back on every call
+	// (go-jsonnet imports.go: "for given foundAt, the contents are always the
+	// same"; importData panics comparing the *[]byte pointer otherwise). Two
+	// distinct (importedFrom, importedPath) keys resolve to one foundAt whenever
+	// two files import the same target — a diamond, ubiquitous in jb-vendored
+	// trees. Memoizing Contents per foundAt makes both keys share one instance.
+	foundAtContents sync.Map // map[string]jsonnet.Contents, key = foundAt
+
 	// locs records where each returned foundAt lives, so imports from within
 	// that file resolve relative to its directory and root.
 	locs sync.Map // map[string]location
@@ -109,9 +118,20 @@ func (im *InMemoryImporter) Import(importedFrom, importedPath string) (jsonnet.C
 	if err != nil {
 		return jsonnet.Contents{}, "", err
 	}
-	contents := jsonnet.MakeContents(body)
+	contents := im.contentsFor(foundAt, body)
 	im.cache.Store(key, cachedImport{contents: contents, foundAt: foundAt})
 	return contents, foundAt, nil
+}
+
+// contentsFor returns the one canonical Contents instance for foundAt, creating
+// it from body on first sight. Every (importedFrom, importedPath) key that
+// resolves to the same foundAt hands go-jsonnet the identical instance.
+func (im *InMemoryImporter) contentsFor(foundAt, body string) jsonnet.Contents {
+	if v, ok := im.foundAtContents.Load(foundAt); ok {
+		return v.(jsonnet.Contents)
+	}
+	actual, _ := im.foundAtContents.LoadOrStore(foundAt, jsonnet.MakeContents(body))
+	return actual.(jsonnet.Contents)
 }
 
 func (im *InMemoryImporter) resolve(importedFrom, importedPath string) (string, string, error) {

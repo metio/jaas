@@ -12,6 +12,7 @@ import (
 	"path"
 	"path/filepath"
 	"slices"
+	"sync"
 
 	"github.com/google/go-jsonnet"
 )
@@ -38,6 +39,13 @@ import (
 // parent already closed.
 type confinedImporter struct {
 	roots []string
+
+	// contents memoizes Contents per foundAt. go-jsonnet requires the SAME
+	// Contents instance for a given foundAt on every Import call (importData
+	// panics comparing the *[]byte pointer otherwise), and a diamond import —
+	// two files importing one target — reaches the same foundAt twice. One
+	// importer instance serves one VM, so a sync.Map suffices.
+	contents sync.Map // map[string]jsonnet.Contents, key = foundAt
 }
 
 func newConfinedImporter(roots []string) *confinedImporter {
@@ -71,9 +79,19 @@ func (imp *confinedImporter) Import(importedFrom, importedPath string) (jsonnet.
 			continue
 		}
 		foundAt := filepath.Join(c.root, filepath.Clean(c.rel))
-		return jsonnet.MakeContents(string(data)), foundAt, nil
+		return imp.contentsFor(foundAt, data), foundAt, nil
 	}
 	return jsonnet.Contents{}, "", fmt.Errorf("import not found within library paths: %q", importedPath)
+}
+
+// contentsFor returns the one canonical Contents instance for foundAt, so every
+// import that resolves to the same file hands go-jsonnet the identical instance.
+func (imp *confinedImporter) contentsFor(foundAt string, data []byte) jsonnet.Contents {
+	if v, ok := imp.contents.Load(foundAt); ok {
+		return v.(jsonnet.Contents)
+	}
+	actual, _ := imp.contents.LoadOrStore(foundAt, jsonnet.MakeContents(string(data)))
+	return actual.(jsonnet.Contents)
 }
 
 // locate maps a foundAt path we previously returned back to its root and the

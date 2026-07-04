@@ -168,6 +168,20 @@ func (s *Store) Put(_ context.Context, namespace, name, revision string, entries
 		if err != nil {
 			return Result{}, err
 		}
+		// Reviving a revision that is OLDER than another already on disk is a
+		// REVERT (the input rolled back to a still-retained revision). Leaving
+		// its mtime untouched would leave the displaced newer revisions with no
+		// strictly-newer sibling for selectPruneVictims to anchor their grace
+		// window on — it would fall back to each displaced file's own mtime and
+		// prune it immediately, opening the pin-then-fetch 404 race the grace
+		// window exists to close. Bump the revived file to now so the displaced
+		// revisions get a fresh supersession anchor. A steady republish (this
+		// file is already the newest, no newer sibling) skips the bump, so the
+		// grace boundary doesn't churn.
+		if s.hasNewerSibling(dir, RevisionFilename(revision), info.ModTime()) {
+			now := s.clock()
+			_ = s.fs.Chtimes(finalRel, now, now)
+		}
 		return Result{Path: finalRel, SizeBytes: info.Size(), DigestSHA256: digest}, nil
 	}
 
@@ -211,6 +225,31 @@ func (s *Store) Open(_ context.Context, namespace, name, revision string) (io.Re
 		return nil, fmt.Errorf("storage: open %q: %w", rel, err)
 	}
 	return f, nil
+}
+
+// hasNewerSibling reports whether any OTHER revision file in dir has a strictly
+// newer mtime than ref — i.e. reviving self would be reverting behind a
+// still-present newer revision. Errors reading a sibling are ignored (best
+// effort): a missed newer sibling only forgoes the revert bump, never a false
+// positive.
+func (s *Store) hasNewerSibling(dir, self string, refMtime time.Time) bool {
+	names, err := s.fs.ReadDirNames(dir)
+	if err != nil {
+		return false
+	}
+	for _, n := range names {
+		if n == self || !strings.HasSuffix(n, ".tar.gz") {
+			continue
+		}
+		info, statErr := s.fs.Stat(filepath.Join(dir, n))
+		if statErr != nil || info.IsDir() {
+			continue
+		}
+		if info.ModTime().After(refMtime) {
+			return true
+		}
+	}
+	return false
 }
 
 // digestOf returns the hex SHA-256 of an already-stored tarball, read through

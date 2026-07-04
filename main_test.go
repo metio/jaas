@@ -638,7 +638,11 @@ func TestOCILibrariesFromPaths_LoadsFileContents(t *testing.T) {
 	}
 }
 
-func TestOCILibrariesFromPaths_FirstWriteWinsOnDuplicateAlias(t *testing.T) {
+// A duplicate alias across --library-path entries resolves to the RIGHTMOST
+// entry — matching the flag's documented "rightmost matching library will be
+// used" and go-jsonnet's FileImporter (which iterates JPaths in reverse), so
+// the operator render path agrees with the HTTP and MCP paths.
+func TestOCILibrariesFromPaths_RightmostWinsOnDuplicateAlias(t *testing.T) {
 	dirA := t.TempDir()
 	dirB := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dirA, "shared"), 0o755); err != nil {
@@ -656,8 +660,8 @@ func TestOCILibrariesFromPaths_FirstWriteWinsOnDuplicateAlias(t *testing.T) {
 
 	got := ociLibrariesFromPaths([]string{dirA, dirB})
 	lib := got["shared"]
-	if lib.Files["main.libsonnet"] != `{ from: "A" }` {
-		t.Errorf("got %q, want first-write-wins from dirA", lib.Files["main.libsonnet"])
+	if lib.Files["main.libsonnet"] != `{ from: "B" }` {
+		t.Errorf("got %q, want rightmost-wins from dirB (the last --library-path)", lib.Files["main.libsonnet"])
 	}
 }
 

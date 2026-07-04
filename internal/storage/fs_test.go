@@ -30,6 +30,7 @@ type faultyFS struct {
 	files map[string]*bytes.Buffer // name -> content buffer
 
 	mkdirAllErr  error
+	chtimesErr   error
 	createErr    error
 	renameErr    error
 	removeErr    error
@@ -103,6 +104,10 @@ func (f *faultyFS) RemoveAll(_ string) error {
 		return f.removeAllErr
 	}
 	return nil
+}
+
+func (f *faultyFS) Chtimes(name string, _, _ time.Time) error {
+	return f.chtimesErr
 }
 
 func (f *faultyFS) Stat(name string) (os.FileInfo, error) {

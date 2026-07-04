@@ -8,6 +8,7 @@ package operator
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"sort"
 
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -42,6 +43,25 @@ type SnippetValidator struct {
 	// disables cycle checks at admission — the reconciler still enforces
 	// the invariant. defaultBuilder always wires the manager's client.
 	Client client.Client
+
+	// APIReader is the UNCACHED reader the cycle walk uses when set. The
+	// manager's cache-backed Client is scoped by --watch-namespaces and
+	// filtered by --label-selector, so a dependency Get for an unwatched
+	// namespace / unlabeled object returns "unknown namespace for the cache"
+	// (not NotFound) — which this cluster-wide webhook would turn into a hard
+	// denial of a snippet in a namespace the operator does not even manage.
+	// Reading the graph uncached matches the reconciler's cycleReader. nil
+	// falls back to Client (tests).
+	APIReader client.Reader
+}
+
+// cycleReader returns the reader the admission cycle walk uses — the uncached
+// APIReader when wired, else Client.
+func (v *SnippetValidator) cycleReader() client.Reader {
+	if v.APIReader != nil {
+		return v.APIReader
+	}
+	return v.Client
 }
 
 // ValidateCreate is called on every create request before persistence.
@@ -50,7 +70,7 @@ func (v *SnippetValidator) ValidateCreate(ctx context.Context, snip *jaasv1.Json
 }
 
 // ValidateUpdate is called on every update request before persistence.
-func (v *SnippetValidator) ValidateUpdate(ctx context.Context, _ *jaasv1.JsonnetSnippet, snip *jaasv1.JsonnetSnippet) (admission.Warnings, error) {
+func (v *SnippetValidator) ValidateUpdate(ctx context.Context, old *jaasv1.JsonnetSnippet, snip *jaasv1.JsonnetSnippet) (admission.Warnings, error) {
 	// An object being deleted has no spec-validity invariant left to enforce,
 	// and admission must never block its own controller's cleanup: the
 	// finalizer-removal Update carries the unchanged spec, so re-running cycle
@@ -61,7 +81,31 @@ func (v *SnippetValidator) ValidateUpdate(ctx context.Context, _ *jaasv1.Jsonnet
 	if !snip.GetDeletionTimestamp().IsZero() {
 		return nil, nil
 	}
+	// When the validation-relevant inputs are unchanged, an update touching only
+	// other fields (spec.suspend, annotations, spec.interval, …) cannot
+	// introduce a violation this webhook enforces. Skip re-validation so such an
+	// update is not blocked by a violation an EXTERNAL change created without a
+	// snippet-spec change — a referenced JsonnetLibrary edited to form a cycle
+	// (libraries have no webhook), or an operator restart with a new --ext-var
+	// that now collides. Otherwise suspend — the documented remediation for a
+	// wedged snippet — and the operator's own MCP suspend/reconcile tools would
+	// be denied on the very snippet they exist to unstick.
+	if old != nil && validationInputsUnchanged(old, snip) {
+		return nil, nil
+	}
 	return v.validate(ctx, snip)
+}
+
+// validationInputsUnchanged reports whether every spec field the webhook
+// validates is identical between old and new. It deliberately excludes fields
+// the webhook does not check (suspend, interval, history, entryFile), so a
+// change to one of those is not treated as needing re-validation.
+func validationInputsUnchanged(old, snip *jaasv1.JsonnetSnippet) bool {
+	return reflect.DeepEqual(old.Spec.ExternalVariables, snip.Spec.ExternalVariables) &&
+		reflect.DeepEqual(old.Spec.Libraries, snip.Spec.Libraries) &&
+		reflect.DeepEqual(old.Spec.SourceRef, snip.Spec.SourceRef) &&
+		reflect.DeepEqual(old.Spec.Files, snip.Spec.Files) &&
+		old.Spec.Output == snip.Spec.Output
 }
 
 // ValidateDelete is called on every delete request. We have no delete-time
@@ -78,6 +122,9 @@ func (v *SnippetValidator) validate(ctx context.Context, snip *jaasv1.JsonnetSni
 	if alias := v.libraryAliasCollision(snip); alias != "" {
 		return nil, fmt.Errorf("spec.libraries import alias %q shadows OCI-mounted library; rename or drop the LibraryRef", alias)
 	}
+	if bad := invalidLibraryImportAlias(snip); bad != "" {
+		return nil, fmt.Errorf("spec.libraries import alias %q must be a single path segment (allowed: one [A-Za-z0-9._-] segment, no slash or traversal)", bad)
+	}
 	if dup := duplicateLibraryImportPath(snip); dup != "" {
 		return nil, fmt.Errorf("spec.libraries import path %q is used by more than one entry; each library must resolve to a distinct import path", dup)
 	}
@@ -92,8 +139,8 @@ func (v *SnippetValidator) validate(ctx context.Context, snip *jaasv1.JsonnetSni
 			}
 		}
 	}
-	if v.Client != nil {
-		cycle, path, err := detectSourceRefCycle(ctx, v.Client, snip)
+	if reader := v.cycleReader(); reader != nil {
+		cycle, path, err := detectSourceRefCycle(ctx, reader, snip)
 		if err != nil {
 			return nil, fmt.Errorf("cycle detection failed: %w", err)
 		}
@@ -156,6 +203,52 @@ func warnEntryFileMissing(snip *jaasv1.JsonnetSnippet) string {
 // admission and the reconciler reject it outright, mirroring the
 // OCI-alias collision (libraryAliasCollision), so there is never an
 // ambiguous "which library did this alias resolve to" at eval time.
+// effectiveLibraryAlias returns the import-alias namespace name a LibraryRef
+// occupies: ImportPath, or Name when ImportPath is empty.
+func effectiveLibraryAlias(ref jaasv1.LibraryRef) string {
+	if ref.ImportPath != "" {
+		return ref.ImportPath
+	}
+	return ref.Name
+}
+
+// invalidLibraryImportAlias returns the first effective library alias that is
+// not a single safe path segment, or "" when every alias is safe. The alias
+// becomes the head of the importer's foundAt string (alias + "/" + fileWithin);
+// a slash-bearing alias makes that encoding non-injective across libraries —
+// "vendor" with file "lib/x" and "vendor/lib" with file "x" both resolve to
+// foundAt "vendor/lib/x". go-jsonnet keys its content on foundAt, so the two
+// distinct library files would share one Contents, silently rendering one
+// library's bytes in place of the other's. Restricting the alias to a single
+// [A-Za-z0-9._-] segment (matching the OCI single-directory alias convention)
+// keeps foundAt injective across libraries.
+func invalidLibraryImportAlias(snip *jaasv1.JsonnetSnippet) string {
+	for _, ref := range snip.Spec.Libraries {
+		if a := effectiveLibraryAlias(ref); !safeLibraryAlias(a) {
+			return a
+		}
+	}
+	return ""
+}
+
+// safeLibraryAlias reports whether a is a single path segment with no slash,
+// NUL, or "."/".." traversal — the charset artifact consumers and os.OpenRoot
+// both accept for one directory component.
+func safeLibraryAlias(a string) bool {
+	if a == "" || a == "." || a == ".." {
+		return false
+	}
+	for _, r := range a {
+		switch {
+		case r >= 'A' && r <= 'Z', r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+		case r == '.' || r == '_' || r == '-':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
 func duplicateLibraryImportPath(snip *jaasv1.JsonnetSnippet) string {
 	if len(snip.Spec.Libraries) < 2 {
 		return ""

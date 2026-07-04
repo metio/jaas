@@ -363,3 +363,37 @@ func TestShortRevAndRevisionReadError(t *testing.T) {
 		t.Errorf("revisionReadError(other) = %q", other)
 	}
 }
+
+// When the diff concurrency limit is saturated, diff_revisions returns a
+// retryable "busy" tool result instead of admitting more heavy in-memory work —
+// the bound that keeps the unauthenticated MCP transport from being driven to
+// OOM by parallel large diffs.
+func TestDiffRevisionsHandler_BusyWhenSaturated(t *testing.T) {
+	const ns, name = "team-a", "dash"
+	r1, r2 := "sha256:1111111111111111", "sha256:2222222222222222"
+	store := newStore(t)
+	putRevision(t, store, ns, name, r1, map[string]string{"m.json": "1"})
+	putRevision(t, store, ns, name, r2, map[string]string{"m.json": "2"})
+	cfg := Config{KubeClient: fakeClient(t, snippetWithHistory(ns, name, r2, r1)), Store: store}
+
+	// Saturate the global semaphore, releasing only after the call returns.
+	for range cap(diffSem) {
+		diffSem <- struct{}{}
+	}
+	defer func() {
+		for range cap(diffSem) {
+			<-diffSem
+		}
+	}()
+
+	res, _, err := cfg.diffRevisionsHandler(context.Background(), nil, diffRevisionsInput{Namespace: ns, Name: name})
+	if err != nil {
+		t.Fatalf("handler error: %v", err)
+	}
+	if res == nil || !res.IsError {
+		t.Fatalf("saturated diff must return a busy tool error, got %+v", res)
+	}
+	if !strings.Contains(textContent(t, res), "busy") {
+		t.Fatalf("busy result should say so, got: %s", textContent(t, res))
+	}
+}

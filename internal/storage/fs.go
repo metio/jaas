@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"os"
 	"sort"
+	"time"
 )
 
 // fileSystem is the small filesystem contract Store depends on. Production
@@ -28,6 +29,7 @@ type fileSystem interface {
 	Remove(name string) error
 	RemoveAll(name string) error
 	Stat(name string) (os.FileInfo, error)
+	Chtimes(name string, atime, mtime time.Time) error
 	ReadDirNames(name string) ([]string, error)
 	Close() error
 	Name() string
@@ -68,6 +70,10 @@ func (r realFS) RemoveAll(name string) error {
 
 func (r realFS) Stat(name string) (os.FileInfo, error) {
 	return r.root.Stat(name)
+}
+
+func (r realFS) Chtimes(name string, atime, mtime time.Time) error {
+	return r.root.Chtimes(name, atime, mtime)
 }
 
 func (r realFS) ReadDirNames(name string) ([]string, error) {

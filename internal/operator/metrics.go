@@ -31,7 +31,7 @@ var snippetReconcileTotal = prometheus.NewCounterVec(
 // snippetRateLimitedTotal counts reconciles deferred by the per-snippet
 // token bucket. Lets dashboards graph backpressure and alert on a
 // runaway snippet exhausting its bucket continuously (a sign the
-// snippet's update cadence outpaces --reconcile-rate-limit, or that
+// snippet's update cadence outpaces --rerender-rate/--rerender-burst, or that
 // a sibling controller is repeatedly bumping the spec).
 //
 // Paired with the RateLimited Warning event so kubectl describe also

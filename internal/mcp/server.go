@@ -124,6 +124,17 @@ func NewHTTPHandler(cfg Config) http.Handler {
 	server := NewServer(cfg)
 	return mcpsdk.NewStreamableHTTPHandler(
 		func(*http.Request) *mcpsdk.Server { return server },
-		&mcpsdk.StreamableHTTPOptions{Logger: cfg.Logger},
+		// SessionTimeout bounds idle sessions: the endpoint is network-reachable
+		// and unauthenticated, and a stateful session created by an initialize
+		// POST lives in the handler's session map until an explicit DELETE. A
+		// client that just drops its connection (a crashed/reconnecting agent)
+		// or an attacker minting sessions in a loop would otherwise grow that
+		// map without bound until the pod is OOMKilled. With the zero value the
+		// SDK never closes idle sessions, so we set an explicit idle bound.
+		&mcpsdk.StreamableHTTPOptions{Logger: cfg.Logger, SessionTimeout: mcpSessionIdleTimeout},
 	)
 }
+
+// mcpSessionIdleTimeout is how long an idle streamable-HTTP session is retained
+// before the SDK closes it and reclaims its server-side state.
+const mcpSessionIdleTimeout = 10 * time.Minute

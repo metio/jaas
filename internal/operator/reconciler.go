@@ -586,6 +586,11 @@ func (r *SnippetReconciler) reconcileSpec(ctx context.Context, logger *slog.Logg
 		return r.failReady(ctx, snip, reason, msg)
 	}
 
+	if bad := invalidLibraryImportAlias(snip); bad != "" {
+		return r.failReady(ctx, snip, ReasonInvalidSpec,
+			fmt.Sprintf("spec.libraries import alias %q must be a single path segment (allowed: one [A-Za-z0-9._-] segment, no slash or traversal)", bad))
+	}
+
 	if reason, msg := r.checkLibraryAliasCollisions(snip); reason != "" {
 		return r.failReady(ctx, snip, reason, msg)
 	}
@@ -641,7 +646,7 @@ func (r *SnippetReconciler) reconcileSpec(ctx context.Context, logger *slog.Logg
 		// every denied Reserve.
 		if r.EventRecorder != nil {
 			r.EventRecorder.Eventf(snip, nil, corev1.EventTypeWarning, "RateLimited", "RateLimited",
-				"reconcile deferred for %s by --reconcile-rate-limit", delay)
+				"reconcile deferred for %s by the per-snippet re-render rate limit (--rerender-rate/--rerender-burst)", delay)
 		}
 		return ctrl.Result{RequeueAfter: delay}, nil
 	}
@@ -985,6 +990,22 @@ func (r *SnippetReconciler) publish(ctx context.Context, tenant client.Client, s
 // walk so the invalidating event isn't silently absorbed. After
 // maxCycleVerdictRetries attempts the loop falls back to a final un-cached
 // walk — a pathological tight Forget loop shouldn't spin forever.
+// cycleReader is the reader the dependency-cycle walk uses for its Gets. It is
+// the UNCACHED APIReader, not the manager's cache-backed Client: the cache is
+// scoped by --watch-namespaces and filtered by --label-selector, so a Get for a
+// dependency in an unwatched namespace or without the operator's label returns
+// controller-runtime's "unknown namespace for the cache" error (not NotFound),
+// which would wedge the walk and mis-deny admission — while the tenant fetch
+// path (uncached) reaches those objects fine. Reading the graph uncached makes
+// the walk see exactly what the fetch will follow. nil APIReader (tests) falls
+// back to Client.
+func (r *SnippetReconciler) cycleReader() client.Reader {
+	if r.APIReader != nil {
+		return r.APIReader
+	}
+	return r.Client
+}
+
 func (r *SnippetReconciler) cycleVerdict(ctx context.Context, snip *jaasv1.JsonnetSnippet) (bool, string, error) {
 	if snip.UID == "" {
 		// CycleCache keys on UID. An empty UID makes every Store /
@@ -1002,7 +1023,7 @@ func (r *SnippetReconciler) cycleVerdict(ctx context.Context, snip *jaasv1.Jsonn
 		if ok {
 			return v.hasCycle, v.path, nil
 		}
-		cycle, path, err := detectSourceRefCycle(ctx, r.Client, snip)
+		cycle, path, err := detectSourceRefCycle(ctx, r.cycleReader(), snip)
 		if err != nil {
 			return false, "", err
 		}
@@ -1015,7 +1036,7 @@ func (r *SnippetReconciler) cycleVerdict(ctx context.Context, snip *jaasv1.Jsonn
 	// uncached walk so the reconcile makes forward progress on the
 	// freshest verdict we can compute, even if a subsequent watch event
 	// will re-evaluate.
-	return detectSourceRefCycle(ctx, r.Client, snip)
+	return detectSourceRefCycle(ctx, r.cycleReader(), snip)
 }
 
 // checkServiceAccount returns ("", "") if the snippet has an effective SA,

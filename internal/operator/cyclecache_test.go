@@ -410,3 +410,74 @@ func TestCycleCache_ForgetOfAnotherKeyDropsInFlightStore(t *testing.T) {
 		t.Error("Store wrote despite a concurrent Forget of another key; expected a safe re-walk")
 	}
 }
+
+// scopedCacheClient mimics the manager's cache-backed client when
+// --watch-namespaces / --label-selector scopes it: a Get for a key outside the
+// scope returns controller-runtime's plain "unknown namespace for the cache"
+// error — NOT apierrors.NotFound — which the cycle walk must not propagate as a
+// hard failure. Gets for in-scope keys delegate to the wrapped client.
+type scopedCacheClient struct {
+	client.Client
+	outOfScope map[types.NamespacedName]bool
+}
+
+func (s *scopedCacheClient) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+	if s.outOfScope[key] {
+		return fmt.Errorf("unable to get: %s because of unknown namespace for the cache", key)
+	}
+	return s.Client.Get(ctx, key, obj, opts...)
+}
+
+// TestCycleVerdict_UsesAPIReaderForOutOfScopeDeps pins that the dependency-cycle
+// walk reads through the uncached APIReader, so a dependency the scoped cache
+// cannot serve (returned as "unknown namespace for the cache", not NotFound) is
+// resolved instead of wedging the reconcile in permanent transient backoff.
+func TestCycleVerdict_UsesAPIReaderForOutOfScopeDeps(t *testing.T) {
+	scheme := testScheme(t)
+	// Snippet in a watched namespace whose sourceRef points at an
+	// ExternalArtifact published by a snippet in an UNWATCHED namespace.
+	snip := &jaasv1.JsonnetSnippet{
+		ObjectMeta: metav1.ObjectMeta{Name: "a", Namespace: "team-a", UID: "uid-a", Generation: 1},
+		Spec: jaasv1.JsonnetSnippetSpec{
+			SnippetSource: jaasv1.SnippetSource{
+				SourceRef: &jaasv1.SourceRef{Kind: "ExternalArtifact", Name: "upstream", Namespace: "platform"},
+			},
+		},
+	}
+	dep := types.NamespacedName{Namespace: "platform", Name: "upstream"}
+	full := withReconcilerIndexes(fake.NewClientBuilder().WithScheme(scheme)).WithObjects(snip).Build()
+	// The cache errors on the out-of-scope dep; the APIReader sees everything.
+	cacheClient := &scopedCacheClient{Client: full, outOfScope: map[types.NamespacedName]bool{dep: true}}
+
+	r := &SnippetReconciler{Client: cacheClient, APIReader: full, Scheme: scheme, CycleCache: newCycleCache()}
+	cycle, _, err := r.cycleVerdict(context.Background(), snip)
+	if err != nil {
+		t.Fatalf("cycle walk must resolve the out-of-scope dep via APIReader, got error: %v", err)
+	}
+	if cycle {
+		t.Error("no cycle exists; the dep is a plain missing leaf")
+	}
+}
+
+// TestValidate_UsesAPIReaderForOutOfScopeDeps pins the same for admission: the
+// cluster-wide webhook must not deny a snippet just because a dependency lives
+// in a namespace the operator's cache does not scope.
+func TestValidate_UsesAPIReaderForOutOfScopeDeps(t *testing.T) {
+	scheme := testScheme(t)
+	snip := &jaasv1.JsonnetSnippet{
+		ObjectMeta: metav1.ObjectMeta{Name: "a", Namespace: "team-b", UID: "uid-a"},
+		Spec: jaasv1.JsonnetSnippetSpec{
+			SnippetSource: jaasv1.SnippetSource{
+				SourceRef: &jaasv1.SourceRef{Kind: "ExternalArtifact", Name: "upstream", Namespace: "team-b"},
+			},
+		},
+	}
+	dep := types.NamespacedName{Namespace: "team-b", Name: "upstream"}
+	full := withReconcilerIndexes(fake.NewClientBuilder().WithScheme(scheme)).WithObjects(snip).Build()
+	cacheClient := &scopedCacheClient{Client: full, outOfScope: map[types.NamespacedName]bool{dep: true}}
+
+	v := &SnippetValidator{Client: cacheClient, APIReader: full}
+	if _, err := v.ValidateCreate(context.Background(), snip); err != nil {
+		t.Fatalf("admission must not deny an out-of-scope-cache dep; the APIReader resolves it: %v", err)
+	}
+}
