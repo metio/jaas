@@ -82,6 +82,12 @@ spec:
         libraries:
           - kind: JsonnetLibrary
             name: grafonnet
+          - kind: JsonnetLibrary
+            name: docsonnet
+          - kind: JsonnetLibrary
+            name: testonnet
+          - kind: JsonnetLibrary
+            name: xtd
         tlas:
           datasource: ["<< inputs.datasource >>"]
           title: ["JaaS operator — << inputs.name >>"]

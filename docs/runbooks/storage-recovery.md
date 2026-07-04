@@ -250,7 +250,7 @@ kubectl --namespace <jaas-ns> exec deploy/jaas -- find /var/lib/jaas/artifacts -
 
 ## `WithdrawForced` event on snippet deletion
 
-If a snippet stuck in `Terminating` carries a `Warning WithdrawForced` Kubernetes Event, the operator has already done what it could — the finalizer was dropped after `--max-withdraw-wait` (default 1h) of failing Withdraws against the backend, and the snippet itself is GC'd. The tarball it owned is now orphaned in storage. To clean up:
+If a snippet stuck in `Terminating` carries a `Warning WithdrawForced` Kubernetes Event, the operator has already done what it could — the finalizer was dropped after `--max-withdraw-wait` (default 1h) of failing Withdraws (or immediately on a permanent error), and the snippet itself is GC'd. Read the event message: when it says the stored tarballs were deleted, only the `ExternalArtifact` was out of reach (it is garbage-collected with its namespace) and there is nothing to clean up. Only when it warns about orphaned tarballs — the backend itself refused the delete — proceed:
 
 ```shell
 # Read the elapsed time + last backend error from the event message:

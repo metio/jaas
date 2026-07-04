@@ -222,9 +222,18 @@ metadata:
   namespace: default
 spec:
   serviceAccountName: dashboards-tenant
+  # grafonnet plus its dependency closure: grafonnet's utilities import xtd
+  # (and docsonnet) at render time, and JOI images deliberately exclude their
+  # dependencies — each ships as its own library, registered per snippet.
   libraries:
     - kind: JsonnetLibrary
       name: grafonnet
+    - kind: JsonnetLibrary
+      name: docsonnet
+    - kind: JsonnetLibrary
+      name: testonnet
+    - kind: JsonnetLibrary
+      name: xtd
   files:
     main.jsonnet: |
       local g = import 'github.com/grafana/grafonnet/gen/grafonnet-latest/main.libsonnet';

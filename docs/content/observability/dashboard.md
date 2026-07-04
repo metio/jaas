@@ -70,10 +70,19 @@ spec:
     kind: OCIRepository
     name: jaas-dashboard
   # grafonnet, which the dashboard imports by its full jb-vendor path, is served
-  # by the JOI library installed above.
+  # by the JOI library installed above — together with its dependency closure
+  # (grafonnet's panel utilities import xtd at render time). The joi chart
+  # installs all four JsonnetLibrary objects; each snippet lists the ones its
+  # imports reach.
   libraries:
     - kind: JsonnetLibrary
       name: grafonnet
+    - kind: JsonnetLibrary
+      name: docsonnet
+    - kind: JsonnetLibrary
+      name: testonnet
+    - kind: JsonnetLibrary
+      name: xtd
   # The dashboard's top-level arguments. Each value is a list; a single element
   # becomes a string TLA.
   tlas:
