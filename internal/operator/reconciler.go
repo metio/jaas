@@ -346,6 +346,19 @@ func (r *SnippetReconciler) reconcileDelete(ctx context.Context, logger *slog.Lo
 			}
 			forced = info
 		}
+		if forced != nil {
+			// Salvage the half of Withdraw that needs no tenant credentials
+			// before force-dropping: deleting the stored tarballs is entirely
+			// within the operator's own reach, so a routine namespace deletion
+			// (TokenRequest refused while the namespace terminates) must not
+			// orphan storage. Only when the backend itself fails does the
+			// orphan-tarball trade-off remain.
+			if serr := r.Publisher.WithdrawStorage(ctx, snip); serr != nil {
+				forced.lastErr = errors.Join(forced.lastErr, fmt.Errorf("storage-only withdraw: %w", serr))
+			} else {
+				forced.storageCleaned = true
+			}
+		}
 	}
 	controllerutil.RemoveFinalizer(snip, FinalizerName)
 	if err := r.Client.Update(ctx, snip); err != nil {
@@ -355,7 +368,7 @@ func (r *SnippetReconciler) reconcileDelete(ctx context.Context, logger *slog.Lo
 		return ctrl.Result{}, err
 	}
 	if forced != nil {
-		r.forceDropFinalizer(ctx, logger, snip, forced.elapsed, forced.dropReason, forced.lastErr)
+		r.forceDropFinalizer(ctx, logger, snip, forced)
 	}
 	r.forgetPerSnippetCaches(ctx, logger, snip)
 	logger.InfoContext(ctx, "Finalizer removed; JsonnetSnippet may now be garbage-collected")
@@ -395,11 +408,14 @@ func (r *SnippetReconciler) classifyWithdrawFailure(snip *jaasv1.JsonnetSnippet,
 
 // forceDropInfo carries the force-drop decision from classifyWithdrawFailure to
 // the post-Update emission point, so the event + metric fire once the finalizer
-// is genuinely gone, not on a retry that hasn't dropped it yet.
+// is genuinely gone, not on a retry that hasn't dropped it yet. storageCleaned
+// records whether the storage-only salvage deleted the tarballs, which decides
+// whether the WithdrawForced event warns about orphans.
 type forceDropInfo struct {
-	elapsed    time.Duration
-	dropReason string
-	lastErr    error
+	elapsed        time.Duration
+	dropReason     string
+	lastErr        error
+	storageCleaned bool
 }
 
 // forgetPerSnippetCaches evicts every cache entry keyed by this snippet
@@ -467,18 +483,24 @@ func (r *SnippetReconciler) withdrawTimedOut(snip *jaasv1.JsonnetSnippet) (bool,
 // jaas_snippet_force_drop_total counter so a permanently-broken
 // pipeline shows up in Prometheus rather than only in event-stream +
 // logs.
-func (r *SnippetReconciler) forceDropFinalizer(ctx context.Context, logger *slog.Logger, snip *jaasv1.JsonnetSnippet, elapsed time.Duration, dropReason string, lastErr error) {
+func (r *SnippetReconciler) forceDropFinalizer(ctx context.Context, logger *slog.Logger, snip *jaasv1.JsonnetSnippet, forced *forceDropInfo) {
 	prefix := snip.Namespace + "/" + snip.Name
-	orphans := prefix + "/<rev>.tar.gz"
-	if revs := knownRevisionPaths(prefix, snip.Status.History); revs != "" {
-		orphans = revs
+	var msg string
+	if forced.storageCleaned {
+		msg = fmt.Sprintf("WithdrawForced after %s of failing Withdraw — finalizer dropped; the stored tarballs were deleted, only the ExternalArtifact could not be removed as the tenant (it is garbage-collected with its namespace, or remove it by hand). Last error: %v", forced.elapsed.Round(time.Second), forced.lastErr)
+	} else {
+		orphans := prefix + "/<rev>.tar.gz"
+		if revs := knownRevisionPaths(prefix, snip.Status.History); revs != "" {
+			orphans = revs
+		}
+		msg = fmt.Sprintf("WithdrawForced after %s of failing Withdraw — finalizer dropped; storage may carry orphaned tarballs under %s/ that an operator must remove by hand (known revisions: %s). Last error: %v", forced.elapsed.Round(time.Second), prefix, orphans, forced.lastErr)
 	}
-	msg := fmt.Sprintf("WithdrawForced after %s of failing Withdraw — finalizer dropped; storage may carry orphaned tarballs under %s/ that an operator must remove by hand (known revisions: %s). Last error: %v", elapsed.Round(time.Second), prefix, orphans, lastErr)
 	logger.WarnContext(ctx, "Force-dropping finalizer after MaxWithdrawWait",
-		slog.Duration("elapsed", elapsed),
-		slog.String("reason", dropReason),
-		slog.Any("lastError", lastErr))
-	recordForceDrop(snip.Namespace, snip.Name, dropReason)
+		slog.Duration("elapsed", forced.elapsed),
+		slog.String("reason", forced.dropReason),
+		slog.Bool("storageCleaned", forced.storageCleaned),
+		slog.Any("lastError", forced.lastErr))
+	recordForceDrop(snip.Namespace, snip.Name, forced.dropReason)
 	if r.EventRecorder != nil {
 		r.EventRecorder.Eventf(snip, nil, "Warning", "WithdrawForced", "WithdrawForced", "%s", msg)
 	}
@@ -1115,7 +1137,13 @@ func (r *SnippetReconciler) resolveLibraries(ctx context.Context, tenant client.
 				}
 				return nil, "", "", fmt.Errorf("get JsonnetLibrary %s/%s: %w", ns, ref.Name, err)
 			}
-			files, reason, msg, transient, transientErr := r.resolveSnippetSource(ctx, tenant, snip.Namespace, lib.Spec.SnippetSource)
+			// The library's sourceRef resolves relative to the LIBRARY's
+			// namespace, not the snippet's: a namespace-less sourceRef on a
+			// shared library in another namespace must find the source living
+			// beside the library (as the API docs state and the watch index
+			// already assumes) — defaulting to the snippet's namespace would
+			// fetch a same-named source there, or nothing.
+			files, reason, msg, transient, transientErr := r.resolveSnippetSource(ctx, tenant, ns, lib.Spec.SnippetSource)
 			if reason != "" {
 				// Surface library-source transients via the same backoff
 				// path the snippet's own source uses: return the error so

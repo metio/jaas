@@ -394,7 +394,7 @@ func TestForceDropFinalizer_NilEventRecorderNoPanic(t *testing.T) {
 	r := newReconciler(t, c)
 	r.EventRecorder = nil
 	snip := sampleSnippet()
-	r.forceDropFinalizer(context.Background(), discardLogger(), snip, 0, "perma-down", errors.New("s3 gone"))
+	r.forceDropFinalizer(context.Background(), discardLogger(), snip, &forceDropInfo{dropReason: "perma-down", lastErr: errors.New("s3 gone")})
 }
 
 // With history recorded the message names concrete revision paths rather than
@@ -405,7 +405,7 @@ func TestForceDropFinalizer_WithHistoryNamesPaths(t *testing.T) {
 	r.EventRecorder = nil
 	snip := sampleSnippet()
 	snip.Status.History = []jaasv1.RevisionEntry{{Revision: "sha256:deadbeef"}}
-	r.forceDropFinalizer(context.Background(), discardLogger(), snip, 0, "perma-down", errors.New("boom"))
+	r.forceDropFinalizer(context.Background(), discardLogger(), snip, &forceDropInfo{elapsed: 0, dropReason: "perma-down", lastErr: errors.New("boom")})
 }
 
 // --- historyRevisions / knownRevisionPaths edge cases -----------------------

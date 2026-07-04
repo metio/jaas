@@ -199,6 +199,20 @@ func (p *Publisher) Withdraw(ctx context.Context, c client.Client, snip *jaasv1.
 	return p.Store.Delete(ctx, snip.Namespace, snip.Name)
 }
 
+// WithdrawStorage removes only the snippet's stored tarballs — the half of
+// Withdraw that needs no tenant credentials. The deletion path salvages it
+// when acting as the tenant is impossible (the namespace is terminating so
+// TokenRequest is refused, the SA is gone, RBAC was revoked): the
+// ExternalArtifact is beyond reach — usually being garbage-collected with its
+// namespace anyway — but the tarballs live in OUR backend, so a routine
+// namespace deletion must not orphan them.
+func (p *Publisher) WithdrawStorage(ctx context.Context, snip *jaasv1.JsonnetSnippet) error {
+	if p.Store == nil {
+		return errors.New("publisher: store is required")
+	}
+	return p.Store.Delete(ctx, snip.Namespace, snip.Name)
+}
+
 // buildEntries derives the tarball members from the snippet's Output mode.
 // In "rendered" mode the archive holds a single rendered.json; in "source"
 // mode it carries every entry from sourceFiles verbatim, useful for

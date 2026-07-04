@@ -141,8 +141,9 @@ func hasCycleSourceEdge(snip *jaasv1.JsonnetSnippet) bool {
 //     identity is (sourceRef.namespace, sourceRef.name))
 //   - Snippet → Library → Library.spec.sourceRef when the library's source
 //     is an ExternalArtifact. Library Gets use the operator client; the
-//     library's resolved sourceRef.Namespace defaults to the CURRENT
-//     snippet's namespace, matching resolveSnippetSource's ownerNs.
+//     library's namespace-less sourceRef defaults to the LIBRARY's own
+//     namespace, matching resolveLibraries' ownerNs — the source lives
+//     beside the library.
 //
 // Returns (cycleFound, path, transientErr). Path renders as
 // "ns/a → ns/b → ns/a" so operators can see exactly where the loop closes.
@@ -211,11 +212,14 @@ func snippetDependencies(ctx context.Context, c client.Client, snip *jaasv1.Json
 	}
 
 	for _, ref := range snip.Spec.Libraries {
-		src, err := librarySourceRef(ctx, c, ref, snip.Namespace)
+		src, libNS, err := librarySourceRef(ctx, c, ref, snip.Namespace)
 		if err != nil {
 			return nil, err
 		}
-		if id, ok := externalArtifactDep(src, snip.Namespace); ok {
+		// The library's sourceRef defaults to the LIBRARY's namespace — the
+		// same rule resolveLibraries applies — so the cycle walk follows the
+		// exact edge the fetch will take.
+		if id, ok := externalArtifactDep(src, libNS); ok {
 			ids = append(ids, id)
 		}
 	}
@@ -238,11 +242,12 @@ func externalArtifactDep(ref *jaasv1.SourceRef, ownerNs string) (types.Namespace
 }
 
 // librarySourceRef fetches the referenced library (JsonnetLibrary) and
-// returns its spec.sourceRef. nil means "no dependency edge" (library
-// has inline files, doesn't exist, or unknown kind). The library
-// namespace defaults to ownerNs — same rule the reconciler applies
-// during eval.
-func librarySourceRef(ctx context.Context, c client.Client, ref jaasv1.LibraryRef, ownerNs string) (*jaasv1.SourceRef, error) {
+// returns its spec.sourceRef plus the library's resolved namespace, which is
+// the base a namespace-less sourceRef defaults to. A nil sourceRef means "no
+// dependency edge" (library has inline files, doesn't exist, or unknown
+// kind). The library namespace itself defaults to ownerNs — same rule the
+// reconciler applies during eval.
+func librarySourceRef(ctx context.Context, c client.Client, ref jaasv1.LibraryRef, ownerNs string) (*jaasv1.SourceRef, string, error) {
 	switch ref.Kind {
 	case "JsonnetLibrary":
 		ns := ref.Namespace
@@ -252,13 +257,13 @@ func librarySourceRef(ctx context.Context, c client.Client, ref jaasv1.LibraryRe
 		var lib jaasv1.JsonnetLibrary
 		if err := c.Get(ctx, types.NamespacedName{Namespace: ns, Name: ref.Name}, &lib); err != nil {
 			if apierrors.IsNotFound(err) {
-				return nil, nil
+				return nil, ns, nil
 			}
-			return nil, fmt.Errorf("cycle detection: get JsonnetLibrary %s/%s: %w", ns, ref.Name, err)
+			return nil, ns, fmt.Errorf("cycle detection: get JsonnetLibrary %s/%s: %w", ns, ref.Name, err)
 		}
-		return lib.Spec.SourceRef, nil
+		return lib.Spec.SourceRef, ns, nil
 	}
-	return nil, nil
+	return nil, ownerNs, nil
 }
 
 // reconstructCyclePath walks parent pointers from cur back to start,
