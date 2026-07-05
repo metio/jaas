@@ -17,16 +17,19 @@ jobs:
     uses: metio/ci/.github/workflows/golang.yml@392a32762cd5626c0aa9e6e67414240a021b90ae # 2026.6.26153329
   reuse:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
       - uses: fsfe/reuse-action@676e2d560c9a403aa252096d99fcab3e1132b0f5 # v6
   yaml:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
       - run: pipx install yamllint && yamllint .
   github-actions:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
       - uses: reviewdog/action-actionlint@6fb7acc99f4a1008869fa8a0f09cfca740837d9d # v1
@@ -35,6 +38,7 @@ jobs:
           filter_mode: nofilter
   markdown:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
       - uses: DavidAnson/markdownlint-cli2-action@ded1f9488f68a970bc66ea5619e13e9b52e601cd # v23
@@ -42,6 +46,7 @@ jobs:
           globs: "**/*.md"
   typos:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
       - uses: crate-ci/typos@37bb98842b0d8c4ffebdb75301a13db0267cef89 # v1
@@ -50,6 +55,7 @@ jobs:
     # the published package. Fails on error-level findings (naming/branding);
     # inclusive-language findings are warning-level and only annotate.
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
       - uses: vale-cli/vale-action@85f9f7f2c5f449ac0ae5b66662961bae3f77ca6a # 2.1.2 # renovate: pin to a SHA
@@ -62,6 +68,7 @@ jobs:
     # tools pre-staged in dev/Containerfile. Versions are kept in lockstep with
     # that Containerfile so local and CI runs agree.
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     env:
       # renovate: datasource=github-releases depName=wjdp/htmltest
       HTMLTEST_VERSION: 0.17.0
@@ -106,6 +113,7 @@ jobs:
           ( cd docs/themes/metio && "${RUNNER_TEMP}/biome" lint )
   container-image:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
       - id: buildx
@@ -138,6 +146,7 @@ jobs:
     # a skipped job still satisfies the all-green gate below.
     if: github.event.pull_request.user.type != 'Bot'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
@@ -161,13 +170,23 @@ jobs:
             fi
           done
           exit $status
+  policy:
+    # metio org workflow conventions (conftest/Rego from metio/ci): SHA-pinned
+    # uses refs, top-level permissions, timeout-minutes on every job, no
+    # untrusted ${{ github.event.* }} interpolation in run: blocks.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: metio/ci/policy-check@afbf10fe3c5ceb438a1da090e78cc6c0159c4754 # 2026.7.5093733
   verify:
     # Single required check covering every job above: mark only this one
     # required in branch protection and new jobs are covered automatically.
     name: Verify
-    needs: [go, reuse, yaml, github-actions, markdown, typos, prose, docs-lint, container-image, dco]
+    needs: [go, reuse, yaml, github-actions, markdown, typos, prose, docs-lint, container-image, dco, policy]
     if: always()
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Verify every job succeeded or skipped
         env:

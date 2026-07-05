@@ -35,6 +35,7 @@ permissions:
 jobs:
   website:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: write
     env:

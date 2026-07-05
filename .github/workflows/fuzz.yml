@@ -19,6 +19,7 @@ jobs:
     # Enumerate every Fuzz* target as a {pkg, func} pair so new targets are
     # fuzzed automatically — no hand-maintained matrix to drift.
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     outputs:
       matrix: ${{ steps.list.outputs.matrix }}
     steps:
@@ -37,7 +38,9 @@ jobs:
     # permanent seed (it then reproduces deterministically in the Verify gate).
     needs: discover
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    # Must comfortably exceed the fuzztime input: the dispatch description
+    # suggests campaigns up to 1h per target, plus setup-go/envtest overhead.
+    timeout-minutes: 75
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.discover.outputs.matrix) }}
@@ -75,6 +78,7 @@ jobs:
     needs: [discover, fuzz]
     if: always()
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Verify every job succeeded or skipped
         env:
