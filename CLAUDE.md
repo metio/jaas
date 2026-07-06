@@ -13,22 +13,21 @@ JaaS (Jsonnet-as-a-Service) is a Go webservice that evaluates Jsonnet snippets o
 
 ## Common commands
 
-This host has no Go toolchain installed; commands run inside a containerized dev shell driven by `dev/Containerfile`. A `.ilo.rc` at the repo root supplies all the `ilo shell` args, so the short form works:
+The toolchain is a **nix flake** (`flake.nix` + `flake.lock`, Renovate-maintained): the Go correctness gates run in CI via the shared `metio/ci` reusable `golang.yml`, and the same tools live in the flake so a local run reproduces them. `KUBEBUILDER_ASSETS` is set by the devShell (etcd + kube-apiserver + kubectl assembled from nixpkgs), so envtest tests run offline. Run any command through the devShell:
 
 ```shell
-ilo bash -c 'go build -o jaas .'
-ilo bash -c 'go vet ./...'                         # CI: Go correctness
-ilo bash -c 'staticcheck ./...'                    # CI: staticcheck (checks=all via staticcheck.conf)
-ilo bash -c 'gofumpt -l .'                         # CI: strict formatting (empty output == clean)
-ilo bash -c 'gosec ./...'                          # CI: security scanner
-ilo bash -c 'arch-go'                              # CI: architecture rules (arch-go.yml)
-ilo bash -c 'modernize ./...'                      # CI: newer-Go idiom check (ignore zz_generated.deepcopy.go maps.Copy hits)
-ilo bash -c 'go test -count=1 -race -cover ./...'  # full suite with race detector
-ilo bash -c 'go test -count=1 -v -run TestName ./internal/handler/'  # single test
-ilo bash -c 'go test -bench=BenchmarkReconcile -benchmem -run=^$ ./internal/operator/'  # reconciler throughput baseline
+nix develop --command go build -o jaas .
+nix develop --command go vet ./...                         # Go correctness
+nix develop --command staticcheck ./...                    # staticcheck (checks=all via staticcheck.conf)
+nix develop --command gofumpt -l .                         # strict formatting (empty output == clean)
+nix develop --command gosec ./...                          # security scanner
+nix develop --command arch-go                              # architecture rules (arch-go.yml)
+nix develop --command modernize ./...                      # newer-Go idiom check (ignore zz_generated.deepcopy.go maps.Copy hits)
+nix develop --command go test -count=1 -race -cover ./...  # full suite with race detector (envtest wired)
+nix develop --command go test -count=1 -v -run TestName ./internal/handler/  # single test
 ```
 
-To add a tool, edit `dev/Containerfile`; the next `ilo bash` invocation rebuilds the image.
+Or `nix develop` to drop into the shell and run tools bare. On this host `nix` is nix-portable (see the root `CLAUDE.md`'s nix section). Three tools are not in nixpkgs — `arch-go`, `modernize` (an x/tools gopls subpackage), and `helm-schema` — so the flake builds them from source (`packages.*`); `update-flake.yml` runs `nix-update` weekly to bump their versions + hashes (Renovate can't compute nix hashes), keeping maintenance zero-touch.
 
 **Static analysis is the standalone tools above — never golangci-lint** (it is banned project-wide). The Go gate is `go vet` + `staticcheck` (`staticcheck.conf`, `checks = ["all"]`) + `gofumpt` + `gosec` + `arch-go` (`arch-go.yml`). Separate CI jobs run `yamllint` (`.yamllint.yaml`), `actionlint`, `markdownlint` (`.markdownlint.yaml`), and `typos` (`.typos.toml`). gosec false positives are silenced with inline `// #nosec <rule> -- <invariant>` comments, not config-wide exclusions. These configs are kept identical to the `stageset-controller` repo so both projects lint the same way.
 

@@ -30,25 +30,28 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
-        with:
-          go-version: stable
+      - uses: metio/ci/nix-devshell@50117191bb36382ab22777be480c539fc4c37fed # 2026.7.5211151
       - name: Vendor grafonnet and render every dashboard
         # Renders each dashboard through go-jsonnet with grafonnet on the JPATH,
         # exactly as JaaS renders it. Pinned to grafonnet@main so an upstream API
         # break surfaces here as a wanted signal rather than at a user's cluster.
+        # jb + jsonnet come from the flake devShell.
         run: |
-          set -euo pipefail
-          tmp="$(mktemp -d)"
-          ( cd "$tmp" \
-            && go run github.com/jsonnet-bundler/jsonnet-bundler/cmd/jb@latest init >/dev/null \
-            && go run github.com/jsonnet-bundler/jsonnet-bundler/cmd/jb@latest install github.com/grafana/grafonnet/gen/grafonnet-latest@main >/dev/null )
-          for f in dashboards/*.jsonnet; do
-            echo "rendering $f"
-            go run github.com/google/go-jsonnet/cmd/jsonnet@latest -J "$tmp/vendor" --tla-str datasource=prometheus "$f" \
-              | jq -e '.title and (.panels | length > 0)' >/dev/null
-          done
-          echo "all dashboards render to valid Grafana JSON"
+          # The $vars expand inside the devShell's bash, not in this script.
+          # shellcheck disable=SC2016
+          nix develop --command bash -c '
+            set -euo pipefail
+            tmp="$(mktemp -d)"
+            ( cd "$tmp" \
+              && jb init >/dev/null \
+              && jb install github.com/grafana/grafonnet/gen/grafonnet-latest@main >/dev/null )
+            for f in dashboards/*.jsonnet; do
+              echo "rendering $f"
+              jsonnet -J "$tmp/vendor" --tla-str datasource=prometheus "$f" \
+                | jq -e ".title and (.panels | length > 0)" >/dev/null
+            done
+            echo "all dashboards render to valid Grafana JSON"
+          '
 
   publish:
     name: Build and push the dashboard image
@@ -81,7 +84,7 @@ jobs:
         run: |
           n=$(docker image inspect jaas-dashboard-verify:latest --format '{{ len .RootFS.Layers }}')
           [ "$n" = "1" ] || { echo "::error::dashboard image has $n layers, expected 1"; exit 1; }
-      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - uses: metio/ci/nix-devshell@50117191bb36382ab22777be480c539fc4c37fed # 2026.7.5211151
       - uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4
         with:
           registry: ghcr.io
@@ -105,4 +108,4 @@ jobs:
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
       - name: Sign
-        run: cosign sign --yes "${{ env.IMAGE }}@${{ steps.push.outputs.digest }}"
+        run: nix develop --command cosign sign --yes "${{ env.IMAGE }}@${{ steps.push.outputs.digest }}"

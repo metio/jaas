@@ -48,23 +48,12 @@ jobs:
       FUZZTIME: ${{ github.event.inputs.fuzztime || '5m' }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
-        with:
-          go-version-file: go.mod
-          cache: true
-      - name: Set up envtest assets
-        # The current fuzz targets (handler/sources/urlguard) are cluster-free,
-        # but a future target in an envtest-backed package (e.g. internal/operator)
-        # whose TestMain boots a kube-apiserver would need KUBEBUILDER_ASSETS for
-        # the coordinator's initial test pass. Harmless for the pure packages,
-        # which ignore the variable.
-        run: |
-          k8s=$(go run sigs.k8s.io/controller-runtime/tools/setup-envtest@latest list 2>/dev/null \
-            | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | sort -V | tail -1)
-          assets=$(go run sigs.k8s.io/controller-runtime/tools/setup-envtest@latest use "$k8s" -p path)
-          echo "KUBEBUILDER_ASSETS=$assets" >> "$GITHUB_ENV"
+      - uses: metio/ci/nix-devshell@50117191bb36382ab22777be480c539fc4c37fed # 2026.7.5211151
+      # KUBEBUILDER_ASSETS is set by the devShell (assembled from nixpkgs), so an
+      # envtest-backed fuzz target's TestMain finds a kube-apiserver with no
+      # setup-envtest download; the cluster-free targets ignore the variable.
       - name: Fuzz ${{ matrix.func }} (${{ matrix.pkg }})
-        run: go test -run='^$' -fuzz="^${{ matrix.func }}$" -fuzztime="$FUZZTIME" "${{ matrix.pkg }}"
+        run: nix develop --command go test -run='^$' -fuzz="^${{ matrix.func }}$" -fuzztime="$FUZZTIME" "${{ matrix.pkg }}"
       - name: Surface discovered crasher
         if: failure()
         run: |

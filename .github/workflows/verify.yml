@@ -20,36 +20,37 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-      - uses: fsfe/reuse-action@676e2d560c9a403aa252096d99fcab3e1132b0f5 # v6
+      - uses: metio/ci/nix-devshell@50117191bb36382ab22777be480c539fc4c37fed # 2026.7.5211151
+      - run: nix develop --command reuse lint
   yaml:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-      - run: pipx install yamllint && yamllint .
+      - uses: metio/ci/nix-devshell@50117191bb36382ab22777be480c539fc4c37fed # 2026.7.5211151
+      - run: nix develop --command yamllint .
   github-actions:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-      - uses: reviewdog/action-actionlint@6fb7acc99f4a1008869fa8a0f09cfca740837d9d # v1
-        with:
-          fail_on_error: true
-          filter_mode: nofilter
+      - uses: metio/ci/nix-devshell@50117191bb36382ab22777be480c539fc4c37fed # 2026.7.5211151
+      # shellcheck rides in the devShell, so actionlint lints run: blocks too.
+      - run: nix develop --command actionlint
   markdown:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-      - uses: DavidAnson/markdownlint-cli2-action@ded1f9488f68a970bc66ea5619e13e9b52e601cd # v23
-        with:
-          globs: "**/*.md"
+      - uses: metio/ci/nix-devshell@50117191bb36382ab22777be480c539fc4c37fed # 2026.7.5211151
+      - run: nix develop --command markdownlint-cli2 "**/*.md"
   typos:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-      - uses: crate-ci/typos@37bb98842b0d8c4ffebdb75301a13db0267cef89 # v1
+      - uses: metio/ci/nix-devshell@50117191bb36382ab22777be480c539fc4c37fed # 2026.7.5211151
+      - run: nix develop --command typos
   prose:
     # Vale prose lint against the shared metio/vale-config style; .vale.ini pulls
     # the published package. Fails on error-level findings (naming/branding);
@@ -64,53 +65,29 @@ jobs:
           fail_on_error: true
   docs-lint:
     # Build the site and lint the rendered HTML (htmltest: dead internal links,
-    # missing alt text, broken anchors) plus the theme CSS (biome). Mirrors the
-    # tools pre-staged in dev/Containerfile. Versions are kept in lockstep with
-    # that Containerfile so local and CI runs agree.
+    # missing alt text, broken anchors) plus the theme CSS (biome). All tools
+    # (hugo, helm-schema, htmltest, biome, go) come from the flake devShell.
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    env:
-      # renovate: datasource=github-releases depName=wjdp/htmltest
-      HTMLTEST_VERSION: 0.17.0
-      # renovate: datasource=github-releases depName=biomejs/biome extractVersion=^@biomejs/biome@(?<version>.+)$
-      BIOME_VERSION: 2.5.2
-      # renovate: datasource=github-releases depName=dadav/helm-schema
-      GO_HELM_SCHEMA_VERSION: 0.23.4
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           submodules: recursive
-      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
-        with:
-          go-version-file: go.mod
-          cache: true
-      - uses: peaceiris/actions-hugo@2752ce1d29631191ea3f27c23495fa06139a5b78 # v3
-        with:
-          hugo-version: latest
-          extended: true
-      - name: Install helm-schema
-        # gen-docs-data.sh generates each chart's values.schema.json on the fly
-        # from values.yaml (the committed schema + its drift gate were removed),
-        # so the docs build needs helm-schema on PATH. Version in lockstep with
-        # dev/Containerfile.
-        run: curl -fsSL "https://github.com/dadav/helm-schema/releases/download/${GO_HELM_SCHEMA_VERSION}/helm-schema_${GO_HELM_SCHEMA_VERSION}_Linux_x86_64.tar.gz" | tar -xz -C /usr/local/bin helm-schema
+      - uses: metio/ci/nix-devshell@50117191bb36382ab22777be480c539fc4c37fed # 2026.7.5211151
       - name: Generate docs data (flags + chart values)
-        run: hack/gen-docs-data.sh
+        run: nix develop --command hack/gen-docs-data.sh
       - name: Build Website
-        run: hugo --minify --source docs
+        run: nix develop --command hugo --minify --source docs
       - name: Lint rendered HTML (htmltest)
-        run: go run "github.com/wjdp/htmltest@v${HTMLTEST_VERSION}"
+        run: nix develop --command htmltest
       - name: Lint theme CSS (biome)
-        run: |
-          curl -fsSL -o "${RUNNER_TEMP}/biome" "https://github.com/biomejs/biome/releases/download/@biomejs/biome@${BIOME_VERSION}/biome-linux-x64"
-          chmod +x "${RUNNER_TEMP}/biome"
-          # Run from inside the theme dir with no path argument: biome v2 treats a
-          # biome.json as a project root, so invoking from the repo root flags the
-          # theme config as a root nested under the repo-root project. From the
-          # theme dir its biome.json is the sole root, and omitting the path lets
-          # files.includes scope the run to the authored CSS (a path argument would
-          # override the config and pull in the vendored normalize.css/syntax.css).
-          ( cd docs/themes/metio && "${RUNNER_TEMP}/biome" lint )
+        # Run from inside the theme dir with no path argument: biome v2 treats a
+        # biome.json as a project root, so invoking from the repo root flags the
+        # theme config as a root nested under the repo-root project. From the
+        # theme dir its biome.json is the sole root, and omitting the path lets
+        # files.includes scope the run to the authored CSS (a path argument would
+        # override the config and pull in the vendored normalize.css/syntax.css).
+        run: nix develop --command bash -c 'cd docs/themes/metio && biome lint'
   container-image:
     runs-on: ubuntu-latest
     timeout-minutes: 30

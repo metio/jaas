@@ -78,15 +78,12 @@ jobs:
     steps:
       - name: Clone Git Repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-      - name: Set up Go
-        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
-        with:
-          go-version-file: go.mod
-          cache: true
+      - uses: metio/ci/nix-devshell@50117191bb36382ab22777be480c539fc4c37fed # 2026.7.5211151
       - id: build
         name: Build & Archive
         # Cross-compile and archive for this platform: tar.gz on linux/darwin,
-        # zip on windows (with a .exe binary).
+        # zip on windows (with a .exe binary). go comes from the flake; GOOS/
+        # GOARCH/CGO_ENABLED ride the step env into `nix develop --command`.
         run: |
           set -euo pipefail
           ver="${{ needs.prepare.outputs.version }}"
@@ -95,7 +92,7 @@ jobs:
           name="$REPO_NAME"
           ext=""
           [ "$os" = windows ] && ext=".exe"
-          go build -o "${name}_v${ver}${ext}" -trimpath \
+          nix develop --command go build -o "${name}_v${ver}${ext}" -trimpath \
             -ldflags="-s -w -X main.version=${ver} -X main.commit=${{ github.sha }}" .
           if [ "$os" = windows ]; then
             zip "${name}_${ver}_${os}_${arch}.zip" "${name}_v${ver}${ext}" LICENSE README.md

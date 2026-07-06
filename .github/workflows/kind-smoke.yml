@@ -150,11 +150,6 @@ jobs:
     steps:
       - name: Clone Git Repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-      - name: Set up Go
-        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
-        with:
-          go-version-file: go.mod
-          cache: true
       - name: Build container image (dev / HEAD)
         run: docker build --build-arg VERSION=smoke --build-arg COMMIT=${{ github.sha }} -t jaas:smoke .
       - name: Create kind cluster (k8s ${{ matrix.k8s_version }})
@@ -226,11 +221,6 @@ jobs:
     steps:
       - name: Clone Git Repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-      - name: Set up Go
-        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
-        with:
-          go-version-file: go.mod
-          cache: true
       - name: Build container image (dev / HEAD)
         run: docker build --build-arg VERSION=smoke --build-arg COMMIT=${{ github.sha }} -t jaas:smoke .
       - name: Create kind cluster
@@ -286,11 +276,6 @@ jobs:
     steps:
       - name: Clone Git Repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-      - name: Set up Go
-        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
-        with:
-          go-version-file: go.mod
-          cache: true
       - name: Build container image (dev / HEAD)
         run: docker build --build-arg VERSION=smoke --build-arg COMMIT=${{ github.sha }} -t jaas:smoke .
       - name: Create kind cluster
@@ -343,11 +328,6 @@ jobs:
     steps:
       - name: Clone Git Repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-      - name: Set up Go
-        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
-        with:
-          go-version-file: go.mod
-          cache: true
       - name: Build container image (dev / HEAD)
         run: docker build --build-arg VERSION=smoke --build-arg COMMIT=${{ github.sha }} -t jaas:smoke .
       - name: Create kind cluster
@@ -404,11 +384,6 @@ jobs:
     steps:
       - name: Clone Git Repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-      - name: Set up Go
-        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
-        with:
-          go-version-file: go.mod
-          cache: true
       - name: Build container image (dev / HEAD)
         run: docker build --build-arg VERSION=smoke --build-arg COMMIT=${{ github.sha }} -t jaas:smoke .
       - name: Create kind cluster
@@ -469,11 +444,6 @@ jobs:
     steps:
       - name: Clone Git Repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-      - name: Set up Go
-        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
-        with:
-          go-version-file: go.mod
-          cache: true
       - name: Build container image (dev / HEAD)
         run: docker build --build-arg VERSION=smoke --build-arg COMMIT=${{ github.sha }} -t jaas:smoke .
       - name: Create kind cluster
@@ -541,11 +511,6 @@ jobs:
     steps:
       - name: Clone Git Repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-      - name: Set up Go
-        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
-        with:
-          go-version-file: go.mod
-          cache: true
       - name: Build container image (dev / HEAD)
         run: docker build --build-arg VERSION=smoke --build-arg COMMIT=${{ github.sha }} -t jaas:smoke .
       - name: Create kind cluster
@@ -631,12 +596,6 @@ jobs:
             echo "supported=false" >> "$GITHUB_OUTPUT"
             echo "::notice::k8s $v < 1.33 has no ImageVolume support; image-volume job skips the install/assert (stays green)."
           fi
-      - name: Set up Go
-        if: steps.gate.outputs.supported == 'true'
-        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
-        with:
-          go-version-file: go.mod
-          cache: true
       - name: Build container image (dev / HEAD)
         if: steps.gate.outputs.supported == 'true'
         run: docker build --build-arg VERSION=smoke --build-arg COMMIT=${{ github.sha }} -t jaas:smoke .
@@ -688,11 +647,6 @@ jobs:
     steps:
       - name: Clone Git Repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-      - name: Set up Go
-        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
-        with:
-          go-version-file: go.mod
-          cache: true
       - name: Build container image (dev / HEAD)
         run: docker build --build-arg VERSION=smoke --build-arg COMMIT=${{ github.sha }} -t jaas:smoke .
       - name: Create kind cluster
@@ -745,11 +699,6 @@ jobs:
     steps:
       - name: Clone Git Repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-      - name: Set up Go
-        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
-        with:
-          go-version-file: go.mod
-          cache: true
       - name: Build container image (dev / HEAD)
         run: docker build --build-arg VERSION=smoke --build-arg COMMIT=${{ github.sha }} -t jaas:smoke .
       - name: Create kind cluster
@@ -836,11 +785,6 @@ jobs:
     steps:
       - name: Clone Git Repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-      - name: Set up Go
-        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
-        with:
-          go-version-file: go.mod
-          cache: true
       - name: Build container image (dev / HEAD)
         run: docker build --build-arg VERSION=smoke --build-arg COMMIT=${{ github.sha }} -t jaas:smoke .
       - name: Create kind cluster (no default CNI)
@@ -916,11 +860,6 @@ jobs:
     steps:
       - name: Clone Git Repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-      - name: Set up Go
-        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
-        with:
-          go-version-file: go.mod
-          cache: true
       - name: Build container image (dev / HEAD)
         run: docker build --build-arg VERSION=smoke --build-arg COMMIT=${{ github.sha }} -t jaas:smoke .
       - name: Create kind cluster

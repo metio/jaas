@@ -42,3 +42,11 @@ docs/data/joi-images.json
 
 # htmltest writes a ref cache here when it runs (ilo bash -c "htmltest").
 tmp/.htmltest/
+
+# direnv nix-direnv build cache (real-nix contributors may add a local .envrc).
+.direnv/
+result
+result-*
+
+# JetBrains IDE project files — per-developer state, never tracked.
+.idea/
