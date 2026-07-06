@@ -48,7 +48,7 @@ jobs:
       FUZZTIME: ${{ github.event.inputs.fuzztime || '5m' }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-      - uses: metio/ci/nix-devshell@50117191bb36382ab22777be480c539fc4c37fed # 2026.7.5211151
+      - uses: metio/ci/nix-devshell@84b9ffe3e7a023be8335f28eb3aa6a8c6cb13cf0 # 2026.7.6074607
       # KUBEBUILDER_ASSETS is set by the devShell (assembled from nixpkgs), so an
       # envtest-backed fuzz target's TestMain finds a kube-apiserver with no
       # setup-envtest download; the cluster-free targets ignore the variable.

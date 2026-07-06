@@ -30,7 +30,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-      - uses: metio/ci/nix-devshell@50117191bb36382ab22777be480c539fc4c37fed # 2026.7.5211151
+      - uses: metio/ci/nix-devshell@84b9ffe3e7a023be8335f28eb3aa6a8c6cb13cf0 # 2026.7.6074607
       - name: Vendor grafonnet and render every dashboard
         # Renders each dashboard through go-jsonnet with grafonnet on the JPATH,
         # exactly as JaaS renders it. Pinned to grafonnet@main so an upstream API
@@ -84,7 +84,7 @@ jobs:
         run: |
           n=$(docker image inspect jaas-dashboard-verify:latest --format '{{ len .RootFS.Layers }}')
           [ "$n" = "1" ] || { echo "::error::dashboard image has $n layers, expected 1"; exit 1; }
-      - uses: metio/ci/nix-devshell@50117191bb36382ab22777be480c539fc4c37fed # 2026.7.5211151
+      - uses: metio/ci/nix-devshell@84b9ffe3e7a023be8335f28eb3aa6a8c6cb13cf0 # 2026.7.6074607
       - uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4
         with:
           registry: ghcr.io

@@ -14,27 +14,27 @@ jobs:
     # detect job auto-enables envtest and arch-go from this repo's files. Named
     # "Golang" so its checks read "Golang / test", "Golang / lint", …
     name: Golang
-    uses: metio/ci/.github/workflows/golang.yml@50117191bb36382ab22777be480c539fc4c37fed # 2026.7.5211151
+    uses: metio/ci/.github/workflows/golang.yml@84b9ffe3e7a023be8335f28eb3aa6a8c6cb13cf0 # 2026.7.6074607
   reuse:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-      - uses: metio/ci/nix-devshell@50117191bb36382ab22777be480c539fc4c37fed # 2026.7.5211151
+      - uses: metio/ci/nix-devshell@84b9ffe3e7a023be8335f28eb3aa6a8c6cb13cf0 # 2026.7.6074607
       - run: nix develop --command reuse lint
   yaml:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-      - uses: metio/ci/nix-devshell@50117191bb36382ab22777be480c539fc4c37fed # 2026.7.5211151
+      - uses: metio/ci/nix-devshell@84b9ffe3e7a023be8335f28eb3aa6a8c6cb13cf0 # 2026.7.6074607
       - run: nix develop --command yamllint .
   github-actions:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-      - uses: metio/ci/nix-devshell@50117191bb36382ab22777be480c539fc4c37fed # 2026.7.5211151
+      - uses: metio/ci/nix-devshell@84b9ffe3e7a023be8335f28eb3aa6a8c6cb13cf0 # 2026.7.6074607
       # shellcheck rides in the devShell, so actionlint lints run: blocks too.
       - run: nix develop --command actionlint
   markdown:
@@ -42,14 +42,14 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-      - uses: metio/ci/nix-devshell@50117191bb36382ab22777be480c539fc4c37fed # 2026.7.5211151
+      - uses: metio/ci/nix-devshell@84b9ffe3e7a023be8335f28eb3aa6a8c6cb13cf0 # 2026.7.6074607
       - run: nix develop --command markdownlint-cli2 "**/*.md"
   typos:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-      - uses: metio/ci/nix-devshell@50117191bb36382ab22777be480c539fc4c37fed # 2026.7.5211151
+      - uses: metio/ci/nix-devshell@84b9ffe3e7a023be8335f28eb3aa6a8c6cb13cf0 # 2026.7.6074607
       - run: nix develop --command typos
   prose:
     # Vale prose lint against the shared metio/vale-config style; .vale.ini pulls
@@ -73,7 +73,7 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           submodules: recursive
-      - uses: metio/ci/nix-devshell@50117191bb36382ab22777be480c539fc4c37fed # 2026.7.5211151
+      - uses: metio/ci/nix-devshell@84b9ffe3e7a023be8335f28eb3aa6a8c6cb13cf0 # 2026.7.6074607
       - name: Generate docs data (flags + chart values)
         run: nix develop --command hack/gen-docs-data.sh
       - name: Build Website
@@ -155,7 +155,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-      - uses: metio/ci/policy-check@50117191bb36382ab22777be480c539fc4c37fed # 2026.7.5211151
+      - uses: metio/ci/policy-check@84b9ffe3e7a023be8335f28eb3aa6a8c6cb13cf0 # 2026.7.6074607
   verify:
     # Single required check covering every job above: mark only this one
     # required in branch protection and new jobs are covered automatically.
