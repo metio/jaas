@@ -142,11 +142,17 @@
           default = pkgs.mkShell {
             KUBEBUILDER_ASSETS = "${kubebuilder-assets}";
             packages = goTools ++ docsTools ++ lintTools ++ (with pkgs; [ jq ]);
+            # Only print the menu for an interactive shell — otherwise it lands
+            # on the stdout that `nix develop --command <tool>` captures (e.g.
+            # golang.yml's `unformatted="$(… gofumpt -l .)"`), and the menu text
+            # reads as tool output.
             shellHook = ''
-              echo "jaas devshell — go + static suite (staticcheck, gofumpt, gosec,"
-              echo "  govulncheck, arch-go, modernize), envtest assets wired, plus the"
-              echo "  docs/dashboards tools (jsonnet, hugo, htmltest, biome, vale,"
-              echo "  helm-schema) and the lint gate. Run gates via nix develop --command."
+              if [ -t 1 ]; then
+                echo "jaas devshell — go + static suite (staticcheck, gofumpt, gosec,"
+                echo "  govulncheck, arch-go, modernize), envtest assets wired, plus the"
+                echo "  docs/dashboards tools (jsonnet, hugo, htmltest, biome, vale,"
+                echo "  helm-schema) and the lint gate. Run gates via nix develop --command."
+              fi
             '';
           };
         }
