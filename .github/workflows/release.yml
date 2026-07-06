@@ -78,7 +78,7 @@ jobs:
     steps:
       - name: Clone Git Repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-      - uses: metio/ci/nix-devshell@84b9ffe3e7a023be8335f28eb3aa6a8c6cb13cf0 # 2026.7.6074607
+      - uses: metio/nix-devshell@1976169d4c51b321be318ade369ccf689849f9f0 # 2026.7.6091757
       - id: build
         name: Build & Archive
         # Cross-compile and archive for this platform: tar.gz on linux/darwin,
