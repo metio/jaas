@@ -15,16 +15,16 @@
   description = "jaas development environment";
 
   inputs = {
-    ci.url = "github:metio/ci";
-    nixpkgs.follows = "ci/nixpkgs";
-    flake-compat.follows = "ci/flake-compat";
+    devshell.url = "github:metio/nix-devshell";
+    nixpkgs.follows = "devshell/nixpkgs";
+    flake-compat.follows = "devshell/flake-compat";
   };
 
   outputs =
     {
       self,
       nixpkgs,
-      ci,
+      devshell,
       ...
     }:
     let
@@ -47,8 +47,8 @@
           goTools = [
             pkgs.go
             pkgs.go-tools # staticcheck
-            (ci.lib.arch-go pkgs)
-            (ci.lib.modernize pkgs)
+            (devshell.lib.arch-go pkgs)
+            (devshell.lib.modernize pkgs)
           ]
           ++ (with pkgs; [
             gofumpt
@@ -61,7 +61,7 @@
           # helm-schema (from metio/ci) builds the chart values reference; cosign
           # keyless-signs the pushed dashboard image (dashboards.yml).
           docsTools = [
-            (ci.lib.helm-schema pkgs)
+            (devshell.lib.helm-schema pkgs)
           ]
           ++ (with pkgs; [
             go-jsonnet
@@ -74,13 +74,13 @@
           ]);
         in
         {
-          default = ci.lib.mkDevShell {
+          default = devshell.lib.mkDevShell {
             inherit pkgs;
             packages = goTools ++ docsTools ++ (with pkgs; [ jq ]);
             # controller-runtime envtest wants a dir holding etcd, kube-apiserver,
             # and kubectl; the shared flake assembles it from nixpkgs, so the
             # assets are hermetic and offline instead of downloaded.
-            env.KUBEBUILDER_ASSETS = "${ci.lib.kubebuilderAssets pkgs}";
+            env.KUBEBUILDER_ASSETS = "${devshell.lib.kubebuilderAssets pkgs}";
             menu = ''
               echo "jaas — go + static suite (staticcheck, gofumpt, gosec, govulncheck,"
               echo "  arch-go, modernize), envtest assets wired, plus the docs/dashboards"
