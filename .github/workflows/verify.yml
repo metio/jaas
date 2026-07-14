@@ -128,25 +128,7 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           fetch-depth: 0
-      - name: Verify Signed-off-by on every commit
-        env:
-          BASE: ${{ github.event.pull_request.base.sha }}
-          HEAD: ${{ github.event.pull_request.head.sha }}
-        run: |
-          status=0
-          for sha in $(git rev-list "$BASE..$HEAD"); do
-            name=$(git show -s --format='%an' "$sha")
-            case "$name" in
-              *'[bot]'*) echo "skip bot commit ${sha:0:8} ($name)"; continue ;;
-            esac
-            if git show -s --format='%B' "$sha" | grep -qiE '^Signed-off-by: .+ <.+@.+>$'; then
-              echo "ok   ${sha:0:8}"
-            else
-              echo "::error::commit ${sha:0:8} by '$name' is missing a Signed-off-by line (use git commit --signoff)"
-              status=1
-            fi
-          done
-          exit $status
+      - uses: metio/ci/dco@68ccaa80327a09d6be7ee72fc81ffa370bd73fff # main
   policy:
     # metio org workflow conventions (conftest/Rego from metio/ci): SHA-pinned
     # uses refs, top-level permissions, timeout-minutes on every job, no
