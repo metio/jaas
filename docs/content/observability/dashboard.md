@@ -83,15 +83,23 @@ spec:
       name: testonnet
     - kind: JsonnetLibrary
       name: xtd
-  # The dashboard's top-level arguments. Each value is a list; a single element
-  # becomes a string TLA.
+  # The dashboard's top-level arguments. Each entry binds one argument as a
+  # string, unless code: true marks the value as Jsonnet source to parse.
   tlas:
-    datasource: ["prometheus"]         # your Prometheus datasource UID
-    title: ["JaaS operator — prod"]
-    selector: ['job="jaas"']           # scope every query to your scrape job/cluster
-    window: ["28d"]                    # SLO window
-    availabilityTarget: ["0.99"]       # reconcile-availability objective (99%)
-    latencyTarget: ["30"]              # reconcile-latency p95 objective (seconds)
+    - name: datasource
+      value: prometheus # your Prometheus datasource UID
+    - name: title
+      value: JaaS operator — prod
+    - name: selector
+      value: 'job="jaas"' # scope every query to your scrape job/cluster
+    - name: window
+      value: 28d # SLO window
+    - name: availabilityTarget
+      value: "0.99" # reconcile-availability objective (99%)
+      code: true
+    - name: latencyTarget
+      value: "30" # reconcile-latency p95 objective (seconds)
+      code: true
   interval: 10m
   output: rendered
 ```

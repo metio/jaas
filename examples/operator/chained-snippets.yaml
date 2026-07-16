@@ -85,5 +85,5 @@ spec:
     kind: ExternalArtifact
     name: base-config
   tlas:
-    env:
-      - prod
+    - name: env
+      value: prod

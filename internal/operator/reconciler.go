@@ -12,7 +12,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"maps"
 	"slices"
 	"strings"
 	"sync"
@@ -1053,12 +1052,14 @@ func (r *SnippetReconciler) checkServiceAccount(snip *jaasv1.JsonnetSnippet) (st
 }
 
 // checkExtVarConflicts walks spec.externalVariables and reports the first
-// key that collides with the operator-level set.
+// name that collides with the operator-level set. The collision is rejected
+// regardless of the entry's code flag: both bind the same std.extVar name,
+// so either would silently shadow the operator's value.
 func (r *SnippetReconciler) checkExtVarConflicts(snip *jaasv1.JsonnetSnippet) (string, string) {
-	for k := range snip.Spec.ExternalVariables {
-		if _, exists := r.ExtVars[k]; exists {
+	for _, v := range snip.Spec.ExternalVariables {
+		if _, exists := r.ExtVars[v.Name]; exists {
 			return ReasonExternalVariableConflict,
-				fmt.Sprintf("spec.externalVariables[%q] conflicts with --ext-var", k)
+				fmt.Sprintf("spec.externalVariables[%q] conflicts with --ext-var", v.Name)
 		}
 	}
 	return "", ""
@@ -1485,10 +1486,13 @@ func (r *SnippetReconciler) evaluate(ctx context.Context, snip *jaasv1.JsonnetSn
 		EntryPath: entryLabel,
 		Libraries: libs,
 	}
-	merged := mergeExtVars(r.ExtVars, snip.Spec.ExternalVariables)
+	extStr, extCode := splitVariables(snip.Spec.ExternalVariables)
+	tlaStr, tlaCode := splitVariables(snip.Spec.TLAs)
 	rendered, err := eval.EvaluateAnonymousSnippet(ctx, snip.Namespace+"/"+snip.Name+"/"+entryLabel, mainSource, eval.Options{
-		ExtVars:  merged,
-		TLAs:     snip.Spec.TLAs,
+		ExtVars:  mergeExtVars(r.ExtVars, extStr),
+		ExtCode:  extCode,
+		TLAs:     tlaValues(tlaStr),
+		TLACode:  tlaCode,
 		MaxStack: r.MaxStack,
 		Timeout:  r.EvaluationTimeout,
 		Importer: imp,
@@ -1510,19 +1514,6 @@ func (r *SnippetReconciler) evaluate(ctx context.Context, snip *jaasv1.JsonnetSn
 		return "", ReasonEvaluationFailed, err.Error(), nil
 	}
 	return rendered, "", "", nil
-}
-
-// mergeExtVars layers the snippet's CR-level vars over the operator's set.
-// checkExtVarConflicts has already rejected overlapping keys, so the result
-// is just the union.
-func mergeExtVars(opLevel, snipLevel map[string]string) map[string]string {
-	if len(opLevel) == 0 && len(snipLevel) == 0 {
-		return nil
-	}
-	out := make(map[string]string, len(opLevel)+len(snipLevel))
-	maps.Copy(out, opLevel)
-	maps.Copy(out, snipLevel)
-	return out
 }
 
 // failReady writes Ready=False with the given reason+message and returns

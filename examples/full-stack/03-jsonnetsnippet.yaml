@@ -23,10 +23,16 @@ spec:
 
   # Operator-level ext-vars (set via --ext-var on the operator) flow
   # through automatically. Snippet-level extras land in
-  # std.extVar("...") inside the jsonnet.
+  # std.extVar("...") inside the jsonnet. Each entry binds a string
+  # unless code: true marks the value as Jsonnet source to parse.
   externalVariables:
-    severity: warn
-    datasource_uid: prom
+    - name: severity
+      value: warn
+    - name: datasource_uid
+      value: prom
+    - name: refresh_seconds
+      value: "60"
+      code: true # std.extVar("refresh_seconds") is the number 60, not "60"
 
   # Retain five revisions on disk. Downstream consumers can pin to a
   # specific sha256 for rollback (status.history exposes the list).

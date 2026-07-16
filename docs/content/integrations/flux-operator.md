@@ -89,9 +89,12 @@ spec:
           - kind: JsonnetLibrary
             name: xtd
         tlas:
-          datasource: ["<< inputs.datasource >>"]
-          title: ["JaaS operator — << inputs.name >>"]
-          selector: ['<< inputs.selector >>']
+          - name: datasource
+            value: << inputs.datasource >>
+          - name: title
+            value: JaaS operator — << inputs.name >>
+          - name: selector
+            value: '<< inputs.selector >>'
         interval: 10m
         output: rendered
 ```

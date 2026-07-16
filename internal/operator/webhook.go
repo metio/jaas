@@ -312,14 +312,14 @@ func (v *SnippetValidator) libraryAliasCollision(snip *jaasv1.JsonnetSnippet) st
 	return ""
 }
 
-func (v *SnippetValidator) conflicts(crLevel map[string]string) []string {
+func (v *SnippetValidator) conflicts(crLevel []jaasv1.JsonnetVariable) []string {
 	if len(v.OperatorExtVars) == 0 || len(crLevel) == 0 {
 		return nil
 	}
 	var hits []string
-	for k := range crLevel {
-		if _, exists := v.OperatorExtVars[k]; exists {
-			hits = append(hits, k)
+	for _, entry := range crLevel {
+		if _, exists := v.OperatorExtVars[entry.Name]; exists {
+			hits = append(hits, entry.Name)
 		}
 	}
 	sort.Strings(hits)

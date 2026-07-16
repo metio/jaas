@@ -337,7 +337,7 @@ func TestReconcile_DefaultServiceAccountSatisfiesEmptySpecSA(t *testing.T) {
 func TestReconcile_ExtVarConflict_FailsExternalVariableConflict(t *testing.T) {
 	snip := sampleSnippet()
 	snip.Finalizers = []string{FinalizerName}
-	snip.Spec.ExternalVariables = map[string]string{"env": "dev"}
+	snip.Spec.ExternalVariables = []jaasv1.JsonnetVariable{{Name: "env", Value: "dev"}}
 	c := clientWithStatus(t, snip)
 	r := newReconciler(t, c)
 	r.ExtVars = map[string]string{"env": "prod"} // operator already owns "env"
@@ -352,7 +352,7 @@ func TestReconcile_ExtVarsMerge_NoConflict_PassedToEval(t *testing.T) {
 	snip.Spec.Files = map[string]string{
 		"main.jsonnet": `{ env: std.extVar("env"), region: std.extVar("region") }`,
 	}
-	snip.Spec.ExternalVariables = map[string]string{"region": "eu-west-1"}
+	snip.Spec.ExternalVariables = []jaasv1.JsonnetVariable{{Name: "region", Value: "eu-west-1"}}
 	c := clientWithStatus(t, snip)
 	r := newReconciler(t, c)
 	r.ExtVars = map[string]string{"env": "prod"}
@@ -386,21 +386,68 @@ func TestReconcile_EvaluationTimeout_SetsReasonEvaluationTimeout(t *testing.T) {
 		metav1.ConditionFalse, ReasonEvaluationTimeout)
 }
 
+// The snippet asserts the bound values itself, so a mis-bound TLA fails the
+// evaluation and surfaces as ReasonEvaluationFailed rather than Synced. That
+// pins the string-vs-code distinction: `code: true` must reach go-jsonnet as
+// parsed source (an array, a number), while the default binds a string.
 func TestReconcile_TLAsArePassedToEval(t *testing.T) {
 	snip := sampleSnippet()
 	snip.Finalizers = []string{FinalizerName}
 	snip.Spec.Files = map[string]string{
-		"main.jsonnet": `function(env, tags) { env: env, tags: tags }`,
+		"main.jsonnet": `function(env, tags, replicas)
+			assert env == "dev" : "env bound as %s" % [std.toString(env)];
+			assert tags == ["a", "b"] : "tags bound as %s" % [std.toString(tags)];
+			assert replicas == 3 : "replicas bound as %s" % [std.toString(replicas)];
+			{ env: env, tags: tags, replicas: replicas }`,
 	}
-	snip.Spec.TLAs = map[string][]string{
-		"env":  {"dev"},
-		"tags": {"a", "b"},
+	snip.Spec.TLAs = []jaasv1.JsonnetVariable{
+		{Name: "env", Value: "dev"},
+		{Name: "tags", Value: `["a", "b"]`, Code: true},
+		{Name: "replicas", Value: "3", Code: true},
 	}
 	c := clientWithStatus(t, snip)
 	r := newReconciler(t, c)
 	runReconcile(t, r, types.NamespacedName{Name: snip.Name, Namespace: snip.Namespace})
 	assertReady(t, refetch(t, c, types.NamespacedName{Name: snip.Name, Namespace: snip.Namespace}),
 		metav1.ConditionTrue, ReasonSynced)
+}
+
+// The ext-var mirror of TestReconcile_TLAsArePassedToEval: a code-valued
+// entry must arrive as a parsed object, the default as a string.
+func TestReconcile_ExternalVariableCodeIsParsedAsJsonnet(t *testing.T) {
+	snip := sampleSnippet()
+	snip.Finalizers = []string{FinalizerName}
+	snip.Spec.Files = map[string]string{
+		"main.jsonnet": `
+			assert std.extVar("env") == "prod" : "env not bound as a string";
+			assert std.extVar("limits").cpu == 2 : "limits not bound as an object";
+			{ ok: true }`,
+	}
+	snip.Spec.ExternalVariables = []jaasv1.JsonnetVariable{
+		{Name: "env", Value: "prod"},
+		{Name: "limits", Value: `{ cpu: 2 }`, Code: true},
+	}
+	c := clientWithStatus(t, snip)
+	r := newReconciler(t, c)
+	runReconcile(t, r, types.NamespacedName{Name: snip.Name, Namespace: snip.Namespace})
+	assertReady(t, refetch(t, c, types.NamespacedName{Name: snip.Name, Namespace: snip.Namespace}),
+		metav1.ConditionTrue, ReasonSynced)
+}
+
+// A code entry whose value is not valid Jsonnet is a snippet-authoring error,
+// not an admission error: it surfaces at eval time like any other bad source.
+func TestReconcile_ExternalVariableCodeWithInvalidJsonnet_FailsEvaluation(t *testing.T) {
+	snip := sampleSnippet()
+	snip.Finalizers = []string{FinalizerName}
+	snip.Spec.Files = map[string]string{"main.jsonnet": `{ v: std.extVar("broken") }`}
+	snip.Spec.ExternalVariables = []jaasv1.JsonnetVariable{
+		{Name: "broken", Value: "{ unterminated:", Code: true},
+	}
+	c := clientWithStatus(t, snip)
+	r := newReconciler(t, c)
+	runReconcile(t, r, types.NamespacedName{Name: snip.Name, Namespace: snip.Namespace})
+	assertReady(t, refetch(t, c, types.NamespacedName{Name: snip.Name, Namespace: snip.Namespace}),
+		metav1.ConditionFalse, ReasonEvaluationFailed)
 }
 
 // --- Reconcile-request handling (flux reconcile) ----------------------------

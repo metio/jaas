@@ -57,11 +57,20 @@ when you render the dashboard through a `JsonnetSnippet`:
 ```yaml
 spec:
   tlas:
-    datasource: ["prometheus"]   # your Prometheus datasource UID
-    window: ["28d"]              # SLO window
-    availabilityTarget: ["0.99"] # 99%
-    latencyTarget: ["30"]        # seconds
+    - name: datasource
+      value: prometheus # your Prometheus datasource UID
+    - name: window
+      value: 28d # SLO window
+    - name: availabilityTarget
+      value: "0.99" # 99%
+      code: true
+    - name: latencyTarget
+      value: "30" # seconds
+      code: true
 ```
+
+The two objectives set `code: true` so their values arrive as numbers rather
+than strings.
 
 A short window is fine for a demo; a real `28d` SLI needs at least that much
 Prometheus retention. For long windows, precompute the SLI with a recording rule

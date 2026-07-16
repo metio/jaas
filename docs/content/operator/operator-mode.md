@@ -111,8 +111,10 @@ spec:
         timestamp: std.extVar('now'),
       }
   externalVariables:
-    audience: world
-    now: "2026-06-09T12:00:00Z"
+    - name: audience
+      value: world
+    - name: now
+      value: "2026-06-09T12:00:00Z"
 ```
 
 `spec.serviceAccountName` names the ServiceAccount the operator impersonates for

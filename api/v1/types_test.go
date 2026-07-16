@@ -6,6 +6,7 @@
 package v1
 
 import (
+	"reflect"
 	"testing"
 	"time"
 
@@ -170,45 +171,53 @@ func TestJsonnetSnippetSpec_DeepCopy_AllMapsAndSlicesAreIndependent(t *testing.T
 		Libraries: []LibraryRef{
 			{Kind: "JsonnetLibrary", Name: "utils", ImportPath: "u"},
 		},
-		TLAs: map[string][]string{
-			"tags": {"a", "b"},
+		TLAs: []JsonnetVariable{
+			{Name: "tags", Value: `["a","b"]`, Code: true},
 		},
-		ExternalVariables: map[string]string{"env": "prod"},
+		ExternalVariables: []JsonnetVariable{{Name: "env", Value: "prod"}},
 		Output:            OutputRendered,
 	}
 	cp := src.DeepCopy()
 	cp.Libraries[0].Name = "other"
-	cp.TLAs["tags"][0] = "z"
-	cp.ExternalVariables["env"] = "dev"
+	cp.TLAs[0].Value = "z"
+	cp.ExternalVariables[0].Value = "dev"
 	cp.Files["main.jsonnet"] = "[]"
 
 	if src.Libraries[0].Name != "utils" {
 		t.Errorf("Libraries slice shared: src[0].Name = %q", src.Libraries[0].Name)
 	}
-	if src.TLAs["tags"][0] != "a" {
-		t.Errorf("TLAs[tags][0] shared: %q", src.TLAs["tags"][0])
+	if src.TLAs[0].Value != `["a","b"]` {
+		t.Errorf("TLAs slice shared: src[0].Value = %q", src.TLAs[0].Value)
 	}
-	if src.ExternalVariables["env"] != "prod" {
-		t.Errorf("ExternalVariables shared: env = %q", src.ExternalVariables["env"])
+	if src.ExternalVariables[0].Value != "prod" {
+		t.Errorf("ExternalVariables slice shared: src[0].Value = %q", src.ExternalVariables[0].Value)
 	}
 	if src.Files["main.jsonnet"] != "{}" {
 		t.Errorf("Files map shared")
 	}
 }
 
-func TestJsonnetSnippetSpec_DeepCopy_NilValueInTLAsMapStaysNil(t *testing.T) {
+func TestJsonnetSnippetSpec_DeepCopy_UnsetVariableListsStayNil(t *testing.T) {
+	cp := (&JsonnetSnippetSpec{}).DeepCopy()
+	if cp.TLAs != nil {
+		t.Errorf("nil TLAs became non-nil in copy: %v", cp.TLAs)
+	}
+	if cp.ExternalVariables != nil {
+		t.Errorf("nil ExternalVariables became non-nil in copy: %v", cp.ExternalVariables)
+	}
+}
+
+func TestJsonnetSnippetSpec_DeepCopy_PreservesVariableFields(t *testing.T) {
 	src := &JsonnetSnippetSpec{
-		TLAs: map[string][]string{
-			"missing": nil,
-			"present": {"a"},
+		TLAs: []JsonnetVariable{
+			{Name: "str", Value: "a"},
+			{Name: "code", Value: "1+1", Code: true},
+			{Name: "empty"},
 		},
 	}
 	cp := src.DeepCopy()
-	if cp.TLAs["missing"] != nil {
-		t.Errorf("nil value became non-nil in copy: %v", cp.TLAs["missing"])
-	}
-	if len(cp.TLAs["present"]) != 1 || cp.TLAs["present"][0] != "a" {
-		t.Errorf("present value mangled: %v", cp.TLAs["present"])
+	if !reflect.DeepEqual(src.TLAs, cp.TLAs) {
+		t.Errorf("TLAs mangled by copy:\n got %+v\nwant %+v", cp.TLAs, src.TLAs)
 	}
 }
 
