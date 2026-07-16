@@ -72,11 +72,25 @@
             vale
             cosign
           ]);
+
+          # Multi-step gate + pipeline commands: plain scripts/<name>.sh that nix
+          # wraps with `set -euo pipefail`, shellchecks at build, and runs with
+          # hermetic runtimeInputs. On PATH inside `nix develop`, callable as
+          # `nix develop --command <name>`. CI invokes the same command, so a
+          # gate cannot drift from the recipe a contributor runs.
+          generate = pkgs.writeShellApplication {
+            name = "generate";
+            runtimeInputs = [ pkgs.go ]; # controller-gen rides go.mod's tool directive
+            text = builtins.readFile ./scripts/generate.sh;
+          };
+          commands = [
+            generate
+          ];
         in
         {
           default = devshell.lib.mkDevShell {
             inherit pkgs;
-            packages = goTools ++ docsTools ++ (with pkgs; [ jq ]);
+            packages = goTools ++ docsTools ++ commands ++ (with pkgs; [ jq ]);
             # controller-runtime envtest wants a dir holding etcd, kube-apiserver,
             # and kubectl; the shared flake assembles it from nixpkgs, so the
             # assets are hermetic and offline instead of downloaded.
@@ -85,6 +99,7 @@
               echo "jaas — go + static suite (staticcheck, gofumpt, gosec, govulncheck,"
               echo "  arch-go, modernize), envtest assets wired, plus the docs/dashboards"
               echo "  tools (jsonnet, hugo, htmltest, biome, vale, helm-schema, cosign)."
+              echo "  Commands: generate (controller-gen deepcopy + CRDs)."
             '';
           };
         }

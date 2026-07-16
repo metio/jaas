@@ -51,6 +51,29 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
       - uses: metio/nix-devshell@1976169d4c51b321be318ade369ccf689849f9f0 # 2026.7.6091757
       - run: nix develop --command typos
+  generated:
+    # controller-gen's output is committed (api/v1/zz_generated.deepcopy.go, the
+    # CRDs under config/crd/bases), and nothing else re-runs the generators — so
+    # a change to api/v1 that forgets to regenerate ships CRDs that contradict
+    # the types, and no other gate notices. Regenerate and fail on any diff.
+    #
+    # The check is scoped to the generated paths so an unrelated dirty file (a
+    # submodule, a build artifact) can't masquerade as drift.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: metio/nix-devshell@1976169d4c51b321be318ade369ccf689849f9f0 # 2026.7.6091757
+      - run: nix develop --command generate
+      - name: Fail on stale generated files
+        run: |
+          drift=$(git status --porcelain -- api config)
+          if [ -n "$drift" ]; then
+            echo "::error::Generated files are stale. Run 'nix develop --command generate' and commit the result."
+            echo "$drift"
+            git --no-pager diff -- api config
+            exit 1
+          fi
   prose:
     # Vale prose lint against the shared metio/vale-config style; .vale.ini pulls
     # the published package. Fails on error-level findings (naming/branding);
@@ -142,7 +165,7 @@ jobs:
     # Single required check covering every job above: mark only this one
     # required in branch protection and new jobs are covered automatically.
     name: Verify
-    needs: [go, reuse, yaml, github-actions, markdown, typos, prose, docs-lint, container-image, dco, policy]
+    needs: [go, reuse, yaml, github-actions, markdown, typos, generated, prose, docs-lint, container-image, dco, policy]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 10
