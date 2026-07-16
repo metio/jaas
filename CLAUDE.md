@@ -182,15 +182,15 @@ The Helm chart lives in the [metio/helm-charts](https://github.com/metio/helm-ch
 The suite spans several layers; all run via `go test` and all are exercised by the `test` job in `verify.yml` (`go test -v -race -shuffle=on -coverprofile=cover.out ./...`). Locally, run them through the dev shell:
 
 ```shell
-ilo bash -c 'go test -count=1 -race -cover ./...'                       # everything, race detector on
-ilo bash -c 'go test -count=1 -v -run TestName ./internal/handler/'     # a single test
-ilo bash -c 'go test -bench=. -benchmem -run=^$ ./internal/operator/'   # benchmarks (skip tests)
-ilo bash -c 'go test -fuzz=FuzzName -fuzztime=30s ./internal/urlguard/' # one fuzz target
+nix develop --command go test -count=1 -race -cover ./...                       # everything, race detector on
+nix develop --command go test -count=1 -v -run TestName ./internal/handler/     # a single test
+nix develop --command go test -bench=. -benchmem -run=^$ ./internal/operator/   # benchmarks (skip tests)
+nix develop --command go test -fuzz=FuzzName -fuzztime=30s ./internal/urlguard/ # one fuzz target
 ```
 
 - **Unit tests** — the bulk of the suite, table-driven, no external state. They live next to the code they cover across `internal/...` and `api/v1/`. Several pin wire-stable contracts and act as drift gates: `conditions_test.go` (every `Reason*` has a matching `docs/runbooks/<reason>.md`; constant count must match `AllReasons`), `TestErrorResponse_StableCodeValues` (the `ErrCode*` strings). Property-based tests (rapid) cover the storage tar-determinism and history keep-set invariants; treat a failing property test as a real bug, not flakiness.
 
-- **envtest-backed operator tests** — files named `envtest_*_test.go` (in `internal/operator/`, plus `internal/webhook/selfsigned/envtest_test.go` and the top-level `main_envtest_test.go`) boot a **real kube-apiserver + etcd** via controller-runtime's `envtest` and run the reconciler / webhook / `run(...)` against it. They share one apiserver per test binary (`sync.Once`-guarded, lazy) so the cost stays off runs that don't select them. **Each one `t.Skip`s when `KUBEBUILDER_ASSETS` is unset** — there is no build tag; selection is by asset availability. The dev shell's `dev/Containerfile` pre-stages the asset bundle (`setup-envtest`, pinned `ENVTEST_K8S_VERSION`) and exports `KUBEBUILDER_ASSETS`, so these tests run by default inside `ilo bash`; on a host without the bundle they silently skip. The envtest harness sets `Config.SkipImpersonation` (the only place that's allowed) and defaults `MetricsBindAddress` to `"0"` so parallel test cases don't fight over the metrics port. `chaos_test.go` is also envtest-backed.
+- **envtest-backed operator tests** — files named `envtest_*_test.go` (in `internal/operator/`, plus `internal/webhook/selfsigned/envtest_test.go` and the top-level `main_envtest_test.go`) boot a **real kube-apiserver + etcd** via controller-runtime's `envtest` and run the reconciler / webhook / `run(...)` against it. They share one apiserver per test binary (`sync.Once`-guarded, lazy) so the cost stays off runs that don't select them. **Each one `t.Skip`s when `KUBEBUILDER_ASSETS` is unset** — there is no build tag; selection is by asset availability. The flake's devShell exports `KUBEBUILDER_ASSETS` from a nixpkgs-assembled bundle, so these tests run by default and need no download; on a host without the assets they silently skip. The envtest harness sets `Config.SkipImpersonation` (the only place that's allowed) and defaults `MetricsBindAddress` to `"0"` so parallel test cases don't fight over the metrics port. `chaos_test.go` is also envtest-backed.
 
 - **Golden / example e2e** — `examples_test.go` boots the whole binary via `runInBackground` and asserts HTTP responses against `testdata/golden/`. See the [Examples & golden tests](#examples--golden-tests) section below for the `-update` regen flow and the per-snippet feature matrix.
 
@@ -207,7 +207,7 @@ The files under `examples/` aren't just documentation — they're also fixtures 
 If you edit an example (or add a new one), regenerate the goldens:
 
 ```shell
-ilo bash -c 'go test -update ./...'
+nix develop --command go test -update ./...
 ```
 
 Then inspect and commit the diff in `testdata/golden/`. The `-update` flag is defined in `examples_test.go` and is a no-op for the rest of the suite.
@@ -241,35 +241,34 @@ The runbook markdown stays at `docs/runbooks/` — pinned there by the `conditio
 
 The desktop nav is an explicit `[menu.main]` tree in `hugo.toml` — the theme renders a menu entry only when it has children. `outputs.home` includes `LLMS` (generates `/llms-full.txt`, the whole site concatenated for LLMs) and `LLMSINDEX` (generates `/llms.txt`, a concise link index auto-derived from each page's front-matter title + description) — both are theme output formats, so no static llms file is hand-maintained. A Claude skill lives at `skills/jaas/` (`SKILL.md` + `references/reference.md`) with `.claude-plugin/{plugin,marketplace}.json`, mirroring the stageset repo.
 
-Build/preview locally with ilo argument files — but the repo's `.ilo.rc` auto-loads the Go dev shell, which would clash, so bypass it with `--no-rc`:
+Build/preview locally with the flake's commands (declared in `flake.nix` from `scripts/<name>.sh`):
 
 ```shell
-ilo --no-rc @dev/website   # one-shot build into docs/public/
-ilo --no-rc @dev/serve     # live server on :1212
+nix develop --command website   # one-shot build into docs/public/
+nix develop --command serve     # live server on :1212
 ```
 
-`@dev/serve` sets `HUGO_RESOURCEDIR=/tmp/hugo-resources-dev` and
+`serve` sets `HUGO_RESOURCEDIR=/tmp/hugo-resources-dev` and
 `HUGO_PUBLISHDIR=/tmp/hugo-public-dev` so the live server's fingerprint/SRI asset
-cache and rendered output stay inside the (ephemeral) container and never share
-`docs/resources/_gen` or `docs/public` with the prod `@dev/website` build —
-sharing either across the two base URLs serves the other's prod-URL'd, hashed CSS
-and breaks the page via cross-origin subresource-integrity blocks. It also passes
-`--baseURL / --appendPort=false` so asset and link URLs are root-relative
-(`/css/…`), which stays same-origin from any browser host (the container's
-`localhost` is usually not the host the browser uses), so SRI passes.
+cache and rendered output never share `docs/resources/_gen` or `docs/public` with
+the prod `website` build. Hugo keys an asset's SRI hash to the baseURL and caches
+it in `_gen`; the server's baseURL differs from production's, so a shared cache
+lets one serve the other's prod-URL'd hashed CSS and the browser blocks it on an
+SRI mismatch. Separate directories make a build and a serve session independent
+in either order.
 
-Two website linters are pre-staged in the Go `dev/Containerfile` (alongside markdownlint), so they run in the default `ilo bash` shell — no `--no-rc`. Build the site first, then:
+Both website linters ride in the devShell. Build the site first, then:
 
 ```shell
-ilo bash -c 'htmltest'                          # rendered HTML: dead internal links, missing alt, broken anchors (.htmltest.yml)
-ilo bash -c 'cd docs/themes/metio && biome lint'   # theme CSS (run from theme dir, no path; biome v2 treats its biome.json as the project root and files.includes scopes the run)
+nix develop --command htmltest                          # rendered HTML: dead internal links, missing alt, broken anchors (.htmltest.yml)
+nix develop --command bash -c 'cd docs/themes/metio && biome lint'   # theme CSS (run from theme dir, no path; biome v2 treats its biome.json as the project root and files.includes scopes the run)
 ```
 
 `htmltest` reads `.htmltest.yml` (rooted at `docs/public`, external links off for a deterministic offline gate — flip `CheckExternal` to verify outbound URLs). The CSS lives in the theme submodule, so `biome` is configured by `biome.json` *in the theme repo* (it excludes the vendored `normalize.css` / `syntax.css`); fix CSS findings there, not in the submodule checkout.
 
 ## Licensing / REUSE
 
-The repo is REUSE-compliant (0BSD). Every source file carries an SPDX header. `REUSE.toml` overrides licensing for paths that can't carry inline headers (`examples/**`, `http/**`, generated CRD/JSON files, `.gitmodules`, the `dev/website` / `dev/serve` ilo argument files). The `reuse` GitHub workflow enforces this on every push — new files without SPDX headers will fail CI. The `docs/themes/metio` submodule is a separate repo (CC0) and is outside this repo's REUSE scope.
+The repo is REUSE-compliant (0BSD). Every source file carries an SPDX header. `REUSE.toml` overrides licensing for paths that can't carry inline headers (`examples/**`, `http/**`, generated CRD/JSON files, `.gitmodules`). The `reuse` GitHub workflow enforces this on every push — new files without SPDX headers will fail CI. The `docs/themes/metio` submodule is a separate repo (CC0) and is outside this repo's REUSE scope.
 
 ## CI
 

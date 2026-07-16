@@ -31,14 +31,6 @@ precedence = "override"
 SPDX-FileCopyrightText = "The jaas Authors"
 SPDX-License-Identifier = "0BSD"
 
-# ilo argument files (plain-text lists of `ilo` CLI args, run via `ilo @dev/<name>`)
-# carry no comment syntax of their own.
-[[annotations]]
-path = ["dev/website", "dev/serve"]
-precedence = "override"
-SPDX-FileCopyrightText = "The jaas Authors"
-SPDX-License-Identifier = "0BSD"
-
 [[annotations]]
 path = "examples/**"
 precedence = "override"
