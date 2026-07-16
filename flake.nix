@@ -83,8 +83,23 @@
             runtimeInputs = [ pkgs.go ]; # controller-gen rides go.mod's tool directive
             text = builtins.readFile ./scripts/generate.sh;
           };
+          website = pkgs.writeShellApplication {
+            name = "website";
+            runtimeInputs = [ pkgs.hugo ];
+            text = builtins.readFile ./scripts/website.sh;
+          };
+          serve = pkgs.writeShellApplication {
+            name = "serve";
+            runtimeInputs = with pkgs; [
+              hugo
+              coreutils # env
+            ];
+            text = builtins.readFile ./scripts/serve.sh;
+          };
           commands = [
             generate
+            website
+            serve
           ];
         in
         {
@@ -99,7 +114,8 @@
               echo "jaas — go + static suite (staticcheck, gofumpt, gosec, govulncheck,"
               echo "  arch-go, modernize), envtest assets wired, plus the docs/dashboards"
               echo "  tools (jsonnet, hugo, htmltest, biome, vale, helm-schema, cosign)."
-              echo "  Commands: generate (controller-gen deepcopy + CRDs)."
+              echo "  Commands: generate (controller-gen deepcopy + CRDs), website"
+              echo "  (one-shot site build), serve (live site on :1212)."
             '';
           };
         }
