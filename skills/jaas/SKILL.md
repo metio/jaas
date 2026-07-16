@@ -117,8 +117,10 @@ describe jsonnetsnippet <name>` shows the Ready condition and the message;
 ## MCP server
 
 `jaas mcp` runs a Model Context Protocol server over stdio for cluster-free
-rendering: `render_jsonnet` (snippet + `tlas`/`extVars` → JSON) and
-`validate_jsonnet` (compile check + full diagnostic). Imports resolve against
+rendering: `render_jsonnet` (snippet + variables → JSON) and
+`validate_jsonnet` (compile check + full diagnostic). Both bind variables through
+`tlas`/`extVars` (strings) and `tlaCode`/`extCode` (Jsonnet source to parse, for
+numbers/arrays/objects); a name may be in one map of a pair, not both. Imports resolve against
 `--library-path`, the same as the HTTP renderer. In operator mode, `--enable-mcp`
 adds read-only `list_snippets` / `get_snippet` tools (Ready status, reason,
 runbook URL, revision, artifact URL, history) over streamable HTTP on

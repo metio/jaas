@@ -191,15 +191,33 @@ func TestMergedExtVars_Property(t *testing.T) {
 		kv := rapid.MapOf(rapid.StringN(0, 8, 8), rapid.String())
 		server := kv.Draw(rt, "server")
 		call := kv.Draw(rt, "call")
-		got := Config{ExtVars: server}.mergedExtVars(call)
+		callCode := kv.Draw(rt, "callCode")
+		got := Config{ExtVars: server}.mergedExtVars(call, callCode)
 
+		// The load-bearing invariant: the string map eval receives never shares
+		// a name with the code map, whatever the three inputs overlap on. A
+		// name in both would leave go-jsonnet's binding order deciding the
+		// value, which eval.Options explicitly leaves unspecified.
+		for k := range callCode {
+			if _, both := got[k]; both {
+				rt.Fatalf("name %q is in both the merged string map and the code map", k)
+			}
+		}
 		// Every call key wins; every server key absent from call survives.
+		// Both hold only for names the call does not bind as code, which
+		// displaces the string binding entirely.
 		for k, v := range call {
+			if _, isCode := callCode[k]; isCode {
+				continue
+			}
 			if got[k] != v {
 				rt.Fatalf("call key %q = %q, want %q (call overlays server)", k, got[k], v)
 			}
 		}
 		for k, v := range server {
+			if _, isCode := callCode[k]; isCode {
+				continue
+			}
 			if _, overridden := call[k]; !overridden && got[k] != v {
 				rt.Fatalf("server key %q = %q, want %q", k, got[k], v)
 			}
