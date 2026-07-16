@@ -77,10 +77,12 @@ spec:
                   from one tree.
 
                   Restricted to relative `[A-Za-z0-9._/-]+` paths with no `..`
-                  segments at admission so a tenant can't push a tarball-extract
-                  or operator-pod-FS traversal through this field. The reconciler
-                  enforces the same shape as a fallback when admission is
-                  bypassed.
+                  segments by the CRD's structural schema (the Pattern + XValidation
+                  markers below), which the apiserver enforces on every write — a
+                  validating-webhook bypass does not disable it. The reconciler never
+                  resolves this as a filesystem path: it is only a key into the
+                  resolved source's in-memory file map and the eval diagnostic label,
+                  so there is no on-disk traversal to re-guard at reconcile time.
                 maxLength: 255
                 minLength: 1
                 pattern: ^[A-Za-z0-9._/-]+$
@@ -89,15 +91,61 @@ spec:
                 - message: entryFile must not contain '..'
                   rule: '!self.contains(''..'')'
               externalVariables:
-                additionalProperties:
-                  type: string
                 description: |-
                   ExternalVariables seed std.extVar lookups for this snippet's evaluation.
-                  Keys conflicting with the operator's --ext-var set are rejected at
+                  Each entry binds one variable by name; set code: true to bind a
+                  number, array, or object instead of a string.
+
+                  Names conflicting with the operator's --ext-var set are rejected at
                   admission; if the webhook is bypassed, the reconciler still refuses
-                  the conflicting key and reports Ready=False with reason
+                  the conflicting name and reports Ready=False with reason
                   ExternalVariableConflict.
-                type: object
+                items:
+                  description: |-
+                    JsonnetVariable binds one name to one value for a snippet's evaluation. It
+                    is the element type of both spec.tlas and spec.externalVariables, whose
+                    only difference is which go-jsonnet binding the name lands in.
+
+                    The list-of-named-entries shape (rather than a map keyed by name) mirrors
+                    the container `env:` convention, so the ordering, patch semantics, and
+                    server-side-apply behavior are the ones operators already know from
+                    PodSpec. Name uniqueness is enforced by the apiserver via the owning
+                    field's listMapKey — it is not a reconcile-time check.
+                  properties:
+                    code:
+                      description: |-
+                        Code selects how Value is interpreted: false (the default) binds it as
+                        a string — vm.ExtVar / vm.TLAVar, matching `jsonnet --ext-str` and
+                        `--tla-str`; true parses it as Jsonnet source — vm.ExtCode /
+                        vm.TLACode, matching `--ext-code` and `--tla-code`. A syntactically
+                        invalid code value fails the evaluation, not admission.
+                      type: boolean
+                    name:
+                      description: |-
+                        Name is the identifier the snippet binds to — the argument name for a
+                        TLA, or the std.extVar("<name>") key for an external variable.
+                      maxLength: 253
+                      minLength: 1
+                      type: string
+                    value:
+                      description: |-
+                        Value is the bound value. With Code false (the default) it is passed
+                        verbatim as a Jsonnet string. With Code true it is parsed as Jsonnet
+                        source and the result is bound, so `"3"` becomes the number 3 and
+                        `["a","b"]` an array. Omitting it binds the empty string; a code
+                        variable requires a non-empty value.
+                      type: string
+                  required:
+                  - name
+                  type: object
+                  x-kubernetes-validations:
+                  - message: value must be non-empty when code is true
+                    rule: '!(has(self.code) && self.code) || (has(self.value) && size(self.value)
+                      > 0)'
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
               files:
                 additionalProperties:
                   type: string
@@ -254,16 +302,56 @@ spec:
                   JsonnetSnippets the same way.
                 type: boolean
               tlas:
-                additionalProperties:
-                  items:
-                    type: string
-                  type: array
                 description: |-
                   TLAs are top-level arguments passed to the snippet's outermost
-                  function. A single-element value becomes a string TLA; multiple values
-                  are passed as a JSON-encoded array, matching the HTTP query-param
-                  convention.
-                type: object
+                  function. Each entry binds one argument by name; set code: true to
+                  pass a number, array, or object instead of a string.
+                items:
+                  description: |-
+                    JsonnetVariable binds one name to one value for a snippet's evaluation. It
+                    is the element type of both spec.tlas and spec.externalVariables, whose
+                    only difference is which go-jsonnet binding the name lands in.
+
+                    The list-of-named-entries shape (rather than a map keyed by name) mirrors
+                    the container `env:` convention, so the ordering, patch semantics, and
+                    server-side-apply behavior are the ones operators already know from
+                    PodSpec. Name uniqueness is enforced by the apiserver via the owning
+                    field's listMapKey — it is not a reconcile-time check.
+                  properties:
+                    code:
+                      description: |-
+                        Code selects how Value is interpreted: false (the default) binds it as
+                        a string — vm.ExtVar / vm.TLAVar, matching `jsonnet --ext-str` and
+                        `--tla-str`; true parses it as Jsonnet source — vm.ExtCode /
+                        vm.TLACode, matching `--ext-code` and `--tla-code`. A syntactically
+                        invalid code value fails the evaluation, not admission.
+                      type: boolean
+                    name:
+                      description: |-
+                        Name is the identifier the snippet binds to — the argument name for a
+                        TLA, or the std.extVar("<name>") key for an external variable.
+                      maxLength: 253
+                      minLength: 1
+                      type: string
+                    value:
+                      description: |-
+                        Value is the bound value. With Code false (the default) it is passed
+                        verbatim as a Jsonnet string. With Code true it is parsed as Jsonnet
+                        source and the result is bound, so `"3"` becomes the number 3 and
+                        `["a","b"]` an array. Omitting it binds the empty string; a code
+                        variable requires a non-empty value.
+                      type: string
+                  required:
+                  - name
+                  type: object
+                  x-kubernetes-validations:
+                  - message: value must be non-empty when code is true
+                    rule: '!(has(self.code) && self.code) || (has(self.value) && size(self.value)
+                      > 0)'
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
             type: object
             x-kubernetes-validations:
             - message: exactly one of spec.files or spec.sourceRef must be set

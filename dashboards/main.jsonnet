@@ -35,9 +35,11 @@ function(
 )
   local g = import 'github.com/grafana/grafonnet/gen/grafonnet-latest/main.libsonnet';
 
-  // Numeric TLAs arrive as strings when supplied through a JsonnetSnippet's
-  // spec.tlas or an HTTP query (single values are passed as string TLAs), but as
-  // numbers from the jsonnet defaults. Coerce so thresholds stay numeric either way.
+  // Numeric TLAs arrive as numbers from the jsonnet defaults, from a
+  // JsonnetSnippet's spec.tlas entry marked `code: true`, and from `jsonnet
+  // --tla-code`; they arrive as strings from an HTTP query (single values are
+  // passed as string TLAs) and from a spec.tlas entry left as a string. Coerce
+  // so thresholds stay numeric on every path.
   local toNum(v) = if std.isString(v) then std.parseJson(v) else v;
   local availTarget = toNum(availabilityTarget);
   local latTarget = toNum(latencyTarget);

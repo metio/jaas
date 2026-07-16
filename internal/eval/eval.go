@@ -60,16 +60,29 @@ func OutstandingTimedOutEvals() int64 { return leakedEvals.Load() }
 // snippet with no ExtVars, no TLAs, no Importer (so any `import` fails),
 // no timeout, and go-jsonnet's default stack depth.
 type Options struct {
-	// ExtVars are std.extVar lookups available to the snippet.
+	// ExtVars are std.extVar lookups bound as strings — vm.ExtVar, the
+	// `jsonnet --ext-str` binding.
 	ExtVars map[string]string
+
+	// ExtCode are std.extVar lookups whose values are Jsonnet source to
+	// parse — vm.ExtCode, the `jsonnet --ext-code` binding. A name present
+	// in both ExtVars and ExtCode is bound twice with an unspecified
+	// winner; callers keep the two maps disjoint.
+	ExtCode map[string]string
 
 	// TLAs follow the URL-query convention used by the HTTP path: a
 	// single-element value becomes a string TLA via vm.TLAVar; a
 	// multi-element value becomes a JSON-encoded array TLA via vm.TLACode.
-	// Operator-driven evaluations build this map from spec.tlas; the
-	// reconciler and HTTP handler share semantics so behavior is identical
-	// across both surfaces.
+	// Operator-driven evaluations pass one element per string-valued
+	// spec.tlas entry, so both surfaces bind a lone value identically.
 	TLAs map[string][]string
+
+	// TLACode are top-level arguments whose values are Jsonnet source to
+	// parse — vm.TLACode, the `jsonnet --tla-code` binding. The operator
+	// builds this from the code-valued spec.tlas entries; the HTTP path
+	// expresses the same thing through a multi-element TLAs value. Disjoint
+	// from TLAs on the same terms as ExtCode/ExtVars.
+	TLACode map[string]string
 
 	// MaxStack overrides go-jsonnet's default call-stack depth when > 0.
 	MaxStack int
@@ -137,7 +150,13 @@ func buildVM(opts Options) *jsonnet.VM {
 	for k, v := range opts.ExtVars {
 		vm.ExtVar(k, v)
 	}
+	for k, v := range opts.ExtCode {
+		vm.ExtCode(k, v)
+	}
 	applyTLAs(vm, opts.TLAs)
+	for k, v := range opts.TLACode {
+		vm.TLACode(k, v)
+	}
 	return vm
 }
 

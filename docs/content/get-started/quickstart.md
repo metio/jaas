@@ -110,7 +110,8 @@ spec:
         rendered_at: std.extVar("now"),
       }
   externalVariables:
-    now: "quickstart"
+    - name: now
+      value: "quickstart"
 EOF
 ```
 
@@ -121,6 +122,8 @@ This is a complete `JsonnetSnippet`. Three fields carry it:
 - `spec.files.<filename>` — inline Jsonnet source. The default entry file is
   `main.jsonnet`; override it with `spec.entryFile`.
 - `spec.externalVariables` — `std.extVar()` lookups available to the snippet.
+  Each entry binds one name to a string; add `code: true` to bind a number,
+  array, or object instead.
 
 Verify the resource exists:
 

@@ -130,7 +130,7 @@ func TestEnvtest_Webhook_AdmissionRejectsExtVarConflict(t *testing.T) {
 				},
 				// Operator-level ExtVars (configured at manager boot below)
 				// own "cluster"; the CR setting it must be rejected.
-				ExternalVariables: map[string]string{"cluster": "dev"},
+				ExternalVariables: []jaasv1.JsonnetVariable{{Name: "cluster", Value: "dev"}},
 			},
 		}
 		err := c.Create(context.Background(), snip)
@@ -151,7 +151,7 @@ func TestEnvtest_Webhook_AdmissionRejectsExtVarConflict(t *testing.T) {
 				SnippetSource: jaasv1.SnippetSource{
 					Files: map[string]string{"main.jsonnet": `{}`},
 				},
-				ExternalVariables: map[string]string{"region": "eu-west-1"},
+				ExternalVariables: []jaasv1.JsonnetVariable{{Name: "region", Value: "eu-west-1"}},
 			},
 		}
 		if err := c.Create(context.Background(), snip); err != nil {

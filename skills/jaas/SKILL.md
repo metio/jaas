@@ -57,7 +57,8 @@ spec:
     main.jsonnet: |
       { greeting: 'hello ' + std.extVar('who') }
   externalVariables:
-    who: world
+    - name: who
+      value: world
 ```
 
 Then layer options on, in roughly this order of need:

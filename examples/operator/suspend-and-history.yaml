@@ -38,7 +38,8 @@ spec:
         version: std.extVar('release_version'),
       }
   externalVariables:
-    release_version: "2026.6.10"
+    - name: release_version
+      value: "2026.6.10"
 
   # Pause control. Defaults to false. Set true to freeze the
   # reconciler — the previously-published artifact stays intact.

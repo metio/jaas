@@ -13,8 +13,10 @@ This is a compact cheat-sheet.
   `ExternalArtifact`)
 - `libraries[]` — `{name, importPath?}` referencing a `JsonnetLibrary`
   (`importPath` defaults to the library name)
-- `tlas` (`map[string][]string`) — top-level arguments; `externalVariables`
-  (`map[string]string`) — `std.extVar` seeds
+- `tlas[]` — top-level arguments; `externalVariables[]` — `std.extVar` seeds.
+  Both are `{name, value?, code?}` lists with unique names. `value` binds as a
+  string unless `code: true` parses it as Jsonnet source (`"3"` → the number 3,
+  `["a","b"]` → an array); a `code` entry needs a non-empty `value`.
 - `output` — `rendered` (default; JSON) or `source` (raw `.jsonnet`/`.libsonnet`)
 - `entryFile` (default `main.jsonnet`), `suspend`, `interval`, `history`
   (default 1, max 50)

@@ -91,7 +91,7 @@ spec:
   output: rendered
   files:
     main.jsonnet: |
-      function(name='web', replicas='2')
+      function(name='web', replicas=2)
         local image = std.extVar('image');
         local labels = { 'app.kubernetes.io/name': name };
         {
@@ -103,7 +103,7 @@ spec:
               kind: 'Deployment',
               metadata: { name: name, labels: labels },
               spec: {
-                replicas: std.parseInt(replicas),
+                replicas: replicas,
                 selector: { matchLabels: labels },
                 template: {
                   metadata: { labels: labels },
@@ -129,16 +129,24 @@ spec:
           ],
         }
   tlas:
-    name: [web]
-    replicas: ["3"]
+    - name: name
+      value: web
+    - name: replicas
+      value: "3"
+      code: true
   externalVariables:
-    image: "ghcr.io/example/web:1.4.0"
+    - name: image
+      value: "ghcr.io/example/web:1.4.0"
 EOF
 ```
 
-Each `spec.tlas` value is a list, matching the HTTP query-parameter convention:
-a single element becomes a string TLA, multiple elements a JSON-encoded array.
-External variables seed `std.extVar` lookups.
+`spec.tlas` binds the arguments of the snippet's outermost function, and
+`spec.externalVariables` seeds its `std.extVar` lookups. Both are lists of
+named entries, and both bind the value as a string by default — which is why
+`replicas` sets `code: true`: the value is parsed as Jsonnet source, so the
+snippet receives the number `3` and `spec.replicas` is a valid integer. Without
+it the field would render as the string `"3"` and the apiserver would reject the
+Deployment.
 
 ## Step 3 — Confirm the manifests rendered
 

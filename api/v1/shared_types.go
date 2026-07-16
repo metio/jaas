@@ -22,6 +22,41 @@ const (
 	ConditionReady = "Ready"
 )
 
+// JsonnetVariable binds one name to one value for a snippet's evaluation. It
+// is the element type of both spec.tlas and spec.externalVariables, whose
+// only difference is which go-jsonnet binding the name lands in.
+//
+// The list-of-named-entries shape (rather than a map keyed by name) mirrors
+// the container `env:` convention, so the ordering, patch semantics, and
+// server-side-apply behavior are the ones operators already know from
+// PodSpec. Name uniqueness is enforced by the apiserver via the owning
+// field's listMapKey — it is not a reconcile-time check.
+//
+// +kubebuilder:validation:XValidation:rule="!(has(self.code) && self.code) || (has(self.value) && size(self.value) > 0)",message="value must be non-empty when code is true"
+type JsonnetVariable struct {
+	// Name is the identifier the snippet binds to — the argument name for a
+	// TLA, or the std.extVar("<name>") key for an external variable.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	Name string `json:"name"`
+
+	// Value is the bound value. With Code false (the default) it is passed
+	// verbatim as a Jsonnet string. With Code true it is parsed as Jsonnet
+	// source and the result is bound, so `"3"` becomes the number 3 and
+	// `["a","b"]` an array. Omitting it binds the empty string; a code
+	// variable requires a non-empty value.
+	// +optional
+	Value string `json:"value,omitempty"`
+
+	// Code selects how Value is interpreted: false (the default) binds it as
+	// a string — vm.ExtVar / vm.TLAVar, matching `jsonnet --ext-str` and
+	// `--tla-str`; true parses it as Jsonnet source — vm.ExtCode /
+	// vm.TLACode, matching `--ext-code` and `--tla-code`. A syntactically
+	// invalid code value fails the evaluation, not admission.
+	// +optional
+	Code bool `json:"code,omitempty"`
+}
+
 // SnippetSource is the bytes a JsonnetSnippet or JsonnetLibrary materializes.
 // Exactly one of Files or SourceRef must be set; admission enforces this via
 // CEL on each owning Spec.

@@ -56,19 +56,25 @@ type JsonnetSnippetSpec struct {
 	Libraries []LibraryRef `json:"libraries,omitempty"`
 
 	// TLAs are top-level arguments passed to the snippet's outermost
-	// function. A single-element value becomes a string TLA; multiple values
-	// are passed as a JSON-encoded array, matching the HTTP query-param
-	// convention.
+	// function. Each entry binds one argument by name; set code: true to
+	// pass a number, array, or object instead of a string.
+	// +listType=map
+	// +listMapKey=name
 	// +optional
-	TLAs map[string][]string `json:"tlas,omitempty"`
+	TLAs []JsonnetVariable `json:"tlas,omitempty"`
 
 	// ExternalVariables seed std.extVar lookups for this snippet's evaluation.
-	// Keys conflicting with the operator's --ext-var set are rejected at
+	// Each entry binds one variable by name; set code: true to bind a
+	// number, array, or object instead of a string.
+	//
+	// Names conflicting with the operator's --ext-var set are rejected at
 	// admission; if the webhook is bypassed, the reconciler still refuses
-	// the conflicting key and reports Ready=False with reason
+	// the conflicting name and reports Ready=False with reason
 	// ExternalVariableConflict.
+	// +listType=map
+	// +listMapKey=name
 	// +optional
-	ExternalVariables map[string]string `json:"externalVariables,omitempty"`
+	ExternalVariables []JsonnetVariable `json:"externalVariables,omitempty"`
 
 	// Output selects what bytes the published ExternalArtifact carries. With
 	// "rendered" (the default) the artifact contains the evaluated JSON;

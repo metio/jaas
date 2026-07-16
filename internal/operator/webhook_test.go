@@ -23,7 +23,7 @@ func TestSnippetValidator_NoConflictPasses(t *testing.T) {
 	v := &SnippetValidator{OperatorExtVars: map[string]string{"cluster": "prod"}}
 	snip := &jaasv1.JsonnetSnippet{
 		Spec: jaasv1.JsonnetSnippetSpec{
-			ExternalVariables: map[string]string{"region": "eu-west-1"},
+			ExternalVariables: []jaasv1.JsonnetVariable{{Name: "region", Value: "eu-west-1"}},
 		},
 	}
 	if _, err := v.ValidateCreate(context.Background(), snip); err != nil {
@@ -35,7 +35,7 @@ func TestSnippetValidator_ConflictRejected(t *testing.T) {
 	v := &SnippetValidator{OperatorExtVars: map[string]string{"cluster": "prod"}}
 	snip := &jaasv1.JsonnetSnippet{
 		Spec: jaasv1.JsonnetSnippetSpec{
-			ExternalVariables: map[string]string{"cluster": "dev"},
+			ExternalVariables: []jaasv1.JsonnetVariable{{Name: "cluster", Value: "dev"}},
 		},
 	}
 	_, err := v.ValidateCreate(context.Background(), snip)
@@ -53,7 +53,7 @@ func TestSnippetValidator_MultipleConflictsListedSorted(t *testing.T) {
 	}
 	snip := &jaasv1.JsonnetSnippet{
 		Spec: jaasv1.JsonnetSnippetSpec{
-			ExternalVariables: map[string]string{"tier": "a", "cluster": "b"},
+			ExternalVariables: []jaasv1.JsonnetVariable{{Name: "tier", Value: "a"}, {Name: "cluster", Value: "b"}},
 		},
 	}
 	_, err := v.ValidateCreate(context.Background(), snip)
@@ -75,7 +75,7 @@ func TestSnippetValidator_EmptyOperatorExtVarsAlwaysPasses(t *testing.T) {
 	v := &SnippetValidator{}
 	snip := &jaasv1.JsonnetSnippet{
 		Spec: jaasv1.JsonnetSnippetSpec{
-			ExternalVariables: map[string]string{"cluster": "prod"},
+			ExternalVariables: []jaasv1.JsonnetVariable{{Name: "cluster", Value: "prod"}},
 		},
 	}
 	if _, err := v.ValidateCreate(context.Background(), snip); err != nil {
@@ -96,7 +96,7 @@ func TestSnippetValidator_ValidateUpdateChecksNewObj(t *testing.T) {
 	oldSnip := &jaasv1.JsonnetSnippet{}
 	newSnip := &jaasv1.JsonnetSnippet{
 		Spec: jaasv1.JsonnetSnippetSpec{
-			ExternalVariables: map[string]string{"cluster": "tampered"},
+			ExternalVariables: []jaasv1.JsonnetVariable{{Name: "cluster", Value: "tampered"}},
 		},
 	}
 	if _, err := v.ValidateUpdate(context.Background(), oldSnip, newSnip); err == nil {
@@ -116,7 +116,7 @@ func TestSnippetValidator_ValidateUpdateSkipsObjectsUnderDeletion(t *testing.T) 
 			Finalizers:        []string{FinalizerName},
 		},
 		Spec: jaasv1.JsonnetSnippetSpec{
-			ExternalVariables: map[string]string{"cluster": "tampered"}, // would conflict
+			ExternalVariables: []jaasv1.JsonnetVariable{{Name: "cluster", Value: "tampered"}}, // would conflict
 		},
 	}
 	if _, err := v.ValidateUpdate(context.Background(), snip, snip); err != nil {
@@ -128,7 +128,7 @@ func TestSnippetValidator_ValidateDeleteAlwaysPasses(t *testing.T) {
 	v := &SnippetValidator{OperatorExtVars: map[string]string{"cluster": "x"}}
 	snip := &jaasv1.JsonnetSnippet{
 		Spec: jaasv1.JsonnetSnippetSpec{
-			ExternalVariables: map[string]string{"cluster": "y"}, // conflict, but delete ignores
+			ExternalVariables: []jaasv1.JsonnetVariable{{Name: "cluster", Value: "y"}}, // conflict, but delete ignores
 		},
 	}
 	if _, err := v.ValidateDelete(context.Background(), snip); err != nil {
@@ -203,7 +203,7 @@ func TestSnippetValidator_ConflictTakesPriorityOverCycle(t *testing.T) {
 		Client:          fake.NewClientBuilder().WithScheme(testScheme(t)).Build(),
 	}
 	snip := snippetPointingAt("a", "ns", "a", "ns")
-	snip.Spec.ExternalVariables = map[string]string{"cluster": "tampered"}
+	snip.Spec.ExternalVariables = []jaasv1.JsonnetVariable{{Name: "cluster", Value: "tampered"}}
 	_, err := v.ValidateCreate(context.Background(), snip)
 	if err == nil || !strings.Contains(err.Error(), "externalVariables") {
 		t.Errorf("got %v, want ext-var conflict (not cycle)", err)
@@ -545,7 +545,7 @@ func TestSnippetValidator_SingleSegmentLibraryAliasPasses(t *testing.T) {
 func TestSnippetValidator_ValidateUpdate_SuspendTogglePassesDespiteStaleViolation(t *testing.T) {
 	v := &SnippetValidator{OperatorExtVars: map[string]string{"cluster": "prod"}}
 	spec := jaasv1.JsonnetSnippetSpec{
-		ExternalVariables: map[string]string{"cluster": "dev"}, // collides with the operator ext-var
+		ExternalVariables: []jaasv1.JsonnetVariable{{Name: "cluster", Value: "dev"}}, // collides with the operator ext-var
 	}
 	old := &jaasv1.JsonnetSnippet{Spec: spec}
 	updated := old.DeepCopy()
@@ -564,7 +564,7 @@ func TestSnippetValidator_ValidateUpdate_ChangingInputsStillValidated(t *testing
 	old := &jaasv1.JsonnetSnippet{}
 	updated := &jaasv1.JsonnetSnippet{Spec: jaasv1.JsonnetSnippetSpec{
 		Suspend:           true,
-		ExternalVariables: map[string]string{"cluster": "dev"}, // newly introduced conflict
+		ExternalVariables: []jaasv1.JsonnetVariable{{Name: "cluster", Value: "dev"}}, // newly introduced conflict
 	}}
 	if _, err := v.ValidateUpdate(context.Background(), old, updated); err == nil {
 		t.Fatal("an update that introduces a conflicting ext-var must still be rejected")

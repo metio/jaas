@@ -35,6 +35,87 @@ func TestEvaluateAnonymousSnippet_ExtVarIsAvailable(t *testing.T) {
 	}
 }
 
+func TestEvaluateAnonymousSnippet_ExtCodeIsParsedAsJsonnet(t *testing.T) {
+	got, err := EvaluateAnonymousSnippet(context.Background(), "demo",
+		`{ n: std.extVar("n") + 1, obj: std.extVar("obj").cpu }`,
+		Options{ExtCode: map[string]string{"n": "2", "obj": "{ cpu: 4 }"}})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(got, `"n": 3`) {
+		t.Errorf("got %q, want 'n' bound as the number 2 (yielding 3)", got)
+	}
+	if !strings.Contains(got, `"obj": 4`) {
+		t.Errorf("got %q, want 'obj' bound as an object with cpu=4", got)
+	}
+}
+
+// ExtVars and ExtCode share one std.extVar namespace but differ in how the
+// value is interpreted — the same literal "2" is a string in one and a number
+// in the other.
+func TestEvaluateAnonymousSnippet_ExtVarAndExtCodeDifferOnTheSameLiteral(t *testing.T) {
+	asVar, err := EvaluateAnonymousSnippet(context.Background(), "demo",
+		`{ t: std.type(std.extVar("v")) }`, Options{ExtVars: map[string]string{"v": "2"}})
+	if err != nil {
+		t.Fatalf("ExtVars: unexpected error: %v", err)
+	}
+	asCode, err := EvaluateAnonymousSnippet(context.Background(), "demo",
+		`{ t: std.type(std.extVar("v")) }`, Options{ExtCode: map[string]string{"v": "2"}})
+	if err != nil {
+		t.Fatalf("ExtCode: unexpected error: %v", err)
+	}
+	if !strings.Contains(asVar, `"string"`) {
+		t.Errorf("ExtVars bound %q, want a string", asVar)
+	}
+	if !strings.Contains(asCode, `"number"`) {
+		t.Errorf("ExtCode bound %q, want a number", asCode)
+	}
+}
+
+func TestEvaluateAnonymousSnippet_ExtCodeWithInvalidJsonnetErrors(t *testing.T) {
+	_, err := EvaluateAnonymousSnippet(context.Background(), "demo",
+		`{ v: std.extVar("bad") }`,
+		Options{ExtCode: map[string]string{"bad": "{ unterminated:"}})
+	if err == nil {
+		t.Fatal("want an evaluation error for unparseable ext-code, got nil")
+	}
+}
+
+func TestEvaluateAnonymousSnippet_TLACodeIsParsedAsJsonnet(t *testing.T) {
+	got, err := EvaluateAnonymousSnippet(context.Background(), "demo",
+		`function(tags, replicas) { tags: tags, replicas: replicas + 1 }`,
+		Options{TLACode: map[string]string{"tags": `["a", "b"]`, "replicas": "2"}})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(got, `"a"`) || !strings.Contains(got, `"b"`) {
+		t.Errorf("got %q, want 'tags' bound as an array", got)
+	}
+	if !strings.Contains(got, `"replicas": 3`) {
+		t.Errorf("got %q, want 'replicas' bound as the number 2 (yielding 3)", got)
+	}
+}
+
+// TLAs and TLACode are applied to the same VM, so a snippet may take one of
+// each — the operator builds exactly this pair from a mixed spec.tlas list.
+func TestEvaluateAnonymousSnippet_TLAsAndTLACodeCombine(t *testing.T) {
+	got, err := EvaluateAnonymousSnippet(context.Background(), "demo",
+		`function(env, replicas) { env: env, replicas: replicas }`,
+		Options{
+			TLAs:    map[string][]string{"env": {"dev"}},
+			TLACode: map[string]string{"replicas": "3"},
+		})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(got, `"env": "dev"`) {
+		t.Errorf("got %q, want env bound as the string 'dev'", got)
+	}
+	if !strings.Contains(got, `"replicas": 3`) {
+		t.Errorf("got %q, want replicas bound as the number 3", got)
+	}
+}
+
 func TestEvaluateAnonymousSnippet_SingleValueTLAUsedAsString(t *testing.T) {
 	got, err := EvaluateAnonymousSnippet(context.Background(), "demo",
 		`function(env) { env: env }`,

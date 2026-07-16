@@ -34,11 +34,16 @@ spec:
       name: mylib
       importPath: mylib
   externalVariables:
-    env: production
-    cluster: eu-west-1
+    - name: env
+      value: production
+    - name: cluster
+      value: eu-west-1
   tlas:
-    title:
-      - My Dashboard
+    - name: title
+      value: My Dashboard
+    - name: refreshSeconds
+      value: "60"
+      code: true
 ```
 
 Exactly one of `spec.files` or `spec.sourceRef` must be set. Admission rejects
@@ -62,8 +67,14 @@ CRs that set neither or both.
 | `libraries[*].name` | string | — | Name of the referenced `JsonnetLibrary` CR. Required. Minimum length 1. |
 | `libraries[*].namespace` | string | snippet's namespace | Namespace of the referenced library CR. Cross-namespace references are rejected by default; they are allowed only when the operator runs with `--no-cross-namespace-refs=false`. |
 | `libraries[*].importPath` | string | library's `metadata.name` | Alias used in `import` statements inside the snippet's Jsonnet source. Must be unique across `spec.libraries` — two entries that resolve to the same import path are rejected (at admission, and at reconcile if admission is bypassed). Collisions with OCI-mounted shared library aliases are likewise rejected. |
-| `tlas` | `map[string][]string` | — | Top-level arguments passed to the snippet's outermost function. A single-element value becomes a string TLA; multiple values are passed as a JSON-encoded array, matching the HTTP query-parameter convention. |
-| `externalVariables` | map[string]string | — | Seeds `std.extVar` lookups for this snippet's evaluation. Keys that conflict with the operator's `--ext-var` set are rejected at admission; if admission is bypassed, the reconciler refuses the conflicting key with `ReasonExternalVariableConflict`. |
+| `tlas` | []JsonnetVariable | — | Top-level arguments passed to the snippet's outermost function. Each entry binds one argument by name. |
+| `tlas[*].name` | string | — | Argument name. Required. Minimum length 1, maximum 253. Must be unique across `spec.tlas`; the apiserver rejects a duplicate. |
+| `tlas[*].value` | string | `""` | The bound value, interpreted per `code`. |
+| `tlas[*].code` | bool | `false` | How `value` is interpreted. `false` binds it verbatim as a Jsonnet string (`jsonnet --tla-str`). `true` parses it as Jsonnet source and binds the result (`jsonnet --tla-code`), so `"3"` becomes the number 3 and `["a","b"]` an array. A code entry requires a non-empty `value`; source that does not parse fails the evaluation with `ReasonEvaluationFailed`. |
+| `externalVariables` | []JsonnetVariable | — | Seeds `std.extVar` lookups for this snippet's evaluation. Each entry binds one variable by name. Names that conflict with the operator's `--ext-var` set are rejected at admission; if admission is bypassed, the reconciler refuses the conflicting name with `ReasonExternalVariableConflict`. |
+| `externalVariables[*].name` | string | — | The `std.extVar("<name>")` key. Required. Minimum length 1, maximum 253. Must be unique across `spec.externalVariables`; the apiserver rejects a duplicate. |
+| `externalVariables[*].value` | string | `""` | The bound value, interpreted per `code`. |
+| `externalVariables[*].code` | bool | `false` | How `value` is interpreted. `false` binds it verbatim as a Jsonnet string (`jsonnet --ext-str`). `true` parses it as Jsonnet source and binds the result (`jsonnet --ext-code`), so `"3"` becomes the number 3 and `{ cpu: 2 }` an object. A code entry requires a non-empty `value`; source that does not parse fails the evaluation with `ReasonEvaluationFailed`. |
 | `output` | string | `rendered` | What bytes the published ExternalArtifact carries. `rendered`: the evaluated JSON (a single `rendered.json` in the tarball). `source`: the raw `.jsonnet`/`.libsonnet` files, for downstream consumers that re-evaluate themselves. |
 | `suspend` | bool | `false` | When `true`, the operator skips the evaluation pipeline, leaves the existing ExternalArtifact in place, and reports `Ready=False` with reason `Suspended`. Setting back to `false` resumes reconciliation. Mirrors Flux's `spec.suspend` convention. |
 | `history` | int32 | `1` | Number of past revisions retained in storage. Minimum 1, maximum 50. Setting to N > 1 lets downstream consumers pin to an older revision via its sha256 for rollback or blue-green flows. The keep-set is tracked in `status.history`. |

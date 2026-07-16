@@ -33,7 +33,8 @@ spec:
         recipient: std.extVar('audience'),
       }
   externalVariables:
-    audience: world
+    - name: audience
+      value: world
 ```
 
 ## A Flux source
@@ -217,8 +218,8 @@ spec:
     kind: ExternalArtifact
     name: dashboard-template
   tlas:
-    env:
-      - prod
+    - name: env
+      value: prod
 ```
 
 Because A published `source` output, B's `sourceRef` extracts A's raw

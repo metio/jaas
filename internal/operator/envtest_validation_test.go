@@ -81,6 +81,101 @@ func TestCRDValidation_SnippetEntryFile(t *testing.T) {
 	}
 }
 
+// spec.tlas and spec.externalVariables share the JsonnetVariable element type,
+// so both inherit its per-entry CEL rule and the listMapKey name-uniqueness.
+// The table runs against each field to prove neither marker was dropped from
+// one of them.
+func TestCRDValidation_SnippetVariables(t *testing.T) {
+	c := envtestClient(t)
+	ns := freshNamespace(t, c)
+
+	tests := map[string]struct {
+		vars       []jaasv1.JsonnetVariable
+		wantReject bool
+	}{
+		"string entry accepted": {
+			vars: []jaasv1.JsonnetVariable{{Name: "env", Value: "prod"}},
+		},
+		"code entry accepted": {
+			vars: []jaasv1.JsonnetVariable{{Name: "replicas", Value: "3", Code: true}},
+		},
+		"omitted value accepted for a string entry": {
+			vars: []jaasv1.JsonnetVariable{{Name: "blank"}},
+		},
+		"empty value accepted for a string entry": {
+			vars: []jaasv1.JsonnetVariable{{Name: "blank", Value: ""}},
+		},
+		// The CEL rule only guards emptiness; a non-empty but unparseable
+		// value is a snippet-authoring error surfaced at eval time.
+		"unparseable code value accepted by the schema": {
+			vars: []jaasv1.JsonnetVariable{{Name: "bad", Value: "{ unterminated:", Code: true}},
+		},
+		"omitted value rejected for a code entry": {
+			vars:       []jaasv1.JsonnetVariable{{Name: "n", Code: true}},
+			wantReject: true,
+		},
+		"empty value rejected for a code entry": {
+			vars:       []jaasv1.JsonnetVariable{{Name: "n", Value: "", Code: true}},
+			wantReject: true,
+		},
+		"empty name rejected": {
+			vars:       []jaasv1.JsonnetVariable{{Name: "", Value: "x"}},
+			wantReject: true,
+		},
+		"over-253-len name rejected": {
+			vars:       []jaasv1.JsonnetVariable{{Name: strings.Repeat("a", 254), Value: "x"}},
+			wantReject: true,
+		},
+		"distinct names accepted": {
+			vars: []jaasv1.JsonnetVariable{
+				{Name: "a", Value: "1"},
+				{Name: "b", Value: "2", Code: true},
+			},
+		},
+		// listMapKey=name makes the apiserver itself refuse a duplicate, so
+		// the reconciler never has to pick a winner between two bindings of
+		// one name.
+		"duplicate name rejected": {
+			vars: []jaasv1.JsonnetVariable{
+				{Name: "dup", Value: "1"},
+				{Name: "dup", Value: "2"},
+			},
+			wantReject: true,
+		},
+	}
+
+	fields := map[string]func(*jaasv1.JsonnetSnippetSpec, []jaasv1.JsonnetVariable){
+		"tlas": func(s *jaasv1.JsonnetSnippetSpec, v []jaasv1.JsonnetVariable) { s.TLAs = v },
+		"externalVariables": func(s *jaasv1.JsonnetSnippetSpec, v []jaasv1.JsonnetVariable) {
+			s.ExternalVariables = v
+		},
+	}
+
+	for field, set := range fields {
+		for name, tc := range tests {
+			t.Run(field+"/"+name, func(t *testing.T) {
+				spec := jaasv1.JsonnetSnippetSpec{SnippetSource: validInlineFiles()}
+				set(&spec, tc.vars)
+				snip := &jaasv1.JsonnetSnippet{
+					ObjectMeta: metav1.ObjectMeta{GenerateName: "vars-", Namespace: ns},
+					Spec:       spec,
+				}
+				err := c.Create(context.Background(), snip)
+				if tc.wantReject {
+					if !apierrors.IsInvalid(err) {
+						t.Fatalf("%s=%+v: got err=%v, want apierrors.IsInvalid", field, tc.vars, err)
+					}
+					return
+				}
+				if err != nil {
+					t.Fatalf("%s=%+v: unexpected reject: %v", field, tc.vars, err)
+				}
+				_ = c.Delete(context.Background(), snip)
+			})
+		}
+	}
+}
+
 func TestCRDValidation_SnippetOutput(t *testing.T) {
 	c := envtestClient(t)
 	ns := freshNamespace(t, c)
