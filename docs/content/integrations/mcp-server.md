@@ -45,16 +45,37 @@ The stdio server registers two tools:
 
 | Tool | Purpose |
 |---|---|
-| `render_jsonnet` | Evaluate an inline snippet (with `tlas` and `extVars`) and return the resulting JSON. Imports resolve against `--library-path`, exactly like the HTTP renderer. |
+| `render_jsonnet` | Evaluate an inline snippet (with its variables bound) and return the resulting JSON. Imports resolve against `--library-path`, exactly like the HTTP renderer. |
 | `validate_jsonnet` | Evaluate a snippet and report whether it compiles, returning the full go-jsonnet diagnostic (file and line) on failure without the rendered output. |
 
 Both accept the same inputs:
 
 - `source` — the Jsonnet snippet.
-- `tlas` — top-level arguments as a map of string lists; a single-element list
-  becomes a string TLA, a multi-element list becomes a JSON-array TLA.
-- `extVars` — external variables for `std.extVar`, overlaying any the server was
-  started with.
+- `tlas` — top-level arguments bound as strings, as a map of string lists; a
+  single-element list becomes a string TLA, a multi-element list becomes a
+  JSON-array TLA.
+- `tlaCode` — top-level arguments whose values are Jsonnet source to parse, like
+  `jsonnet --tla-code`. `"3"` binds the number 3, `["a","b"]` an array.
+- `extVars` — external variables for `std.extVar` bound as strings, overlaying
+  any the server was started with.
+- `extCode` — external variables whose values are Jsonnet source to parse, like
+  `jsonnet --ext-code`. `"3"` binds the number 3, `{ cpu: 2 }` an object. Also
+  overlays the server's `--ext-var` set, since a call is the more specific
+  binding.
+
+A name may be bound as a string or as code, not both: `tlas` and `tlaCode`
+share one namespace, as do `extVars` and `extCode`. A call that binds a name in
+both is rejected with a tool error naming it. The two kinds are separate,
+though — a TLA and an external variable may share a name freely.
+
+To render `{ replicas: 3 }` rather than `{ replicas: "3" }`:
+
+```json
+{
+  "source": "function(replicas) { replicas: replicas }",
+  "tlaCode": { "replicas": "3" }
+}
+```
 
 The flags that shape evaluation:
 

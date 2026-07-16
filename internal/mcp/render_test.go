@@ -89,6 +89,53 @@ func TestRenderHandler(t *testing.T) {
 			in:   renderInput{Source: `function(tags) {tags: tags}`, Tlas: map[string][]string{"tags": {"a", "b"}}},
 			want: `{"tags":["a","b"]}`,
 		},
+		{
+			name: "ext code parses as jsonnet",
+			in: renderInput{
+				Source:  `{n: std.extVar("n") + 1, cpu: std.extVar("limits").cpu}`,
+				ExtCode: map[string]string{"n": "2", "limits": "{ cpu: 4 }"},
+			},
+			want: `{"n":3,"cpu":4}`,
+		},
+		{
+			// The same literal is a string through extVars and a number
+			// through extCode — the distinction the code map exists for.
+			name: "ext var and ext code differ on the same literal",
+			in: renderInput{
+				Source:  `{asVar: std.type(std.extVar("v")), asCode: std.type(std.extVar("c"))}`,
+				ExtVars: map[string]string{"v": "2"},
+				ExtCode: map[string]string{"c": "2"},
+			},
+			want: `{"asVar":"string","asCode":"number"}`,
+		},
+		{
+			name: "tla code parses as jsonnet",
+			in: renderInput{
+				Source:  `function(tags, replicas) {tags: tags, replicas: replicas + 1}`,
+				TlaCode: map[string]string{"tags": `["a", "b"]`, "replicas": "2"},
+			},
+			want: `{"tags":["a","b"],"replicas":3}`,
+		},
+		{
+			name: "string and code TLAs combine on one call",
+			in: renderInput{
+				Source:  `function(env, replicas) {env: env, replicas: replicas}`,
+				Tlas:    map[string][]string{"env": {"dev"}},
+				TlaCode: map[string]string{"replicas": "3"},
+			},
+			want: `{"env":"dev","replicas":3}`,
+		},
+		{
+			// The server can only configure string ext vars, so a call binding
+			// that name as code must win outright rather than land in both maps.
+			name: "call ext code overrides a server ext var",
+			cfg:  Config{ExtVars: map[string]string{"n": "from-server"}},
+			in: renderInput{
+				Source:  `{t: std.type(std.extVar("n")), v: std.extVar("n")}`,
+				ExtCode: map[string]string{"n": "7"},
+			},
+			want: `{"t":"number","v":7}`,
+		},
 	}
 
 	for _, tt := range tests {
@@ -103,6 +150,65 @@ func TestRenderHandler(t *testing.T) {
 			assertJSONEqual(t, out.JSON, tt.want)
 			assertJSONEqual(t, textContent(t, res), tt.want)
 		})
+	}
+}
+
+func TestRenderHandler_ConflictingVariableBindingRejected(t *testing.T) {
+	res, out, err := Config{}.renderHandler(context.Background(), nil, renderInput{
+		Source:  `{v: std.extVar("dup")}`,
+		ExtVars: map[string]string{"dup": "a"},
+		ExtCode: map[string]string{"dup": `"b"`},
+	})
+	if err != nil {
+		t.Fatalf("handler returned a Go error, want a tool-error result: %v", err)
+	}
+	if res == nil || !res.IsError {
+		t.Fatalf("a name bound as both string and code must be rejected, got %+v", res)
+	}
+	if out.JSON != "" {
+		t.Errorf("rejected call still rendered output: %q", out.JSON)
+	}
+	if msg := textContent(t, res); !strings.Contains(msg, "dup") {
+		t.Errorf("error %q does not name the conflicting variable", msg)
+	}
+}
+
+// A conflicting call is malformed input, not a verdict on the snippet: the
+// source may be perfectly valid, so reporting valid=false would misattribute
+// the caller's mistake to it.
+func TestValidateHandler_ConflictingVariableBindingIsToolErrorNotInvalidVerdict(t *testing.T) {
+	res, out, err := Config{}.validateHandler(context.Background(), nil, renderInput{
+		Source:  `function(dup) {v: dup}`,
+		Tlas:    map[string][]string{"dup": {"a"}},
+		TlaCode: map[string]string{"dup": `"b"`},
+	})
+	if err != nil {
+		t.Fatalf("handler returned a Go error, want a tool-error result: %v", err)
+	}
+	if res == nil || !res.IsError {
+		t.Fatalf("expected a tool-error result, got %+v", res)
+	}
+	if out.Valid {
+		t.Error("a malformed call must not report valid=true")
+	}
+	if out.Error != "" {
+		t.Errorf("a malformed call must not be reported as a snippet diagnostic: %q", out.Error)
+	}
+}
+
+func TestValidateHandler_CodeBindingsReachTheSnippet(t *testing.T) {
+	res, out, err := Config{}.validateHandler(context.Background(), nil, renderInput{
+		Source:  `assert std.extVar("n") == 3 : "n bound wrong"; {ok: true}`,
+		ExtCode: map[string]string{"n": "3"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected Go error: %v", err)
+	}
+	if res != nil && res.IsError {
+		t.Fatalf("unexpected tool error: %s", textContent(t, res))
+	}
+	if !out.Valid {
+		t.Errorf("want valid=true, got error: %s", out.Error)
 	}
 }
 
@@ -288,10 +394,11 @@ func TestValidateHandler(t *testing.T) {
 
 func TestMergedExtVars(t *testing.T) {
 	tests := []struct {
-		name   string
-		server map[string]string
-		call   map[string]string
-		want   map[string]string
+		name     string
+		server   map[string]string
+		call     map[string]string
+		callCode map[string]string
+		want     map[string]string
 	}{
 		{name: "both empty", want: nil},
 		{name: "only server", server: map[string]string{"a": "1"}, want: map[string]string{"a": "1"}},
@@ -302,12 +409,109 @@ func TestMergedExtVars(t *testing.T) {
 			call:   map[string]string{"b": "call", "c": "call"},
 			want:   map[string]string{"a": "server", "b": "call", "c": "call"},
 		},
+		// The server's ext vars are always strings, so a name the call binds
+		// as code has to leave the string map — otherwise it would sit in
+		// both maps eval.Options receives, where the winner is unspecified.
+		{
+			name:     "call code displaces a server string of the same name",
+			server:   map[string]string{"a": "server", "b": "server"},
+			callCode: map[string]string{"b": "1 + 1"},
+			want:     map[string]string{"a": "server"},
+		},
+		{
+			name:     "displacing the only server var yields nil",
+			server:   map[string]string{"a": "server"},
+			callCode: map[string]string{"a": "1 + 1"},
+			want:     nil,
+		},
+		{
+			name:     "call code does not disturb unrelated names",
+			server:   map[string]string{"a": "server"},
+			call:     map[string]string{"b": "call"},
+			callCode: map[string]string{"c": "1 + 1"},
+			want:     map[string]string{"a": "server", "b": "call"},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := Config{ExtVars: tt.server}.mergedExtVars(tt.call)
+			got := Config{ExtVars: tt.server}.mergedExtVars(tt.call, tt.callCode)
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Fatalf("mergedExtVars = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// A name in both the string and the code map of one kind has no defined winner
+// in eval.Options, so the tools refuse the call rather than render one of the
+// two arbitrarily.
+func TestConflictingVariableNames(t *testing.T) {
+	tests := []struct {
+		name        string
+		in          renderInput
+		wantTLAs    []string
+		wantExtVars []string
+	}{
+		{name: "empty input has no conflict"},
+		{
+			name: "disjoint names do not conflict",
+			in: renderInput{
+				Tlas:    map[string][]string{"a": {"1"}},
+				TlaCode: map[string]string{"b": "2"},
+				ExtVars: map[string]string{"c": "3"},
+				ExtCode: map[string]string{"d": "4"},
+			},
+		},
+		{
+			name: "tla bound as both string and code",
+			in: renderInput{
+				Tlas:    map[string][]string{"dup": {"1"}},
+				TlaCode: map[string]string{"dup": "2"},
+			},
+			wantTLAs: []string{"dup"},
+		},
+		{
+			name: "ext var bound as both string and code",
+			in: renderInput{
+				ExtVars: map[string]string{"dup": "1"},
+				ExtCode: map[string]string{"dup": "2"},
+			},
+			wantExtVars: []string{"dup"},
+		},
+		{
+			name: "conflicts in both kinds are reported together, sorted",
+			in: renderInput{
+				Tlas:    map[string][]string{"z": {"1"}, "a": {"1"}},
+				TlaCode: map[string]string{"z": "2", "a": "2"},
+				ExtVars: map[string]string{"y": "1", "b": "1"},
+				ExtCode: map[string]string{"y": "2", "b": "2"},
+			},
+			wantTLAs:    []string{"a", "z"},
+			wantExtVars: []string{"b", "y"},
+		},
+		{
+			// The two kinds are separate binding namespaces: a TLA and an ext
+			// var may share a name without either shadowing the other.
+			name: "the same name across the two kinds is not a conflict",
+			in: renderInput{
+				Tlas:    map[string][]string{"same": {"1"}},
+				ExtCode: map[string]string{"same": "2"},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tlas, extVars := conflictingVariableNames(tt.in)
+			if !reflect.DeepEqual(tlas, tt.wantTLAs) {
+				t.Errorf("tlas = %v, want %v", tlas, tt.wantTLAs)
+			}
+			if !reflect.DeepEqual(extVars, tt.wantExtVars) {
+				t.Errorf("extVars = %v, want %v", extVars, tt.wantExtVars)
+			}
+			gotErr := variableConflictError(tt.in) != nil
+			wantErr := len(tt.wantTLAs) > 0 || len(tt.wantExtVars) > 0
+			if gotErr != wantErr {
+				t.Errorf("variableConflictError non-nil = %v, want %v", gotErr, wantErr)
 			}
 		})
 	}
