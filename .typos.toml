@@ -13,7 +13,10 @@ mis = "mis"
 pn = "pn"
 
 [files]
-# docs/themes/metio is a separate (CC0) submodule with its own CI; CI's checkout
-# doesn't fetch submodules, so exclude it here too — otherwise a local run flags
-# the theme's content while CI never sees it.
-extend-exclude = ["LICENSES/", "go.sum", "docs/themes/"]
+# go.mod/go.sum are machine-generated dependency manifests: their module pins carry
+# git SHAs whose hex fragments read as words (afe→safe, dead, cafe, …), and a real
+# module-path typo fails the build rather than reaching typos. docs/themes/metio is a
+# separate (CC0) submodule with its own CI; CI's checkout doesn't fetch submodules, so
+# exclude it here too — otherwise a local run flags the theme's content while CI never
+# sees it.
+extend-exclude = ["LICENSES/", "go.mod", "go.sum", "docs/themes/"]
