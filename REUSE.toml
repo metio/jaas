@@ -64,6 +64,14 @@ precedence = "override"
 SPDX-FileCopyrightText = "The jaas Authors"
 SPDX-License-Identifier = "0BSD"
 
+# And for the controller-gen-emitted operator ClusterRole (the Helm chart vendors
+# and splits it), rewritten wholesale so it can carry no inline header.
+[[annotations]]
+path = "config/rbac/role.yaml"
+precedence = "override"
+SPDX-FileCopyrightText = "The jaas Authors"
+SPDX-License-Identifier = "0BSD"
+
 # Go's fuzzer materializes interesting inputs under testdata/fuzz/ with
 # hash filenames and no extension. The corpus accumulates over time;
 # every entry is a seed for future runs. No inline header is possible.

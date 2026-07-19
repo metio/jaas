@@ -255,6 +255,29 @@ type SnippetReconciler struct {
 	missingMu sync.RWMutex
 }
 
+// RBAC the operator needs, declared so config/rbac/role.yaml (generated) is the
+// single source of truth the Helm chart vendors its ClusterRoles from. Leader-
+// election (coordination.k8s.io/leases) is deliberately NOT here: it is a
+// release-namespace Role in the chart, which a flat ClusterRole cannot express.
+//
+// +kubebuilder:rbac:groups=jaas.metio.wtf,resources=jsonnetsnippets;jsonnetlibraries,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=jaas.metio.wtf,resources=jsonnetsnippets/status;jsonnetlibraries/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=jaas.metio.wtf,resources=jsonnetsnippets/finalizers;jsonnetlibraries/finalizers,verbs=update
+// The operator fetches Flux sources and publishes an ExternalArtifact per snippet.
+// +kubebuilder:rbac:groups=source.toolkit.fluxcd.io,resources=gitrepositories;ocirepositories;buckets,verbs=get;list;watch
+// +kubebuilder:rbac:groups=source.toolkit.fluxcd.io,resources=externalartifacts,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=source.toolkit.fluxcd.io,resources=externalartifacts/status,verbs=get;update;patch
+// The EventRecorder annotates JsonnetSnippets in tenant namespaces; tenant
+// impersonation reads the SA and mints a TokenRequest token for it (no impersonate verb).
+// +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
+// +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
+// +kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get
+// +kubebuilder:rbac:groups="",resources=serviceaccounts/token,verbs=create
+// The crdWatcher subscribes to the CRD stream to engage Flux source watches when
+// their CRDs appear; self-signed webhook mode patches the operator's own VWC caBundle.
+// +kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,verbs=get;list;watch
+// +kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=validatingwebhookconfigurations,verbs=get;update
+
 // Reconcile is invoked for every JsonnetSnippet create/update/delete event
 // the manager surfaces to this controller.
 func (r *SnippetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {

@@ -4,6 +4,10 @@
 # Regenerates every controller-gen artifact this repo commits:
 #   - api/v1/zz_generated.deepcopy.go — DeepCopy implementations
 #   - config/crd/bases/*.yaml         — the CustomResourceDefinitions
+#   - config/rbac/role.yaml           — the operator ClusterRole from the
+#                                       +kubebuilder:rbac markers (scanned across
+#                                       ./... since they live in internal/operator),
+#                                       vendored into the Helm chart's ClusterRoles
 #
 # Run it after any change to api/v1 and commit the result. The `generated` job
 # in verify.yml runs this same command and fails on a diff, so the gate cannot
@@ -19,3 +23,4 @@
 
 go tool controller-gen object paths=./api/v1/...
 go tool controller-gen crd paths=./api/... output:crd:dir=./config/crd/bases
+go tool controller-gen rbac:roleName=jaas paths=./... output:rbac:dir=./config/rbac
