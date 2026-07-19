@@ -15,17 +15,22 @@ import (
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/discovery"
+	"k8s.io/client-go/discovery/cached/memory"
 	"k8s.io/client-go/kubernetes"
+	authorizationv1client "k8s.io/client-go/kubernetes/typed/authorization/v1"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/restmapper"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	ctrlconfig "sigs.k8s.io/controller-runtime/pkg/config"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	jaasv1 "github.com/metio/jaas/api/v1"
 	"github.com/metio/jaas/internal/sources"
+	"github.com/metio/jaas/internal/startupcheck"
 )
 
 // GracefulShutdownTimeout bounds how long the manager waits for in-flight
@@ -64,9 +69,21 @@ func (r *readinessSignal) Start(ctx context.Context) error {
 	return nil
 }
 
+// cacheSyncTimeout is effectively unbounded: a controller-runtime controller
+// treats a source that does not sync within this window as fatal and exits the
+// process, so the default (2m) turns a missing CRD or an incomplete operator
+// ClusterRole into a crash-loop. Waiting indefinitely instead keeps the pod alive
+// and retrying the informer, so the failure degrades to "not ready, waiting" (see
+// internal/startupcheck for the actionable log; readinessSignal keeps the pod
+// NotReady) and self-heals the moment the CRD is installed or the RBAC is granted
+// — no restart. In a healthy cluster the caches sync in well under a second.
+const cacheSyncTimeout = 100 * 365 * 24 * time.Hour
+
 var defaultBuilder builder = func(restCfg *rest.Config, opts ctrl.Options, cfg Config) (runner, error) {
 	if cfg.SkipControllerNameValidation {
-		opts.Controller = ctrlconfig.Controller{SkipNameValidation: new(true)}
+		// Set the field rather than replacing the struct, so the caller's
+		// CacheSyncTimeout (set in runWithBuilder) survives.
+		opts.Controller.SkipNameValidation = new(true)
 	}
 	if cfg.EnableWebhook {
 		port := cfg.WebhookPort
@@ -202,6 +219,10 @@ func runWithBuilder(ctx context.Context, cfg Config, restCfg *rest.Config, build
 	}
 
 	opts := ctrl.Options{Scheme: scheme, GracefulShutdownTimeout: new(GracefulShutdownTimeout)}
+	// Never let a controller exit the process because a source could not sync — a
+	// missing CRD or an incomplete ClusterRole degrades to "not ready, waiting",
+	// not a crash-loop. See cacheSyncTimeout.
+	opts.Controller.CacheSyncTimeout = cacheSyncTimeout
 	if cfg.MetricsBindAddress != "" {
 		opts.Metrics = metricsserver.Options{BindAddress: cfg.MetricsBindAddress}
 	}
@@ -261,8 +282,54 @@ func runWithBuilder(ctx context.Context, cfg Config, restCfg *rest.Config, build
 		slog.Int("rerenderBurst", cfg.RerenderBurst),
 		slog.Int("extVarCount", len(cfg.ExtVars)))
 
+	// Diagnose an un-syncable watch out of band: if a watched CRD is missing or
+	// the ClusterRole can't list/watch it, log one actionable line per resource
+	// until the prerequisite appears. The manager retries the informer meanwhile
+	// (cacheSyncTimeout), so this never gates startup — it only explains the wait,
+	// turning raw reflector "forbidden" spam into a clear cause.
+	startupPreflight(ctx, restCfg, logger)
+
 	// OnReady (the pod's readiness flip) is wired by the builder as a
 	// non-leader-election runnable, so it fires after cache sync on every
 	// replica — leader or not. See readinessSignal.
 	return mgr.Start(ctx)
+}
+
+// startupPreflight launches the watch-prerequisite logger. It builds its own
+// discovery-backed RESTMapper and authorization client (the manager's are not
+// reachable through the runner seam) and returns immediately; the check loops in
+// a goroutine until every watched CRD is installed and permitted or ctx ends.
+func startupPreflight(ctx context.Context, restCfg *rest.Config, logger *slog.Logger) {
+	// A config with no apiserver host is a unit test's empty rest.Config, not a
+	// real cluster; skip the check rather than spin a goroutine that can never
+	// reach discovery. In-cluster and kubeconfig-derived configs always set Host.
+	if restCfg.Host == "" {
+		return
+	}
+	dc, err := discovery.NewDiscoveryClientForConfig(restCfg)
+	if err != nil {
+		logger.Error("startup preflight disabled: cannot build discovery client", slog.Any("error", err))
+		return
+	}
+	authz, err := authorizationv1client.NewForConfig(restCfg)
+	if err != nil {
+		logger.Error("startup preflight disabled: cannot build authorization client", slog.Any("error", err))
+		return
+	}
+	checker := &startupcheck.Checker{
+		Mapper: restmapper.NewDeferredDiscoveryRESTMapper(memory.NewMemCacheClient(dc)),
+		Review: authz.SelfSubjectAccessReviews(),
+		Logger: logger,
+	}
+	go checker.LogUntilReady(ctx, watchedResources(), 30*time.Second)
+}
+
+// watchedResources are the CRDs the operator keeps informers on. A missing or
+// unreadable one is what the preflight names.
+func watchedResources() []startupcheck.Target {
+	const group = "jaas.metio.wtf"
+	return []startupcheck.Target{
+		{GVK: schema.GroupVersionKind{Group: group, Version: "v1", Kind: "JsonnetSnippet"}, Group: group, Resource: "jsonnetsnippets"},
+		{GVK: schema.GroupVersionKind{Group: group, Version: "v1", Kind: "JsonnetLibrary"}, Group: group, Resource: "jsonnetlibraries"},
+	}
 }

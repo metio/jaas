@@ -153,6 +153,27 @@ func TestRunWithBuilder_PassesSchemeAndContext(t *testing.T) {
 	}
 }
 
+// TestRunWithBuilder_SetsUnboundedCacheSyncTimeout pins the crash-loop guard: a
+// controller whose informer cannot sync (missing CRD / RBAC) must wait
+// indefinitely and keep the pod alive, not hit the 2m default and exit.
+func TestRunWithBuilder_SetsUnboundedCacheSyncTimeout(t *testing.T) {
+	var seenOpts ctrl.Options
+	build := func(_ *rest.Config, opts ctrl.Options, _ Config) (runner, error) {
+		seenOpts = opts
+		return &fakeRunner{}, nil
+	}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	if err := runWithBuilder(t.Context(), Config{Logger: logger}, &rest.Config{}, build); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if seenOpts.Controller.CacheSyncTimeout != cacheSyncTimeout {
+		t.Errorf("CacheSyncTimeout = %s, want %s", seenOpts.Controller.CacheSyncTimeout, cacheSyncTimeout)
+	}
+	if seenOpts.Controller.CacheSyncTimeout < 365*24*time.Hour {
+		t.Errorf("CacheSyncTimeout = %s, want effectively unbounded (>= 1 year)", seenOpts.Controller.CacheSyncTimeout)
+	}
+}
+
 func TestRunWithBuilder_PropagatesLabelSelector(t *testing.T) {
 	var seenOpts ctrl.Options
 	fake := &fakeRunner{}
