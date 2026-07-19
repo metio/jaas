@@ -13,5 +13,7 @@ rules:
   truthy:
     check-keys: false
 ignore:
-  # controller-gen output: machine-generated, long description lines.
+  # controller-gen output: machine-generated (its list indentation and long
+  # description lines don't match these rules, and it's not hand-edited).
   - config/crd/bases/
+  - config/rbac/role.yaml
