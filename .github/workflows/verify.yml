@@ -19,21 +19,21 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: metio/nix-devshell@1976169d4c51b321be318ade369ccf689849f9f0 # 2026.7.6091757
       - run: nix develop --command reuse lint
   yaml:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: metio/nix-devshell@1976169d4c51b321be318ade369ccf689849f9f0 # 2026.7.6091757
       - run: nix develop --command yamllint .
   github-actions:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: metio/nix-devshell@1976169d4c51b321be318ade369ccf689849f9f0 # 2026.7.6091757
       # shellcheck rides in the devShell, so actionlint lints run: blocks too.
       - run: nix develop --command actionlint
@@ -41,14 +41,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: metio/nix-devshell@1976169d4c51b321be318ade369ccf689849f9f0 # 2026.7.6091757
       - run: nix develop --command markdownlint-cli2 "**/*.md"
   typos:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: metio/nix-devshell@1976169d4c51b321be318ade369ccf689849f9f0 # 2026.7.6091757
       - run: nix develop --command typos
   generated:
@@ -62,7 +62,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: metio/nix-devshell@1976169d4c51b321be318ade369ccf689849f9f0 # 2026.7.6091757
       - run: nix develop --command generate
       - name: Fail on stale generated files
@@ -81,7 +81,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: vale-cli/vale-action@85f9f7f2c5f449ac0ae5b66662961bae3f77ca6a # 2.1.2 # renovate: pin to a SHA
         with:
           files: docs/content
@@ -93,7 +93,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           submodules: recursive
       - uses: metio/nix-devshell@1976169d4c51b321be318ade369ccf689849f9f0 # 2026.7.6091757
@@ -115,7 +115,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - id: buildx
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
       - id: image
@@ -148,7 +148,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
       - uses: metio/ci/dco@90f338e9eaaaaf67a8964a596260eaf27ea53812 # main
@@ -159,7 +159,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: metio/ci/policy-check@90f338e9eaaaaf67a8964a596260eaf27ea53812 # 2026.7.20205609
   verify:
     # Single required check covering every job above: mark only this one

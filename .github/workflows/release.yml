@@ -29,7 +29,7 @@ jobs:
       previous: ${{ steps.gate.outputs.last }}
     steps:
       - name: Clone Git Repository
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
       - id: gate
@@ -77,7 +77,7 @@ jobs:
             goarch: arm64
     steps:
       - name: Clone Git Repository
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: metio/nix-devshell@1976169d4c51b321be318ade369ccf689849f9f0 # 2026.7.6091757
       - id: build
         name: Build & Archive
@@ -126,7 +126,7 @@ jobs:
       packages: write # push to GHCR
     steps:
       - name: Clone Git Repository
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Build, push and sign the image
         uses: metio/ci/container-release@90f338e9eaaaaf67a8964a596260eaf27ea53812 # 2026.7.20205609
         with:
@@ -147,7 +147,7 @@ jobs:
       id-token: write # cosign keyless sign-blob (Fulcio OIDC)
     steps:
       - name: Clone Git Repository
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
       - name: Download Artifacts
