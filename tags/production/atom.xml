@@ -1,0 +1,279 @@
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en"><generator uri="https://gohugo.io/" version="0.163.3">Hugo</generator><title type="html">Production on Jsonnet-as-a-Service</title><link href="https://jaas.projects.metio.wtf/tags/production/" rel="alternate" type="text/html" title="html"/><link href="https://jaas.projects.metio.wtf/tags/production/index.xml" rel="alternate" type="application/rss+xml" title="rss"/><link href="https://jaas.projects.metio.wtf/tags/production/atom.xml" rel="self" type="application/atom+xml" title="atom"/><updated>2026-07-24T07:17:17+00:00</updated><author><name>metio.wtf</name></author><id>https://jaas.projects.metio.wtf/tags/production/</id><entry><title type="html">Production</title><link href="https://jaas.projects.metio.wtf/running/production/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/running/scale-and-capacity/?utm_source=atom_feed" rel="related" type="text/html" title="Scale and capacity"/><link href="https://jaas.projects.metio.wtf/reference/verifying-releases/?utm_source=atom_feed" rel="related" type="text/html" title="Verifying releases"/><link href="https://jaas.projects.metio.wtf/observability/alerting/?utm_source=atom_feed" rel="related" type="text/html" title="Alerting"/><link href="https://jaas.projects.metio.wtf/running/disaster-recovery/?utm_source=atom_feed" rel="related" type="text/html" title="Backup and disaster recovery"/><link href="https://jaas.projects.metio.wtf/reference/configuration/?utm_source=atom_feed" rel="related" type="text/html" title="Configuration reference"/><id>https://jaas.projects.metio.wtf/running/production/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-26T15:54:29+02:00</updated><content type="html"><![CDATA[<blockquote>A decision-oriented checklist for hardening a JaaS operator install before serving production traffic.</blockquote><p>The chart&rsquo;s defaults are safe for an initial install but not optimised for
+sustained production workloads. Work through these decisions before exposing JaaS
+to real traffic. Each links to the detailed guide.</p>
+<h2 id="1-pick-a-storage-backend">1. Pick a storage backend</h2>
+<p>The single largest decision. Artifacts must survive pod restarts and, for HA,
+be readable by every replica simultaneously.</p>
+<table>
+	<thead>
+			<tr>
+					<th>Backend</th>
+					<th>Persistence</th>
+					<th>Multi-replica HA</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><code>local</code> + emptyDir (chart default)</td>
+					<td>No</td>
+					<td>No</td>
+			</tr>
+			<tr>
+					<td><code>local</code> + RWO PVC</td>
+					<td>Yes</td>
+					<td>No — single replica only</td>
+			</tr>
+			<tr>
+					<td><code>local</code> + RWX PVC</td>
+					<td>Yes</td>
+					<td>Yes — requires RWX storage class</td>
+			</tr>
+			<tr>
+					<td><code>s3</code></td>
+					<td>Yes</td>
+					<td>Yes — leader writes, all replicas read</td>
+			</tr>
+	</tbody>
+</table>
+<p>For cloud installs, <code>s3</code> (AWS S3, MinIO, Ceph RGW, GCS S3-compat API) is the
+recommended backend. Pair it with leader election (on by default) so only the
+lease-holder writes. For on-prem, a PVC with the access mode your storage class
+supports is the practical path.</p>
+<p>Full configuration options and artifact retention are covered in
+<a href="/operator/storage-and-ha/">Storage and HA</a>
+ — including the garbage-collection grace
+period (<code>--artifact-gc-grace</code>) that keeps a just-superseded revision fetchable for
+a short window, so a consumer that read <code>status.artifact</code> moments before pruning
+doesn&rsquo;t 404 on the revision it pinned.</p>
+<p>Minimal S3 values (IRSA on EKS):</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">operator</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">serviceAccount</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">annotations</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">eks.amazonaws.com/role-arn</span><span class="p">:</span><span class="w"> </span><span class="l">arn:aws:iam::ACCOUNT:role/jaas-operator</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">storage</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">backend</span><span class="p">:</span><span class="w"> </span><span class="l">s3</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">s3</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">endpoint</span><span class="p">:</span><span class="w"> </span><span class="l">s3.amazonaws.com</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">bucket</span><span class="p">:</span><span class="w"> </span><span class="l">my-jaas-artifacts</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">prefix</span><span class="p">:</span><span class="w"> </span><span class="l">prod</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">region</span><span class="p">:</span><span class="w"> </span><span class="l">eu-west-1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">useSSL</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="c"># Leave accessKey/secretKey empty — IAM role via SA annotation.</span><span class="w">
+</span></span></span></code></pre></div><h2 id="2-size-cpu-and-memory">2. Size CPU and memory</h2>
+<p>The chart defaults (64 MiB memory, 32m CPU) are fine for a quickstart but will
+OOM under sustained snippet rendering. Each in-flight evaluation is essentially
+uncancellable mid-flight — go-jsonnet has no mid-evaluation cancellation — so
+CPU and memory limits must accommodate the worst-case concurrent eval load.</p>
+<p>Set <code>--max-artifact-bytes</code> to cap the rendered output size per snippet so a
+runaway template can&rsquo;t allocate unbounded memory before the timeout fires.</p>
+<p>See <a href="/running/scale-and-capacity/">Scale and capacity</a>
+ for the resident-memory
+reasoning behind a request/limit, and <a href="/rendering/evaluation-and-security/">Evaluation and security</a>
+
+for the concurrent-eval cap, timeout defaults, and how to tune them.</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">resources</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">memory</span><span class="p">:</span><span class="w"> </span><span class="l">256Mi</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">cpu</span><span class="p">:</span><span class="w"> </span><span class="l">100m</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">operator</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">storage</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">maxArtifactBytes</span><span class="p">:</span><span class="w"> </span><span class="m">16777216</span><span class="w">  </span><span class="c"># 16 MiB; fails with ReasonArtifactTooLarge</span><span class="w">
+</span></span></span></code></pre></div><h2 id="3-enable-observability">3. Enable observability</h2>
+<p>The chart ships a metrics endpoint (on by default at port <code>8083</code>), an opt-in
+<code>ServiceMonitor</code>, and an opt-in <code>PrometheusRule</code> with a starter alert set. Turn
+them on and wire the Prometheus selector labels before deploying:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">operator</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">metrics</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">serviceMonitor</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">labels</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">release</span><span class="p">:</span><span class="w"> </span><span class="l">kube-prom         </span><span class="w"> </span><span class="c"># match your Prometheus&#39;s serviceMonitorSelector</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">prometheusRule</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">labels</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">release</span><span class="p">:</span><span class="w"> </span><span class="l">kube-prom         </span><span class="w"> </span><span class="c"># match your Prometheus&#39;s ruleSelector</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">extraAlertLabels</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">team</span><span class="p">:</span><span class="w"> </span><span class="l">platform             </span><span class="w"> </span><span class="c"># Alertmanager routing label</span><span class="w">
+</span></span></span></code></pre></div><p><code>serviceMonitor.labels</code>, <code>prometheusRule.labels</code>, and
+<code>prometheusRule.extraAlertLabels</code> are three distinct label knobs:
+<code>serviceMonitor.labels</code> and <code>prometheusRule.labels</code> control which Prometheus
+instance picks up each CRD object; <code>extraAlertLabels</code> adds routing labels to
+individual alerts (for Alertmanager), not to the rule object.</p>
+<p>The shipped alert set and all custom JaaS metrics are documented in
+<a href="/observability/">Observability</a>
+.</p>
+<h2 id="admission-webhook-tls">4. Enable the admission webhook</h2>
+<p>The webhook rejects spec invariant violations — ext-var key collisions, library
+alias shadowing, import cycles — at <code>kubectl apply</code> time instead of at
+reconcile time. Pick a cert mode:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="c"># Option A: cert-manager (recommended when cert-manager is installed)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">operator</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">webhook</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">certMode</span><span class="p">:</span><span class="w"> </span><span class="l">cert-manager</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">certManager</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">issuerRef</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">ClusterIssuer</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">letsencrypt-prod</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c"># Option B: self-signed (no cert-manager required)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">operator</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">webhook</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">certMode</span><span class="p">:</span><span class="w"> </span><span class="l">self-signed</span><span class="w">
+</span></span></span></code></pre></div><p>The default <code>failurePolicy: Fail</code> blocks every <code>JsonnetSnippet</code> create/update
+cluster-wide when the webhook is unavailable. During a rolling update the window
+is typically under five seconds (leader election releases the lease on
+SIGTERM). If your GitOps tooling cannot tolerate that, scope the webhook via
+<code>operator.webhook.namespaceSelector</code> or <code>operator.webhook.objectSelector</code>, or
+switch to <code>failurePolicy: Ignore</code> and rely on the reconciler-side fallback.</p>
+<p>Full cert provisioning and failurePolicy trade-offs are covered in
+<a href="/security/admission-webhook/">Admission webhook</a>
+.</p>
+<h2 id="5-lock-down-tenant-rbac">5. Lock down tenant RBAC</h2>
+<p>Every <code>JsonnetSnippet</code> runs impersonated as its <code>spec.serviceAccountName</code> (or
+the <code>--default-service-account</code> fallback). The operator&rsquo;s own ServiceAccount
+only needs <code>serviceaccounts/token: create</code> — every other API call (library
+reads, source fetches, <code>ExternalArtifact</code> writes) is done under the tenant SA&rsquo;s
+RBAC, so a compromised snippet can only reach what its SA is allowed to.</p>
+<p>Minimum per-tenant <code>Role</code>:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l">rbac.authorization.k8s.io/v1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">Role</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">metadata</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">&lt;tenant-namespace&gt;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">jaas-tenant</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">rules</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span>- <span class="nt">apiGroups</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="l">source.toolkit.fluxcd.io]</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">resources</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="l">externalartifacts]</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">verbs</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="l">get, create, update, patch]</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span>- <span class="nt">apiGroups</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="l">jaas.metio.wtf]</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">resources</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="l">jsonnetlibraries]</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">verbs</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="l">get, list]</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span>- <span class="nt">apiGroups</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="l">source.toolkit.fluxcd.io]</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">resources</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="l">gitrepositories, ocirepositories, buckets, externalartifacts]</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">verbs</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="l">get]</span><span class="w">
+</span></span></span></code></pre></div><p>When <code>operator.watchNamespaces</code> is set, the chart automatically switches from a
+ClusterRoleBinding to per-namespace RoleBindings. Full RBAC layout and
+NetworkPolicy notes for <code>spec.sourceRef</code> fetches are in
+<a href="/security/tenancy-and-rbac/">Tenancy and RBAC</a>
+.</p>
+<h2 id="6-plan-for-upgrades-and-disaster-recovery">6. Plan for upgrades and disaster recovery</h2>
+<p>Calendar-based releases run every Monday. Chart upgrades are <code>helm upgrade --install</code>; the chart ships CRDs under <code>templates/</code> so schema changes apply
+automatically. Read
+<a href="/reference/upgrading/">Upgrading</a>
+ before
+each upgrade — releases that change immutable <code>spec.selector.matchLabels</code> fields
+require a manual <code>kubectl delete deploy/jaas</code> first.</p>
+<p>Three runbooks to bookmark before go-live:</p>
+<ul>
+<li><a href="/runbooks/storage-recovery/">storage-recovery</a>
+ — PVC loss, S3 outages,
+disk-full, downstream 404s.</li>
+<li><a href="/runbooks/rbacdenied/">rbacdenied</a>
+ — tenant SA missing a verb, ExternalArtifact
+write forbidden, Flux source CRD not installed.</li>
+<li><a href="/runbooks/operator-watch-silent/">operator-watch-silent</a>
+ — the one failure
+mode JaaS cannot surface in snippet status (operator&rsquo;s own ClusterRole missing
+a verb so controller-runtime&rsquo;s informer silently fails).</li>
+</ul>
+<h2 id="a-complete-production-valuesyaml">A complete production values.yaml</h2>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">replicas</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">min</span><span class="p">:</span><span class="w"> </span><span class="m">2</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">max</span><span class="p">:</span><span class="w"> </span><span class="m">5</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">resources</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">memory</span><span class="p">:</span><span class="w"> </span><span class="l">256Mi</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">cpu</span><span class="p">:</span><span class="w"> </span><span class="l">100m</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">image</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">pullPolicy</span><span class="p">:</span><span class="w"> </span><span class="l">IfNotPresent</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">namespace</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">create</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">podSecurity</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">enforce</span><span class="p">:</span><span class="w"> </span><span class="l">restricted</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">operator</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">defaultServiceAccount</span><span class="p">:</span><span class="w"> </span><span class="s2">&#34;&#34;</span><span class="w">   </span><span class="c"># force per-snippet spec.serviceAccountName</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">serviceAccount</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">create</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">annotations</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">eks.amazonaws.com/role-arn</span><span class="p">:</span><span class="w"> </span><span class="l">arn:aws:iam::ACCOUNT:role/jaas-operator </span><span class="w"> </span><span class="c"># TODO</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">storage</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">backend</span><span class="p">:</span><span class="w"> </span><span class="l">s3</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">s3</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">endpoint</span><span class="p">:</span><span class="w"> </span><span class="l">s3.amazonaws.com </span><span class="w"> </span><span class="c"># TODO</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">bucket</span><span class="p">:</span><span class="w"> </span><span class="l">my-jaas-artifacts  </span><span class="w"> </span><span class="c"># TODO</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">prefix</span><span class="p">:</span><span class="w"> </span><span class="l">prod</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">region</span><span class="p">:</span><span class="w"> </span><span class="l">eu-west-1          </span><span class="w"> </span><span class="c"># TODO</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">maxArtifactBytes</span><span class="p">:</span><span class="w"> </span><span class="m">16777216</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">metrics</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">serviceMonitor</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">labels</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">release</span><span class="p">:</span><span class="w"> </span><span class="l">kube-prom       </span><span class="w"> </span><span class="c"># TODO</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">prometheusRule</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">labels</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">release</span><span class="p">:</span><span class="w"> </span><span class="l">kube-prom       </span><span class="w"> </span><span class="c"># TODO</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">extraAlertLabels</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">team</span><span class="p">:</span><span class="w"> </span><span class="l">platform           </span><span class="w"> </span><span class="c"># TODO</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">webhook</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">certMode</span><span class="p">:</span><span class="w"> </span><span class="l">cert-manager</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">certManager</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">issuerRef</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">ClusterIssuer</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">letsencrypt-prod   </span><span class="w"> </span><span class="c"># TODO</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">leaderElection</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">cleanupOnDelete</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
+</span></span></span></code></pre></div><p>Apply with:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">helm upgrade --install jaas oci://ghcr.io/metio/helm-charts/jaas <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --namespace jaas-system --create-namespace <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --values production-values.yaml <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --wait --timeout 5m
+</span></span></code></pre></div><h2 id="next-steps">Next steps</h2>
+<ul>
+<li><a href="/running/operations/">Operations</a>
+ — day-two tasks: rolling restarts,
+storage sweeping, finalizer teardown.</li>
+<li><a href="/running/scale-and-capacity/">Scale and capacity</a>
+ — replica sizing, the
+HA model, throughput knobs, and the saturation signals to watch.</li>
+<li><a href="/reference/configuration/">Configuration reference</a>
+ — every flag and default.</li>
+<li><a href="/runbooks/">Runbooks</a>
+ — incident response.</li>
+</ul>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/installation" term="installation" label="installation"/><category scheme="https://jaas.projects.metio.wtf/tags/production" term="production" label="production"/><category scheme="https://jaas.projects.metio.wtf/tags/ha" term="ha" label="ha"/><category scheme="https://jaas.projects.metio.wtf/tags/security" term="security" label="security"/><category scheme="https://jaas.projects.metio.wtf/tags/observability" term="observability" label="observability"/></entry><entry><title type="html">Run in production</title><link href="https://jaas.projects.metio.wtf/running/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/running/operations/?utm_source=atom_feed" rel="related" type="text/html" title="Operations"/><link href="https://jaas.projects.metio.wtf/running/production/?utm_source=atom_feed" rel="related" type="text/html" title="Production"/><id>https://jaas.projects.metio.wtf/running/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-26T15:54:29+02:00</updated><content type="html"><![CDATA[<blockquote>Operate JaaS day to day — production hardening, routine operations, scaling, and backup and disaster recovery.</blockquote><p>Once JaaS is installed, these pages cover keeping it healthy in production: the
+posture to set before going live, what to watch day to day, how to size it, and
+how to recover its state.</p>
+<ul>
+<li><strong><a href="/running/production/">Production</a>
+</strong> — the security and availability posture to
+set before going live.</li>
+<li><strong><a href="/running/operations/">Operations</a>
+</strong> — day-two running: what to watch and
+routine tasks.</li>
+<li><strong><a href="/running/scale-and-capacity/">Scale and capacity</a>
+</strong> — sizing, throughput, and
+resource tuning.</li>
+<li><strong><a href="/running/disaster-recovery/">Backup and disaster recovery</a>
+</strong> — what to back up
+and how to recover.</li>
+</ul>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/production" term="production" label="production"/><category scheme="https://jaas.projects.metio.wtf/tags/operations" term="operations" label="operations"/><category scheme="https://jaas.projects.metio.wtf/tags/scaling" term="scaling" label="scaling"/></entry></feed>

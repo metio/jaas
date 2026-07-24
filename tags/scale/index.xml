@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Scale on Jsonnet-as-a-Service</title><link>https://jaas.projects.metio.wtf/tags/scale/</link><description>Recent content in Scale on Jsonnet-as-a-Service</description><generator>Hugo</generator><language>en</language><atom:link href="https://jaas.projects.metio.wtf/tags/scale/index.xml" rel="self" type="application/rss+xml"/><item><title>Scale and capacity</title><link>https://jaas.projects.metio.wtf/running/scale-and-capacity/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/running/scale-and-capacity/</guid><description>&lt;p&gt;Size and tune JaaS for the snippet workload you run. This page covers how a single
+replica&amp;rsquo;s CPU and memory scale with evaluation load, what adding replicas does (and
+doesn&amp;rsquo;t) buy you, the knobs that govern throughput, and the metrics that tell you
+when you&amp;rsquo;re at capacity.&lt;/p&gt;
+&lt;h2 id="sizing-a-replica"&gt;Sizing a replica&lt;/h2&gt;
+&lt;p&gt;A replica&amp;rsquo;s resource use is driven by two things: &lt;strong&gt;Jsonnet evaluation&lt;/strong&gt; (CPU) and
+the &lt;strong&gt;per-fetch byte budget plus eval working set&lt;/strong&gt; (memory).&lt;/p&gt;</description></item></channel></rss>

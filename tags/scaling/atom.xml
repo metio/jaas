@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en"><generator uri="https://gohugo.io/" version="0.163.3">Hugo</generator><title type="html">Scaling on Jsonnet-as-a-Service</title><link href="https://jaas.projects.metio.wtf/tags/scaling/" rel="alternate" type="text/html" title="html"/><link href="https://jaas.projects.metio.wtf/tags/scaling/index.xml" rel="alternate" type="application/rss+xml" title="rss"/><link href="https://jaas.projects.metio.wtf/tags/scaling/atom.xml" rel="self" type="application/atom+xml" title="atom"/><updated>2026-07-24T07:17:17+00:00</updated><author><name>metio.wtf</name></author><id>https://jaas.projects.metio.wtf/tags/scaling/</id><entry><title type="html">Run in production</title><link href="https://jaas.projects.metio.wtf/running/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/running/operations/?utm_source=atom_feed" rel="related" type="text/html" title="Operations"/><link href="https://jaas.projects.metio.wtf/running/production/?utm_source=atom_feed" rel="related" type="text/html" title="Production"/><id>https://jaas.projects.metio.wtf/running/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-26T15:54:29+02:00</updated><content type="html"><![CDATA[<blockquote>Operate JaaS day to day — production hardening, routine operations, scaling, and backup and disaster recovery.</blockquote><p>Once JaaS is installed, these pages cover keeping it healthy in production: the
+posture to set before going live, what to watch day to day, how to size it, and
+how to recover its state.</p>
+<ul>
+<li><strong><a href="/running/production/">Production</a>
+</strong> — the security and availability posture to
+set before going live.</li>
+<li><strong><a href="/running/operations/">Operations</a>
+</strong> — day-two running: what to watch and
+routine tasks.</li>
+<li><strong><a href="/running/scale-and-capacity/">Scale and capacity</a>
+</strong> — sizing, throughput, and
+resource tuning.</li>
+<li><strong><a href="/running/disaster-recovery/">Backup and disaster recovery</a>
+</strong> — what to back up
+and how to recover.</li>
+</ul>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/production" term="production" label="production"/><category scheme="https://jaas.projects.metio.wtf/tags/operations" term="operations" label="operations"/><category scheme="https://jaas.projects.metio.wtf/tags/scaling" term="scaling" label="scaling"/></entry></feed>

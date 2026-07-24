@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en"><generator uri="https://gohugo.io/" version="0.163.3">Hugo</generator><title type="html">Jsonnet-Cli on Jsonnet-as-a-Service</title><link href="https://jaas.projects.metio.wtf/tags/jsonnet-cli/" rel="alternate" type="text/html" title="html"/><link href="https://jaas.projects.metio.wtf/tags/jsonnet-cli/index.xml" rel="alternate" type="application/rss+xml" title="rss"/><link href="https://jaas.projects.metio.wtf/tags/jsonnet-cli/atom.xml" rel="self" type="application/atom+xml" title="atom"/><updated>2026-07-24T07:17:17+00:00</updated><author><name>metio.wtf</name></author><id>https://jaas.projects.metio.wtf/tags/jsonnet-cli/</id><entry><title type="html">JaaS vs the jsonnet CLI</title><link href="https://jaas.projects.metio.wtf/comparisons/jsonnet-cli/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/comparisons/grafana-operator/?utm_source=atom_feed" rel="related" type="text/html" title="JaaS and grafana-operator"/><link href="https://jaas.projects.metio.wtf/comparisons/tanka/?utm_source=atom_feed" rel="related" type="text/html" title="JaaS vs Tanka"/><link href="https://jaas.projects.metio.wtf/comparisons/jsonnet-controller/?utm_source=atom_feed" rel="related" type="text/html" title="JaaS vs jsonnet-controller"/><link href="https://jaas.projects.metio.wtf/comparisons/flux-operator/?utm_source=atom_feed" rel="related" type="text/html" title="vs Flux Operator ResourceSet"/><id>https://jaas.projects.metio.wtf/comparisons/jsonnet-cli/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-26T15:54:29+02:00</updated><content type="html"><![CDATA[<blockquote>What the JaaS service adds over running the jsonnet and jb command-line tools yourself.</blockquote><p>The <a href="https://jsonnet.org/"><code>jsonnet</code></a>
+ command-line tool — usually paired with
+<a href="https://github.com/jsonnet-bundler/jsonnet-bundler"><code>jsonnet-bundler</code></a>
+ (<code>jb</code>)
+for vendoring libraries — evaluates Jsonnet to JSON on your machine. JaaS runs
+the <strong>same go-jsonnet core</strong> as a service. This is not a question of which
+implementation is correct; it is a question of <em>where the evaluation runs and
+what surrounds it</em>.</p>
+<h2 id="what-the-service-adds">What the service adds</h2>
+<p>Over a local binary invocation, JaaS adds:</p>
+<ul>
+<li><strong>An HTTP endpoint other systems can call.</strong> <code>GET /jsonnet/&lt;snippet&gt;</code> returns
+the evaluated JSON, with Top Level Arguments supplied as query parameters and
+external variables configured on the service. Anything that speaks HTTP can
+request a render without installing the toolchain or the vendor tree. See the
+<a href="/rendering/rendering-endpoint/">rendering endpoint</a>
+ usage page.</li>
+<li><strong>An operator that turns a snippet into a revisioned Flux artifact.</strong> With
+<code>--enable-flux-integration</code>, a <code>JsonnetSnippet</code> is evaluated continuously and
+published as a content-addressed <code>ExternalArtifact</code> that Flux consumers apply
+in-cluster — re-rendered automatically when its source changes. See
+<a href="/operator/operator-mode/">operator mode</a>
+.</li>
+<li><strong>Import resolution that matches <code>jsonnet -J vendor</code>.</strong> JaaS resolves imports
+with the same semantics as the CLI&rsquo;s JPATH/vendor search, so the JSON a
+snippet produces under the service matches what the CLI produces locally.</li>
+<li><strong>Evaluation caps.</strong> <code>--evaluation-timeout</code> bounds wall-clock time per render,
+<code>--max-stack</code> bounds call-stack depth, and <code>--max-concurrent-evals</code> bounds how
+many evaluations run at once — so one expensive snippet cannot exhaust a
+shared server. The CLI imposes none of these on its own.</li>
+<li><strong>Read-scope sandboxing.</strong> Snippet-name resolution goes through Go&rsquo;s
+<code>os.Root</code>, which rejects <code>..</code> traversal and symlinks that escape the
+configured snippet directory, so a crafted request cannot read arbitrary
+files. The <a href="/rendering/evaluation-and-security/">evaluation and security</a>
+ page
+details the caps and the boundaries.</li>
+</ul>
+<h2 id="when-the-plain-cli-is-the-right-tool">When the plain CLI is the right tool</h2>
+<p>The CLI is the better choice for work that is local and one-off:</p>
+<ul>
+<li><strong>One-off local renders</strong> — inspecting what a snippet produces, debugging a
+library, iterating on a dashboard before committing it.</li>
+<li><strong>CI scripts</strong> — a build step that renders Jsonnet to JSON and hands it to
+another tool, where standing up a service would add a moving part for no gain.</li>
+<li><strong>Anywhere a service is unwanted</strong> — no HTTP endpoint to call, no cluster, no
+artifact to consume.</li>
+</ul>
+<p>Because JaaS runs the same go-jsonnet core, these are not mutually exclusive:
+you can keep <code>jsonnet</code> and <code>jb</code> on your workstation and in CI, and run JaaS
+in-cluster for the server-side and GitOps paths, with both producing the same
+JSON for the same input. The <a href="/get-started/local-rendering/">local rendering</a>
+
+tutorial shows JaaS used purely as a renderer, which keeps the local and
+in-cluster output aligned.</p>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/comparison" term="comparison" label="comparison"/><category scheme="https://jaas.projects.metio.wtf/tags/jsonnet-cli" term="jsonnet-cli" label="jsonnet-cli"/></entry></feed>

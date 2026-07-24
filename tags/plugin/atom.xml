@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en"><generator uri="https://gohugo.io/" version="0.163.3">Hugo</generator><title type="html">Plugin on Jsonnet-as-a-Service</title><link href="https://jaas.projects.metio.wtf/tags/plugin/" rel="alternate" type="text/html" title="html"/><link href="https://jaas.projects.metio.wtf/tags/plugin/index.xml" rel="alternate" type="application/rss+xml" title="rss"/><link href="https://jaas.projects.metio.wtf/tags/plugin/atom.xml" rel="self" type="application/atom+xml" title="atom"/><updated>2026-07-24T07:17:17+00:00</updated><author><name>metio.wtf</name></author><id>https://jaas.projects.metio.wtf/tags/plugin/</id><entry><title type="html">Claude Code skill</title><link href="https://jaas.projects.metio.wtf/integrations/claude-code/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/contributing/building/?utm_source=atom_feed" rel="related" type="text/html" title="Building and Testing"/><link href="https://jaas.projects.metio.wtf/contributing/ci-and-release/?utm_source=atom_feed" rel="related" type="text/html" title="CI and Releases"/><link href="https://jaas.projects.metio.wtf/integrations/mcp-server/?utm_source=atom_feed" rel="related" type="text/html" title="MCP server"/><id>https://jaas.projects.metio.wtf/integrations/claude-code/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-26T15:54:29+02:00</updated><content type="html"><![CDATA[<blockquote>Install the JaaS Claude Code skill so Claude authors and operates JsonnetSnippet and JsonnetLibrary resources with accurate, current field knowledge.</blockquote><p>Install the JaaS skill into <a href="https://claude.com/claude-code">Claude Code</a>
+ and
+Claude gains working knowledge of JaaS: it authors and edits <code>JsonnetSnippet</code> and
+<code>JsonnetLibrary</code> resources, wires snippets to inline files or a Flux source
+(<code>GitRepository</code> / <code>OCIRepository</code> / <code>Bucket</code> / <code>ExternalArtifact</code>), chains one
+snippet&rsquo;s output into another, pairs JaaS with the grafana-operator or
+stageset-controller, configures per-snippet ServiceAccount impersonation, and
+calls the HTTP rendering endpoint with top-level arguments and external variables.
+The skill points Claude at the live documentation and a compact cheat-sheet, so it
+reaches for current fields and defaults instead of guessing.</p>
+<p>The skill ships in this repository under <code>skills/jaas/</code> (<code>SKILL.md</code> plus
+<code>references/reference.md</code>), packaged as a Claude Code plugin via the manifests in
+<code>.claude-plugin/</code>.</p>
+<h2 id="install">Install</h2>
+<p>Add this repository as a plugin marketplace, then install the plugin:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-text" data-lang="text"><span class="line"><span class="cl">/plugin marketplace add metio/jaas
+</span></span><span class="line"><span class="cl">/plugin install jaas@jaas
+</span></span></code></pre></div><p>The first command registers the <code>jaas</code> marketplace from
+<a href="https://github.com/metio/jaas">github.com/metio/jaas</a>
+; the second installs the
+<code>jaas</code> plugin from it. Claude activates the skill automatically whenever a
+repository holds <code>JsonnetSnippet</code> or <code>JsonnetLibrary</code> manifests or JaaS is
+otherwise in play.</p>
+<h2 id="what-it-grants-claude">What it grants Claude</h2>
+<p>The skill&rsquo;s only tools are <code>kubectl</code> and <code>curl</code>, so Claude can inspect snippets
+and call the renderer but takes no broader action. It treats
+<a href="https://jaas.projects.metio.wtf/">the documentation site</a>
+ as the source of truth
+— including the machine-readable <code>/llms.txt</code> index and the concatenated
+<code>/llms-full.txt</code> — and falls back to the bundled cheat-sheet for quick field
+lookups. The guidance covers the authoring gotchas that are easy to get wrong:
+exactly one of <code>spec.files</code> or <code>spec.sourceRef</code>, the library alias field being
+<code>importPath</code> (not <code>as</code>), single-layer <code>OCIRepository</code> artifacts, and the
+ServiceAccount impersonation RBAC each snippet needs.</p>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/contributing" term="contributing" label="contributing"/><category scheme="https://jaas.projects.metio.wtf/tags/claude" term="claude" label="claude"/><category scheme="https://jaas.projects.metio.wtf/tags/skill" term="skill" label="skill"/><category scheme="https://jaas.projects.metio.wtf/tags/plugin" term="plugin" label="plugin"/></entry></feed>

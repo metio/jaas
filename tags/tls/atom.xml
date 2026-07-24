@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en"><generator uri="https://gohugo.io/" version="0.163.3">Hugo</generator><title type="html">Tls on Jsonnet-as-a-Service</title><link href="https://jaas.projects.metio.wtf/tags/tls/" rel="alternate" type="text/html" title="html"/><link href="https://jaas.projects.metio.wtf/tags/tls/index.xml" rel="alternate" type="application/rss+xml" title="rss"/><link href="https://jaas.projects.metio.wtf/tags/tls/atom.xml" rel="self" type="application/atom+xml" title="atom"/><updated>2026-07-24T07:17:17+00:00</updated><author><name>metio.wtf</name></author><id>https://jaas.projects.metio.wtf/tags/tls/</id><entry><title type="html">Admission webhook</title><link href="https://jaas.projects.metio.wtf/security/admission-webhook/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/observability/alerting/?utm_source=atom_feed" rel="related" type="text/html" title="Alerting"/><link href="https://jaas.projects.metio.wtf/operator/creating-sources/?utm_source=atom_feed" rel="related" type="text/html" title="Creating source artifacts"/><link href="https://jaas.projects.metio.wtf/observability/dashboard/?utm_source=atom_feed" rel="related" type="text/html" title="Dashboard"/><link href="https://jaas.projects.metio.wtf/api/externalartifact/?utm_source=atom_feed" rel="related" type="text/html" title="ExternalArtifact output contract"/><link href="https://jaas.projects.metio.wtf/rendering/jsonnet-libraries/?utm_source=atom_feed" rel="related" type="text/html" title="Jsonnet libraries"/><id>https://jaas.projects.metio.wtf/security/admission-webhook/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-26T15:54:29+02:00</updated><content type="html"><![CDATA[<blockquote>The opt-in validating webhook for JsonnetSnippet, what it rejects, the failure-policy trade-off, and the two TLS provisioning modes.</blockquote><p>JaaS ships an optional validating admission webhook for <code>JsonnetSnippet</code>. It is
+independent of, but layered on top of, <a href="/operator/operator-mode/">operator mode</a>
+.</p>
+<h2 id="enabling-it">Enabling it</h2>
+<p>Set <code>--enable-webhook</code> to boot the webhook server. It requires
+<code>--enable-flux-integration</code> (the webhook is wired only inside the operator boot
+path; enabling it alone is rejected as a flag error) and TLS material — <code>tls.crt</code>
+and <code>tls.key</code> — under <code>--webhook-cert-dir</code> (default
+<code>/tmp/k8s-webhook-server/serving-certs</code>). The server binds <code>--webhook-port</code>
+(default <code>9443</code>).</p>
+<h2 id="what-it-validates">What it validates</h2>
+<p>The webhook rejects a <code>JsonnetSnippet</code> whose <code>spec.externalVariables</code> declares a
+key that collides with an operator-level <code>--ext-var</code>. An operator-supplied
+external variable always wins, so a snippet that tries to redeclare one would
+render against a value it does not control; the webhook refuses the snippet at
+admission time instead.</p>
+<p>The reconciler enforces the same invariant as a fallback, so a snippet that
+bypasses admission — for example when the webhook is unreachable under a
+<code>failurePolicy: Ignore</code> — still fails at reconcile rather than rendering with the
+wrong value.</p>
+<h2 id="failure-policy-trade-off">Failure policy trade-off</h2>
+<p>The Helm chart defaults <code>operator.webhook.failurePolicy: Fail</code>. With <code>Fail</code>, a
+webhook outage blocks every <code>JsonnetSnippet</code> create and update cluster-wide until
+the operator is back. During a rolling update that window is typically under five
+seconds, because leader election releases the lease on context-cancel and the next
+replica takes over immediately.</p>
+<p>If your CI or GitOps tooling cannot tolerate even that window, narrow or relax the
+webhook:</p>
+<ul>
+<li><code>operator.webhook.objectSelector</code> — match only snippets carrying a label, e.g.
+require <code>jaas.metio.wtf/managed: &quot;true&quot;</code>.</li>
+<li><code>operator.webhook.namespaceSelector</code> — opt in per namespace.</li>
+<li><code>failurePolicy: Ignore</code> — let create/update through when the webhook is
+unreachable, relying on the reconciler-side fallback to catch the colliding-key
+case.</li>
+</ul>
+<h2 id="tls-provisioning">TLS provisioning</h2>
+<p><code>--webhook-cert-mode</code> selects how the serving certificate is provisioned.</p>
+<h3 id="cert-manager-default">cert-manager (default)</h3>
+<p><code>--webhook-cert-mode=cert-manager</code> expects external tooling to provision
+<code>tls.crt</code>/<code>tls.key</code>. The Helm chart renders a <code>cert-manager.io/v1</code> Certificate and
+mounts the issued Secret into the pod at <code>--webhook-cert-dir</code>. cert-manager
+handles renewal; the webhook server hot-reloads TLS when the mounted files change.</p>
+<h3 id="self-signed">self-signed</h3>
+<p><code>--webhook-cert-mode=self-signed</code> makes the operator generate a CA and serving
+certificate in-pod, write them to <code>--webhook-cert-dir</code>, and patch the named
+<code>ValidatingWebhookConfiguration</code>&rsquo;s <code>caBundle</code> so the apiserver trusts the chain. A
+background renewer regenerates and re-writes the files before expiry, and the
+webhook server hot-reloads without a restart. The relevant flags:</p>
+<table>
+	<thead>
+			<tr>
+					<th>Flag</th>
+					<th>Purpose</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><code>--webhook-validating-config-name</code></td>
+					<td>Name of the <code>ValidatingWebhookConfiguration</code> whose <code>caBundle</code> is patched. Required in this mode.</td>
+			</tr>
+			<tr>
+					<td><code>--webhook-service-name</code></td>
+					<td>Service name the webhook is reachable through; used to build the certificate SANs (default <code>jaas-webhook</code>).</td>
+			</tr>
+			<tr>
+					<td><code>--webhook-service-namespace</code></td>
+					<td>Namespace the webhook Service lives in. Empty falls back to <code>--leader-election-namespace</code>, then to the in-cluster downward API.</td>
+			</tr>
+			<tr>
+					<td><code>--webhook-cert-validity</code></td>
+					<td>Validity of the self-signed serving certificate (default <code>8760h</code>, one year).</td>
+			</tr>
+			<tr>
+					<td><code>--webhook-port</code></td>
+					<td>Port the webhook server binds to (default <code>9443</code>).</td>
+			</tr>
+	</tbody>
+</table>
+<p>In self-signed mode the operator needs <code>get</code>/<code>update</code> on the named
+<code>ValidatingWebhookConfiguration</code>. Multiple replicas bootstrapping at once during a
+rolling update converge on a combined <code>caBundle</code> rather than clobbering each
+other, so each replica&rsquo;s CA stays trusted across the rollout.</p>
+<p>The full flag list with defaults is on the
+<a href="/reference/configuration/">configuration page</a>
+.</p>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/operator" term="operator" label="operator"/><category scheme="https://jaas.projects.metio.wtf/tags/webhook" term="webhook" label="webhook"/><category scheme="https://jaas.projects.metio.wtf/tags/tls" term="tls" label="tls"/></entry></feed>

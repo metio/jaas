@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Stageset on Jsonnet-as-a-Service</title><link>https://jaas.projects.metio.wtf/tags/stageset/</link><description>Recent content in Stageset on Jsonnet-as-a-Service</description><generator>Hugo</generator><language>en</language><atom:link href="https://jaas.projects.metio.wtf/tags/stageset/index.xml" rel="self" type="application/rss+xml"/><item><title>Deploying manifests with StageSet</title><link>https://jaas.projects.metio.wtf/guides/deploying-manifests/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/guides/deploying-manifests/</guid><description>&lt;p&gt;JaaS pairs with &lt;a href="https://stageset.projects.metio.wtf/"&gt;stageset-controller&lt;/a&gt;
+ to
+deploy Kubernetes manifests as code: you author the manifests in Jsonnet, the
+JaaS operator renders and publishes them as a Flux &lt;code&gt;ExternalArtifact&lt;/code&gt;, and
+stageset-controller rolls that artifact out across ordered, gated stages.&lt;/p&gt;
+&lt;p&gt;This tutorial covers the JaaS side — authoring the manifests with top-level
+arguments and external variables, and publishing the rendered JSON. For the
+rollout side (the &lt;code&gt;StageSet&lt;/code&gt; resource, its stages, gates, and actions), see the
+links at the end.&lt;/p&gt;</description></item></channel></rss>

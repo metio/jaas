@@ -1,0 +1,260 @@
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en"><generator uri="https://gohugo.io/" version="0.163.3">Hugo</generator><title type="html">Linkerd on Jsonnet-as-a-Service</title><link href="https://jaas.projects.metio.wtf/tags/linkerd/" rel="alternate" type="text/html" title="html"/><link href="https://jaas.projects.metio.wtf/tags/linkerd/index.xml" rel="alternate" type="application/rss+xml" title="rss"/><link href="https://jaas.projects.metio.wtf/tags/linkerd/atom.xml" rel="self" type="application/atom+xml" title="atom"/><updated>2026-07-24T07:17:17+00:00</updated><author><name>metio.wtf</name></author><id>https://jaas.projects.metio.wtf/tags/linkerd/</id><entry><title type="html">Service mesh</title><link href="https://jaas.projects.metio.wtf/security/service-mesh/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/security/network-policy/?utm_source=atom_feed" rel="related" type="text/html" title="Network policy"/><link href="https://jaas.projects.metio.wtf/rendering/evaluation-and-security/?utm_source=atom_feed" rel="related" type="text/html" title="Evaluation and security"/><link href="https://jaas.projects.metio.wtf/running/production/?utm_source=atom_feed" rel="related" type="text/html" title="Production"/><link href="https://jaas.projects.metio.wtf/reference/verifying-releases/?utm_source=atom_feed" rel="related" type="text/html" title="Verifying releases"/><id>https://jaas.projects.metio.wtf/security/service-mesh/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-26T15:54:29+02:00</updated><content type="html"><![CDATA[<blockquote>The opt-in service-mesh authorization the chart ships — Istio or Linkerd identity-based authorization and mTLS layered over networkPolicy, per-port allowed mesh identities, the non-mesh carve-outs for the apiserver and kubelet, and native passthrough.</blockquote><p>The Helm chart ships an opt-in service-mesh authorization layer for the JaaS pod.
+It is off by default and renders only when <code>serviceMesh.enabled</code> is <code>true</code>. Where
+the <a href="/security/network-policy/">network policy</a>
+ operates at L3/L4 — which pods and IP
+ranges may reach which ports — the service mesh operates at L7 with <strong>identity-based
+authorization</strong> and <strong>mTLS</strong>: it asks <em>which mesh identity</em> is calling, proven by a
+cryptographic workload certificate, not merely which IP the packet came from.</p>
+<p><code>serviceMesh</code> and <code>networkPolicy</code> are separate fields and compose additively. They
+solve different problems and are best enabled together: the network policy draws the
+L3/L4 perimeter, and the mesh authorizes meshed callers by SPIFFE identity on top of
+it. Enabling one does not require the other, and neither weakens the other.</p>
+<h2 id="opt-in-and-explicit-engine">Opt-in and explicit engine</h2>
+<p><code>serviceMesh.engine</code> selects which mesh dialect the chart renders. It is explicit,
+not auto-detected: a chart that sniffed the running mesh would render different
+objects on different clusters from identical values, which breaks GitOps determinism.
+You name the engine, and the rendered manifest is the same everywhere.</p>
+<table>
+	<thead>
+			<tr>
+					<th><code>engine</code></th>
+					<th>Renders</th>
+					<th>API</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><code>istio</code> (default)</td>
+					<td><code>AuthorizationPolicy</code> + (optional) <code>PeerAuthentication</code></td>
+					<td><code>security.istio.io/v1</code></td>
+			</tr>
+			<tr>
+					<td><code>linkerd</code></td>
+					<td><code>Server</code> + <code>AuthorizationPolicy</code> + <code>MeshTLSAuthentication</code></td>
+					<td><code>policy.linkerd.io</code></td>
+			</tr>
+	</tbody>
+</table>
+<p>The rendered objects are inert unless the named mesh is actually installed and the
+JaaS pod is injected into it. Enabling <code>serviceMesh</code> on an un-meshed pod renders the
+manifests but changes nothing about how traffic flows.</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">serviceMesh</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="l">istio</span><span class="w">
+</span></span></span></code></pre></div><h2 id="per-port-authorization">Per-port authorization</h2>
+<p>Each mesh-reachable port carries a <code>from</code> list naming the mesh identities allowed to
+call it. An <strong>empty <code>from</code> list leaves that port open</strong> to any meshed caller,
+mirroring <code>networkPolicy</code>&rsquo;s empty-<code>from</code>-is-open semantics; a non-empty list
+restricts the port to the listed identities.</p>
+<p>The mesh-reachable ports are the Jsonnet HTTP port, the storage port, and the metrics
+port:</p>
+<table>
+	<thead>
+			<tr>
+					<th>Port</th>
+					<th>Mode</th>
+					<th><code>from</code> restricts</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>Jsonnet HTTP (<code>ports.http</code>, <code>8080</code>)</td>
+					<td>always</td>
+					<td>Callers of the <code>/jsonnet</code> endpoint</td>
+			</tr>
+			<tr>
+					<td>Storage HTTP (<code>ports.storage</code>, <code>8082</code>)</td>
+					<td>operator</td>
+					<td>Flux consumers that dereference <code>ExternalArtifact</code> tarballs</td>
+			</tr>
+			<tr>
+					<td>Metrics (<code>ports.metrics</code>, <code>8083</code>)</td>
+					<td>operator + metrics</td>
+					<td>Prometheus scraping <code>/metrics</code></td>
+			</tr>
+	</tbody>
+</table>
+<p>A <code>from</code> entry is a source matcher with two fields:</p>
+<ul>
+<li><strong><code>principals</code></strong> — SPIFFE/mesh identities. On Istio these are
+<code>source.principals</code> (<code>cluster.local/ns/&lt;ns&gt;/sa/&lt;sa&gt;</code>). On Linkerd they map to
+<code>MeshTLSAuthentication</code> identities (<code>&lt;sa&gt;.&lt;ns&gt;.serviceaccount.identity.linkerd.cluster.local</code>,
+or <code>*</code>).</li>
+<li><strong><code>namespaces</code></strong> — source namespaces (Istio <code>source.namespaces</code>). <strong>Istio-only</strong> —
+Linkerd authenticates by workload identity, not by namespace, so this field is
+ignored under the <code>linkerd</code> engine.</li>
+</ul>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">serviceMesh</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="l">istio</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="c"># Restrict the storage port to the kustomize-controller&#39;s identity.</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">storage</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">from</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span>- <span class="nt">principals</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">          </span>- <span class="l">cluster.local/ns/flux-system/sa/kustomize-controller</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">          </span>- <span class="l">cluster.local/ns/flux-system/sa/helm-controller</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="c"># Scope metrics scraping to the monitoring namespace.</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">metrics</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">from</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span>- <span class="nt">namespaces</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">          </span>- <span class="l">monitoring</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="c"># Leave http open so any meshed caller can reach the renderer.</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">http</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">from</span><span class="p">:</span><span class="w"> </span><span class="p">[]</span><span class="w">
+</span></span></span></code></pre></div><h2 id="non-mesh-clients">Non-mesh clients</h2>
+<p>The kube-apiserver (which dials the admission webhook) and the kubelet (which dials
+the readiness, liveness, and startup probes) are <strong>not part of the mesh</strong>. They carry
+no mesh identity and present no workload certificate, so any authorization rule that
+demanded one would reject them — admission would break and probes would fail.</p>
+<p>The chart deliberately leaves the <strong>webhook and management ports open</strong> so these
+non-mesh clients always connect:</p>
+<ul>
+<li><strong>Istio</strong> adds an allow-any rule covering the webhook (<code>9443</code>) and management
+(<code>8081</code>) ports, so no identity is required on them.</li>
+<li>With <strong><code>mtls: strict</code></strong>, the chart additionally sets <code>portLevelMtls: PERMISSIVE</code> on
+those two ports, so a plaintext connection from the apiserver or kubelet is still
+accepted even while every other port enforces mTLS.</li>
+<li><strong>Linkerd</strong> renders no <code>Server</code> for those ports, leaving them outside the mesh&rsquo;s
+authorization scope entirely.</li>
+</ul>
+<p>Admission and probes therefore connect even with the mesh fully enabled.
+Authenticity on the webhook port is enforced by TLS and the CA bundle on the
+<code>ValidatingWebhookConfiguration</code>, not by the mesh — see the
+<a href="/security/admission-webhook/">admission webhook page</a>
+.</p>
+<h2 id="mtls">mTLS</h2>
+<p><code>serviceMesh.mtls</code> sets the mTLS posture and applies to the <strong>Istio engine only</strong>;
+Linkerd negotiates mTLS automatically between meshed pods, so the knob is ignored
+there.</p>
+<table>
+	<thead>
+			<tr>
+					<th><code>mtls</code></th>
+					<th>Effect (Istio)</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><code>&quot;&quot;</code> (default)</td>
+					<td>Defers to the mesh&rsquo;s own default (mesh-wide <code>PeerAuthentication</code> / <code>MeshConfig</code>) — no <code>PeerAuthentication</code> is rendered</td>
+			</tr>
+			<tr>
+					<td><code>permissive</code></td>
+					<td>Renders a <code>PeerAuthentication</code> accepting both mTLS and plaintext</td>
+			</tr>
+			<tr>
+					<td><code>strict</code></td>
+					<td>Requires mTLS on the workload&rsquo;s ports, <strong>except</strong> the webhook and management ports, which get a port-level <code>PERMISSIVE</code> carve-out</td>
+			</tr>
+	</tbody>
+</table>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">serviceMesh</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="l">istio</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">mtls</span><span class="p">:</span><span class="w"> </span><span class="l">strict</span><span class="w">
+</span></span></span></code></pre></div><p>Under <code>strict</code>, every mesh-reachable port enforces mTLS while the apiserver and
+kubelet still reach the webhook and probes over plaintext via the carve-out above.</p>
+<h2 id="default-deny">Default-deny</h2>
+<p><code>serviceMesh.defaultDeny.enabled</code> (default <code>false</code>) additionally renders a
+namespace-wide default-deny so every pod in the install namespace rejects
+unauthorized mesh traffic and the per-workload allows become the only exceptions (a
+zero-trust namespace).</p>
+<ul>
+<li><strong>Istio</strong> renders an empty-spec <code>AuthorizationPolicy</code> (deny-all) scoped to the
+whole namespace; it sits at lower precedence than the workload <code>ALLOW</code>, so the
+per-port allows always win for the JaaS pod while everything else is denied.</li>
+<li><strong>Linkerd</strong> has no per-object deny-all; the namespace default is set via the
+<code>config.linkerd.io/default-inbound-policy</code> annotation, stamped onto the
+chart-managed Namespace (requires <code>namespace.create=true</code>) — otherwise annotate the
+namespace out of band.</li>
+</ul>
+<p>Enable this <strong>only when JaaS owns its namespace</strong>, because the deny-all also denies
+every co-located workload that does not have its own allowing authorization.</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">serviceMesh</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="l">istio</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">defaultDeny</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">   </span><span class="c"># only when JaaS owns this namespace</span><span class="w">
+</span></span></span></code></pre></div><h2 id="native-passthrough">Native passthrough</h2>
+<p>Anything the per-port <code>from</code> knobs cannot express goes into the engine&rsquo;s native
+passthrough list, merged verbatim into the rendered objects.</p>
+<p>Under the <code>istio</code> engine, <code>serviceMesh.istio.rules</code> are merged into the
+<code>AuthorizationPolicy</code>&rsquo;s <code>spec.rules</code> (the <code>security.istio.io/v1</code> rule schema) — use it
+for path/method matchers, <code>when</code> JWT-claim conditions, <code>ipBlocks</code>, and similar:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">serviceMesh</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="l">istio</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">istio</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">rules</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span>- <span class="nt">from</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">          </span>- <span class="nt">source</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">              </span><span class="nt">requestPrincipals</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span>- <span class="s2">&#34;https://accounts.example.com/*&#34;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">to</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">          </span>- <span class="nt">operation</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">              </span><span class="nt">paths</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span>- <span class="l">/jsonnet/*</span><span class="w">
+</span></span></span></code></pre></div><p>Under the <code>linkerd</code> engine, <code>serviceMesh.linkerd.authorizations</code> are appended verbatim
+as additional documents after the rendered <code>Server</code> / <code>AuthorizationPolicy</code> /
+<code>MeshTLSAuthentication</code> set — each entry must be a complete <code>policy.linkerd.io</code> object:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">serviceMesh</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="l">linkerd</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">linkerd</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">authorizations</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span>- <span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l">policy.linkerd.io/v1beta3</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">AuthorizationPolicy</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">metadata</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">          </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">jaas-extra</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">spec</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">          </span><span class="nt">targetRef</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="nt">group</span><span class="p">:</span><span class="w"> </span><span class="l">policy.linkerd.io</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">Server</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">jaas-http</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">          </span><span class="nt">requiredAuthenticationRefs</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span>- <span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">ServiceAccount</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">              </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">custom-caller</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">              </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">tenant-a</span><span class="w">
+</span></span></span></code></pre></div><h2 id="which-traffic-gets-authorized">Which traffic gets authorized</h2>
+<p>The mesh authorizes only meshed callers on the mesh-reachable ports; the non-mesh
+ports stay open by design so the control plane keeps working.</p>
+<table>
+	<thead>
+			<tr>
+					<th>Port</th>
+					<th>Authorized by the mesh?</th>
+					<th>Why</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>Jsonnet HTTP (<code>8080</code>)</td>
+					<td>Yes — <code>serviceMesh.http.from</code></td>
+					<td>Meshed callers of the renderer</td>
+			</tr>
+			<tr>
+					<td>Storage HTTP (<code>8082</code>)</td>
+					<td>Yes — <code>serviceMesh.storage.from</code></td>
+					<td>Meshed Flux consumers</td>
+			</tr>
+			<tr>
+					<td>Metrics (<code>8083</code>)</td>
+					<td>Yes — <code>serviceMesh.metrics.from</code></td>
+					<td>Meshed Prometheus scrapers</td>
+			</tr>
+			<tr>
+					<td>Webhook (<code>9443</code>)</td>
+					<td>No — open carve-out</td>
+					<td>The kube-apiserver is not in the mesh</td>
+			</tr>
+			<tr>
+					<td>Management probes (<code>8081</code>)</td>
+					<td>No — open carve-out</td>
+					<td>The kubelet is not in the mesh</td>
+			</tr>
+	</tbody>
+</table>
+<p>For the full set of chart values, see
+<a href="/reference/helm-values/">Helm chart values</a>
+.</p>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/service-mesh" term="service-mesh" label="service-mesh"/><category scheme="https://jaas.projects.metio.wtf/tags/istio" term="istio" label="istio"/><category scheme="https://jaas.projects.metio.wtf/tags/linkerd" term="linkerd" label="linkerd"/><category scheme="https://jaas.projects.metio.wtf/tags/security" term="security" label="security"/><category scheme="https://jaas.projects.metio.wtf/tags/networking" term="networking" label="networking"/></entry></feed>

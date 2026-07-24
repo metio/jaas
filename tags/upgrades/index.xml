@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Upgrades on Jsonnet-as-a-Service</title><link>https://jaas.projects.metio.wtf/tags/upgrades/</link><description>Recent content in Upgrades on Jsonnet-as-a-Service</description><generator>Hugo</generator><language>en</language><atom:link href="https://jaas.projects.metio.wtf/tags/upgrades/index.xml" rel="self" type="application/rss+xml"/><item><title>Operations</title><link>https://jaas.projects.metio.wtf/running/operations/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/running/operations/</guid><description>&lt;p&gt;Day-two operations for a running JaaS install. Initial install and hardening
+decisions are in &lt;a href="https://jaas.projects.metio.wtf/get-started/kubernetes/"&gt;Kubernetes&lt;/a&gt;
+ and
+&lt;a href="https://jaas.projects.metio.wtf/running/production/"&gt;Production&lt;/a&gt;
+.&lt;/p&gt;
+&lt;h2 id="graceful-shutdown-and-drain"&gt;Graceful shutdown and drain&lt;/h2&gt;
+&lt;p&gt;When Kubernetes sends &lt;code&gt;SIGTERM&lt;/code&gt;, JaaS executes a two-phase shutdown to avoid
+dropping in-flight requests:&lt;/p&gt;
+&lt;ol&gt;
+&lt;li&gt;The readiness probe flips to &lt;code&gt;false&lt;/code&gt; (&lt;code&gt;503&lt;/code&gt; on &lt;code&gt;/ready&lt;/code&gt;). Kubernetes
+endpoint controllers begin deregistering the pod from Services.&lt;/li&gt;
+&lt;li&gt;JaaS waits for &lt;code&gt;--shutdown-delay&lt;/code&gt; (default &lt;code&gt;5s&lt;/code&gt;) before closing its
+listeners. This window lets the endpoint propagation complete so no new
+traffic arrives after the server closes.&lt;/li&gt;
+&lt;li&gt;After the delay, the servers shut down gracefully with a 30-second
+&lt;code&gt;context.WithTimeout&lt;/code&gt;. The operator goroutine is also cancelled and awaited
+within the same 30-second window.&lt;/li&gt;
+&lt;/ol&gt;
+&lt;p&gt;The distroless runtime image has no &lt;code&gt;sleep&lt;/code&gt; binary, so the drain delay is
+implemented in the binary rather than via a &lt;code&gt;preStop&lt;/code&gt; hook. A second
+&lt;code&gt;SIGTERM&lt;/code&gt; (or &lt;code&gt;SIGINT&lt;/code&gt;) during the drain cuts the wait short.&lt;/p&gt;</description></item></channel></rss>

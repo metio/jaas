@@ -1,0 +1,192 @@
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en"><generator uri="https://gohugo.io/" version="0.163.3">Hugo</generator><title type="html">Mcp on Jsonnet-as-a-Service</title><link href="https://jaas.projects.metio.wtf/tags/mcp/" rel="alternate" type="text/html" title="html"/><link href="https://jaas.projects.metio.wtf/tags/mcp/index.xml" rel="alternate" type="application/rss+xml" title="rss"/><link href="https://jaas.projects.metio.wtf/tags/mcp/atom.xml" rel="self" type="application/atom+xml" title="atom"/><updated>2026-07-24T07:17:17+00:00</updated><author><name>metio.wtf</name></author><id>https://jaas.projects.metio.wtf/tags/mcp/</id><entry><title type="html">Integrations &amp; tooling</title><link href="https://jaas.projects.metio.wtf/integrations/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/integrations/mcp-server/?utm_source=atom_feed" rel="related" type="text/html" title="MCP server"/><id>https://jaas.projects.metio.wtf/integrations/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-26T15:54:29+02:00</updated><content type="html"><![CDATA[<blockquote>Connect JaaS to the rest of your stack — the Flux Operator, the Claude Code skill, and the MCP server.</blockquote><p>How JaaS fits with the rest of your delivery stack, plus the tooling that drives
+it from the terminal and from AI assistants.</p>
+<ul>
+<li><strong><a href="/integrations/flux-operator/">Flux Operator integration</a>
+</strong> — compose JaaS
+with the Flux Operator&rsquo;s <code>ResourceSet</code>.</li>
+<li><strong><a href="/integrations/claude-code/">Claude Code skill</a>
+</strong> — a skill that helps an
+assistant author snippets and libraries.</li>
+<li><strong><a href="/integrations/mcp-server/">MCP server</a>
+</strong> — an MCP server for agent-driven
+rendering and operator introspection.</li>
+</ul>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/integrations" term="integrations" label="integrations"/><category scheme="https://jaas.projects.metio.wtf/tags/tooling" term="tooling" label="tooling"/><category scheme="https://jaas.projects.metio.wtf/tags/mcp" term="mcp" label="mcp"/></entry><entry><title type="html">MCP server</title><link href="https://jaas.projects.metio.wtf/integrations/mcp-server/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/security/admission-webhook/?utm_source=atom_feed" rel="related" type="text/html" title="Admission webhook"/><link href="https://jaas.projects.metio.wtf/observability/alerting/?utm_source=atom_feed" rel="related" type="text/html" title="Alerting"/><link href="https://jaas.projects.metio.wtf/integrations/claude-code/?utm_source=atom_feed" rel="related" type="text/html" title="Claude Code skill"/><link href="https://jaas.projects.metio.wtf/operator/creating-sources/?utm_source=atom_feed" rel="related" type="text/html" title="Creating source artifacts"/><link href="https://jaas.projects.metio.wtf/observability/dashboard/?utm_source=atom_feed" rel="related" type="text/html" title="Dashboard"/><id>https://jaas.projects.metio.wtf/integrations/mcp-server/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-07-16T19:51:04+02:00</updated><content type="html"><![CDATA[<blockquote>Run the JaaS Model Context Protocol server so an agent renders Jsonnet locally over stdio and reads operator status in-cluster over HTTP.</blockquote><p>JaaS exposes its evaluator and operator status as <a href="https://modelcontextprotocol.io/">Model Context Protocol</a>
+
+tools, so an LLM agent (Claude Code, Claude Desktop, or any MCP client) calls
+them directly. There are two modes, each with its own transport:</p>
+<ul>
+<li><strong>Local rendering over stdio</strong> — <code>jaas mcp</code> wraps the same evaluator the HTTP
+endpoint and the operator use, with no cluster and no Kubernetes client. This
+is the cluster-free authoring loop.</li>
+<li><strong>In-cluster operator introspection over HTTP</strong> — <code>--enable-mcp</code> adds a
+streamable-HTTP server inside the operator pod that reads <code>JsonnetSnippet</code>
+status as the operator&rsquo;s ServiceAccount.</li>
+</ul>
+<p>The tools are thin adapters over existing code, so an agent&rsquo;s render is
+byte-identical to the HTTP endpoint and the operator.</p>
+<h2 id="render-jsonnet-locally">Render Jsonnet locally</h2>
+<p>Run the stdio server as a subcommand. Point it at the same library directories
+you would pass the HTTP renderer:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">jaas mcp --library-path ./vendor
+</span></span></code></pre></div><p>Wire it into an MCP client by launching that command. For Claude Code, add it to
+<code>.mcp.json</code>:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-json" data-lang="json"><span class="line"><span class="cl"><span class="p">{</span>
+</span></span><span class="line"><span class="cl">  <span class="nt">&#34;mcpServers&#34;</span><span class="p">:</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&#34;jaas&#34;</span><span class="p">:</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">      <span class="nt">&#34;command&#34;</span><span class="p">:</span> <span class="s2">&#34;jaas&#34;</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">      <span class="nt">&#34;args&#34;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&#34;mcp&#34;</span><span class="p">,</span> <span class="s2">&#34;--library-path&#34;</span><span class="p">,</span> <span class="s2">&#34;./vendor&#34;</span><span class="p">]</span>
+</span></span><span class="line"><span class="cl">    <span class="p">}</span>
+</span></span><span class="line"><span class="cl">  <span class="p">}</span>
+</span></span><span class="line"><span class="cl"><span class="p">}</span>
+</span></span></code></pre></div><p>The stdio server registers two tools:</p>
+<table>
+	<thead>
+			<tr>
+					<th>Tool</th>
+					<th>Purpose</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><code>render_jsonnet</code></td>
+					<td>Evaluate an inline snippet (with its variables bound) and return the resulting JSON. Imports resolve against <code>--library-path</code>, exactly like the HTTP renderer.</td>
+			</tr>
+			<tr>
+					<td><code>validate_jsonnet</code></td>
+					<td>Evaluate a snippet and report whether it compiles, returning the full go-jsonnet diagnostic (file and line) on failure without the rendered output.</td>
+			</tr>
+	</tbody>
+</table>
+<p>Both accept the same inputs:</p>
+<ul>
+<li><code>source</code> — the Jsonnet snippet.</li>
+<li><code>tlas</code> — top-level arguments bound as strings, as a map of string lists; a
+single-element list becomes a string TLA, a multi-element list becomes a
+JSON-array TLA.</li>
+<li><code>tlaCode</code> — top-level arguments whose values are Jsonnet source to parse, like
+<code>jsonnet --tla-code</code>. <code>&quot;3&quot;</code> binds the number 3, <code>[&quot;a&quot;,&quot;b&quot;]</code> an array.</li>
+<li><code>extVars</code> — external variables for <code>std.extVar</code> bound as strings, overlaying
+any the server was started with.</li>
+<li><code>extCode</code> — external variables whose values are Jsonnet source to parse, like
+<code>jsonnet --ext-code</code>. <code>&quot;3&quot;</code> binds the number 3, <code>{ cpu: 2 }</code> an object. Also
+overlays the server&rsquo;s <code>--ext-var</code> set, since a call is the more specific
+binding.</li>
+</ul>
+<p>A name may be bound as a string or as code, not both: <code>tlas</code> and <code>tlaCode</code>
+share one namespace, as do <code>extVars</code> and <code>extCode</code>. A call that binds a name in
+both is rejected with a tool error naming it. The two kinds are separate,
+though — a TLA and an external variable may share a name freely.</p>
+<p>To render <code>{ replicas: 3 }</code> rather than <code>{ replicas: &quot;3&quot; }</code>:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-json" data-lang="json"><span class="line"><span class="cl"><span class="p">{</span>
+</span></span><span class="line"><span class="cl">  <span class="nt">&#34;source&#34;</span><span class="p">:</span> <span class="s2">&#34;function(replicas) { replicas: replicas }&#34;</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">  <span class="nt">&#34;tlaCode&#34;</span><span class="p">:</span> <span class="p">{</span> <span class="nt">&#34;replicas&#34;</span><span class="p">:</span> <span class="s2">&#34;3&#34;</span> <span class="p">}</span>
+</span></span><span class="line"><span class="cl"><span class="p">}</span>
+</span></span></code></pre></div><p>The flags that shape evaluation:</p>
+<table>
+	<thead>
+			<tr>
+					<th>Flag</th>
+					<th>Default</th>
+					<th>Effect</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><code>--library-path</code></td>
+					<td><em>(none)</em></td>
+					<td>Directory searched for <code>import</code> resolution; repeatable, rightmost wins.</td>
+			</tr>
+			<tr>
+					<td><code>--ext-var KEY=VALUE</code></td>
+					<td><em>(none)</em></td>
+					<td>Server-level external variable; repeatable. Overlays <code>JAAS_EXT_VAR_*</code> env on conflict.</td>
+			</tr>
+			<tr>
+					<td><code>--max-stack</code></td>
+					<td><code>500</code></td>
+					<td>Maximum call-stack depth; <code>0</code> uses go-jsonnet&rsquo;s default.</td>
+			</tr>
+			<tr>
+					<td><code>--evaluation-timeout</code></td>
+					<td><code>5s</code></td>
+					<td>Per-evaluation bound; <code>0</code> disables it.</td>
+			</tr>
+			<tr>
+					<td><code>--log-level</code> / <code>--log-format</code></td>
+					<td><code>info</code> / <code>json</code></td>
+					<td>Diagnostics go to stderr — stdout carries the protocol, so logs never corrupt it.</td>
+			</tr>
+	</tbody>
+</table>
+<p>Unlike the broadly-reachable HTTP path, this server returns the full go-jsonnet
+diagnostic on a failed render: it is owner-facing, like the operator status
+condition. See <a href="/rendering/evaluation-and-security/">Evaluation and security</a>
+.</p>
+<h2 id="inspect-the-operator-in-cluster">Inspect the operator in-cluster</h2>
+<p>When JaaS runs as an <a href="/operator/operator-mode/">operator</a>
+, add <code>--enable-mcp</code> to serve
+the read tools over streamable HTTP from the same pod:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">jaas --enable-flux-integration --enable-mcp --mcp-bind-address :8084
+</span></span></code></pre></div><p><code>--enable-mcp</code> requires <code>--enable-flux-integration</code> — the tools introspect
+operator resources, so there is nothing to serve without the operator. The
+server binds <code>--mcp-bind-address</code> (default <code>:8084</code>, chosen to avoid the jsonnet
+<code>:8080</code>, management <code>:8081</code>, storage <code>:8082</code>, and metrics <code>:8083</code> ports) and
+reads as the operator&rsquo;s ServiceAccount, so it can never see more than the
+operator&rsquo;s own RBAC allows. The local render tools above are served here too.</p>
+<p>Reach it from your machine with a port-forward:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace jaas-system port-forward deploy/jaas 8084:8084
+</span></span></code></pre></div><p>The in-cluster server adds these read tools:</p>
+<table>
+	<thead>
+			<tr>
+					<th>Tool</th>
+					<th>Purpose</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><code>list_snippets</code></td>
+					<td>List <code>JsonnetSnippet</code> resources with their Ready status, reason, suspend state, revision, and artifact URL. Omit the namespace to list across every namespace the operator can read.</td>
+			</tr>
+			<tr>
+					<td><code>get_snippet</code></td>
+					<td>One snippet&rsquo;s full status: the Ready condition (status, reason, message), the per-reason <a href="/runbooks/">runbook</a>
+ URL, suspend state, revision, artifact URL, and the retained revision history.</td>
+			</tr>
+			<tr>
+					<td><code>diff_revisions</code></td>
+					<td>A per-file unified diff of a snippet&rsquo;s published output between two retained revisions. Omit the revisions to compare the two most recent in <code>status.history</code>; pass <code>from</code>/<code>to</code> (sha256) to diff specific ones. Reads the artifacts straight from the operator&rsquo;s store. Needs <code>spec.history</code> greater than 1 to retain a second revision.</td>
+			</tr>
+	</tbody>
+</table>
+<h2 id="gated-mutations">Gated mutations</h2>
+<p>The server is read-only by default. Add <code>--mcp-allow-mutations</code> (which requires
+<code>--enable-mcp</code>) to also expose write tools:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">jaas --enable-flux-integration --enable-mcp --mcp-allow-mutations
+</span></span></code></pre></div><table>
+	<thead>
+			<tr>
+					<th>Tool</th>
+					<th>Effect</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><code>reconcile_snippet</code></td>
+					<td>Stamp the <code>reconcile.fluxcd.io/requestedAt</code> annotation to request an immediate reconcile — the same trigger as <code>flux reconcile</code>.</td>
+			</tr>
+			<tr>
+					<td><code>suspend_snippet</code></td>
+					<td>Set <code>spec.suspend=true</code> so the operator stops re-rendering the snippet.</td>
+			</tr>
+			<tr>
+					<td><code>resume_snippet</code></td>
+					<td>Clear <code>spec.suspend</code> to resume reconciliation.</td>
+			</tr>
+	</tbody>
+</table>
+<p>These act on the <code>JsonnetSnippet</code> resource as the operator&rsquo;s ServiceAccount, so
+they can never exceed the operator&rsquo;s own RBAC. Keep them off unless you intend
+the agent to drive reconciliation, and have your MCP client confirm each call.</p>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/mcp" term="mcp" label="mcp"/><category scheme="https://jaas.projects.metio.wtf/tags/claude" term="claude" label="claude"/><category scheme="https://jaas.projects.metio.wtf/tags/operator" term="operator" label="operator"/><category scheme="https://jaas.projects.metio.wtf/tags/rendering" term="rendering" label="rendering"/></entry></feed>

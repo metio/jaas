@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en"><generator uri="https://gohugo.io/" version="0.163.3">Hugo</generator><title type="html">Usage on Jsonnet-as-a-Service</title><link href="https://jaas.projects.metio.wtf/tags/usage/" rel="alternate" type="text/html" title="html"/><link href="https://jaas.projects.metio.wtf/tags/usage/index.xml" rel="alternate" type="application/rss+xml" title="rss"/><link href="https://jaas.projects.metio.wtf/tags/usage/atom.xml" rel="self" type="application/atom+xml" title="atom"/><updated>2026-07-24T07:17:17+00:00</updated><author><name>metio.wtf</name></author><id>https://jaas.projects.metio.wtf/tags/usage/</id><entry><title type="html">Flux Operator (ResourceSet) integration</title><link href="https://jaas.projects.metio.wtf/integrations/flux-operator/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/comparisons/flux-operator/?utm_source=atom_feed" rel="related" type="text/html" title="vs Flux Operator ResourceSet"/><link href="https://jaas.projects.metio.wtf/observability/dashboard/?utm_source=atom_feed" rel="related" type="text/html" title="Dashboard"/><id>https://jaas.projects.metio.wtf/integrations/flux-operator/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-07-16T19:38:04+02:00</updated><content type="html"><![CDATA[<blockquote>Template one JsonnetSnippet per input with a Flux Operator ResourceSet so JaaS renders per-cluster or per-tenant content from a single definition.</blockquote><p>Render the same Jsonnet for many clusters or tenants without writing a snippet by
+hand for each one: let a <a href="https://fluxoperator.dev/">Flux Operator</a>
+ <code>ResourceSet</code>
+template a <code>JsonnetSnippet</code> per input, and JaaS renders each instance into its own
+<code>ExternalArtifact</code>. The <code>ResourceSet</code> supplies the per-instance values through Go
+template substitution; JaaS does the evaluation. There is no <code>ResourceSet</code> field
+in the JaaS API — you use the two together: the <code>ResourceSet</code> templates ordinary
+<code>JsonnetSnippet</code> CRs, which JaaS reconciles like any other. This needs the Flux
+Operator installed alongside JaaS in the operator mode described under
+<a href="/operator/operator-mode/">operator mode</a>
+.</p>
+<p>The worked example below fans the maintained operator dashboard (see
+<a href="/observability/dashboard/">Dashboard</a>
+) out across a fleet: each cluster gets its
+own rendered dashboard, scoped to its own Prometheus and labelled with its own
+title.</p>
+<h2 id="1-declare-the-per-instance-inputs">1. Declare the per-instance inputs</h2>
+<p>A <code>ResourceSetInputProvider</code> of <code>.spec.type</code> <code>Static</code> exports a fixed list of
+inputs from <code>.spec.defaultValues</code>. List one entry per cluster, each carrying the
+values the dashboard&rsquo;s top-level arguments need:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l">fluxcd.controlplane.io/v1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">ResourceSetInputProvider</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">metadata</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">clusters</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">monitoring</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">spec</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l">Static</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">defaultValues</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">clusters</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span>- <span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">prod</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">datasource</span><span class="p">:</span><span class="w"> </span><span class="l">prometheus-prod</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">selector</span><span class="p">:</span><span class="w"> </span><span class="s1">&#39;cluster=&#34;prod&#34;&#39;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span>- <span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">staging</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">datasource</span><span class="p">:</span><span class="w"> </span><span class="l">prometheus-staging</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">selector</span><span class="p">:</span><span class="w"> </span><span class="s1">&#39;cluster=&#34;staging&#34;&#39;</span><span class="w">
+</span></span></span></code></pre></div><p>Other provider types export inputs from a live source instead — Git branches,
+pull requests, or OCI artifact tags — and <code>.spec.schedule</code> (with <code>cron</code>,
+<code>timeZone</code>, and <code>window</code>) gates when those inputs refresh, so the templated
+snippets only change inside the window. The
+<a href="https://fluxoperator.dev/docs/resourcesets/time-based-delivery/">time-based delivery guide</a>
+
+covers that pattern.</p>
+<h2 id="2-template-a-jsonnetsnippet-per-input">2. Template a JsonnetSnippet per input</h2>
+<p>A <code>ResourceSet</code> consumes the provider through <code>.spec.inputsFrom</code>, then templates
+its <code>.spec.resources</code> once per resolved input. Each rendered <code>JsonnetSnippet</code>
+points at the dashboard <code>OCIRepository</code> and threads the per-cluster values into
+<code>spec.tlas</code> with <code>&lt;&lt; inputs.x &gt;&gt;</code> substitution:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l">fluxcd.controlplane.io/v1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">ResourceSet</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">metadata</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">cluster-dashboards</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">monitoring</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">spec</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">serviceAccountName</span><span class="p">:</span><span class="w"> </span><span class="l">dashboards-tenant</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">inputsFrom</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span>- <span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">ResourceSetInputProvider</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">clusters</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">resources</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span>- <span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l">jaas.metio.wtf/v1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">JsonnetSnippet</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">metadata</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">dashboard-&lt;&lt; inputs.name &gt;&gt;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">monitoring</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">spec</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">serviceAccountName</span><span class="p">:</span><span class="w"> </span><span class="l">dashboards-tenant</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">sourceRef</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">          </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">OCIRepository</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">          </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">jaas-dashboard</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">libraries</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">          </span>- <span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">JsonnetLibrary</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">grafonnet</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">          </span>- <span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">JsonnetLibrary</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">docsonnet</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">          </span>- <span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">JsonnetLibrary</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">testonnet</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">          </span>- <span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">JsonnetLibrary</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">xtd</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">tlas</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">          </span>- <span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">datasource</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="nt">value</span><span class="p">:</span><span class="w"> </span><span class="l">&lt;&lt; inputs.datasource &gt;&gt;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">          </span>- <span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">title</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="nt">value</span><span class="p">:</span><span class="w"> </span><span class="l">JaaS operator — &lt;&lt; inputs.name &gt;&gt;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">          </span>- <span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">selector</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="nt">value</span><span class="p">:</span><span class="w"> </span><span class="s1">&#39;&lt;&lt; inputs.selector &gt;&gt;&#39;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">interval</span><span class="p">:</span><span class="w"> </span><span class="l">10m</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">output</span><span class="p">:</span><span class="w"> </span><span class="l">rendered</span><span class="w">
+</span></span></span></code></pre></div><p>The <code>ResourceSet</code> creates <code>dashboard-prod</code> and <code>dashboard-staging</code>, each with its
+own datasource UID, title, and query selector. JaaS reconciles each snippet
+independently and publishes one <code>ExternalArtifact</code> per cluster, named after the
+snippet. Point a <code>GrafanaDashboard</code> at each artifact exactly as the
+<a href="/observability/dashboard/">Dashboard</a>
+ page shows, and the grafana-operator pushes
+the per-cluster JSON to Grafana.</p>
+<p>The same shape generalises beyond dashboards: any per-tenant or per-environment
+Jsonnet — manifest libraries, config documents — fans out the same way. Add a
+cluster to the provider&rsquo;s list and the <code>ResourceSet</code> renders one more snippet; no
+new snippet YAML by hand.</p>
+<p>For where this pattern sits relative to running JaaS or the Flux Operator alone,
+see <a href="/comparisons/flux-operator/">JaaS vs Flux Operator ResourceSet</a>
+.</p>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/usage" term="usage" label="usage"/><category scheme="https://jaas.projects.metio.wtf/tags/flux-operator" term="flux-operator" label="flux-operator"/><category scheme="https://jaas.projects.metio.wtf/tags/resourceset" term="resourceset" label="resourceset"/><category scheme="https://jaas.projects.metio.wtf/tags/multi-cluster" term="multi-cluster" label="multi-cluster"/><category scheme="https://jaas.projects.metio.wtf/tags/dashboard" term="dashboard" label="dashboard"/></entry></feed>

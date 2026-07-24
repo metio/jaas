@@ -1,0 +1,558 @@
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en"><generator uri="https://gohugo.io/" version="0.163.3">Hugo</generator><title type="html">Configuration on Jsonnet-as-a-Service</title><link href="https://jaas.projects.metio.wtf/tags/configuration/" rel="alternate" type="text/html" title="html"/><link href="https://jaas.projects.metio.wtf/tags/configuration/index.xml" rel="alternate" type="application/rss+xml" title="rss"/><link href="https://jaas.projects.metio.wtf/tags/configuration/atom.xml" rel="self" type="application/atom+xml" title="atom"/><updated>2026-07-24T07:17:17+00:00</updated><author><name>metio.wtf</name></author><id>https://jaas.projects.metio.wtf/tags/configuration/</id><entry><title type="html">Configuration reference</title><link href="https://jaas.projects.metio.wtf/reference/configuration/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/reference/helm-values/?utm_source=atom_feed" rel="related" type="text/html" title="Helm chart values"/><link href="https://jaas.projects.metio.wtf/running/disaster-recovery/?utm_source=atom_feed" rel="related" type="text/html" title="Backup and disaster recovery"/><link href="https://jaas.projects.metio.wtf/rendering/joi-images/?utm_source=atom_feed" rel="related" type="text/html" title="JOI images"/><link href="https://jaas.projects.metio.wtf/get-started/kubernetes/?utm_source=atom_feed" rel="related" type="text/html" title="Kubernetes"/><link href="https://jaas.projects.metio.wtf/running/operations/?utm_source=atom_feed" rel="related" type="text/html" title="Operations"/><id>https://jaas.projects.metio.wtf/reference/configuration/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-26T15:54:29+02:00</updated><content type="html"><![CDATA[<blockquote>Complete reference for every JaaS command-line flag, organized by subsystem, with defaults and chart value equivalents.</blockquote><p>Every JaaS flag below carries its default and a one-line description. Run
+<code>jaas --help</code> to see the same list at runtime. The tables are generated from the
+binary&rsquo;s own flag definitions, so they never drift from the runtime contract.</p>
+<p>The Helm chart exposes most flags under <code>arguments.*</code>; operator-specific flags
+are under <code>operator.*</code>. The full set of chart values is in the
+<a href="/reference/helm-values/">Helm chart values</a>
+ reference.</p>
+<h2 id="jsonnet-server">Jsonnet server</h2>
+<p>The Jsonnet server evaluates snippets and returns JSON. It binds on
+<code>--listen-address:--port</code> by default.</p>
+<table>
+  <thead>
+    <tr><th>Flag</th><th>Type</th><th>Default</th><th>Description</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>--jsonnet-endpoint-path</code></td>
+      <td><code>string</code></td>
+      <td><code>jsonnet</code></td>
+      <td>The path to the jsonnet endpoint</td>
+    </tr>
+    <tr>
+      <td><code>--listen-address</code></td>
+      <td><code>string</code></td>
+      <td><code>127.0.0.1</code></td>
+      <td>The listen address to bind to for the Jsonnet server</td>
+    </tr>
+    <tr>
+      <td><code>--port</code></td>
+      <td><code>string</code></td>
+      <td><code>8080</code></td>
+      <td>The port to bind to for the Jsonnet server</td>
+    </tr>
+    <tr>
+      <td><code>--read-timeout</code></td>
+      <td><code>duration</code></td>
+      <td><code>10s</code></td>
+      <td>maximum duration for reading the entire request, including the body in the Jsonnet server</td>
+    </tr>
+    <tr>
+      <td><code>--write-timeout</code></td>
+      <td><code>duration</code></td>
+      <td><code>10s</code></td>
+      <td>The maximum duration before timing out writes of the response in the Jsonnet server</td>
+    </tr>
+  </tbody>
+</table>
+<h2 id="management-server">Management server</h2>
+<p>The management server exposes the three Kubernetes probe endpoints. It binds on
+<code>--management-listen-address:--management-port</code>.</p>
+<table>
+  <thead>
+    <tr><th>Flag</th><th>Type</th><th>Default</th><th>Description</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>--management-listen-address</code></td>
+      <td><code>string</code></td>
+      <td><code>127.0.0.1</code></td>
+      <td>The listen address to bind to for the management server</td>
+    </tr>
+    <tr>
+      <td><code>--management-port</code></td>
+      <td><code>string</code></td>
+      <td><code>8081</code></td>
+      <td>The port to bind to for the management server</td>
+    </tr>
+    <tr>
+      <td><code>--management-read-timeout</code></td>
+      <td><code>duration</code></td>
+      <td><code>10s</code></td>
+      <td>maximum duration for reading the entire request, including the body in the management server</td>
+    </tr>
+    <tr>
+      <td><code>--management-write-timeout</code></td>
+      <td><code>duration</code></td>
+      <td><code>10s</code></td>
+      <td>The maximum duration before timing out writes of the response in the management server</td>
+    </tr>
+  </tbody>
+</table>
+<p>Endpoints: <code>GET /start</code> (startup probe), <code>GET /ready</code> (readiness probe),
+<code>GET /live</code> (liveness probe). Startup and readiness return <code>503</code> with a
+<code>{&quot;status&quot;:&quot;…&quot;}</code> JSON body when the server is not yet ready. Liveness is an
+unconditional <code>200</code>.</p>
+<h2 id="snippets-and-libraries">Snippets and libraries</h2>
+<p>Flags for declaring the Jsonnet files the server serves.</p>
+<table>
+  <thead>
+    <tr><th>Flag</th><th>Type</th><th>Default</th><th>Description</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>--library-path</code></td>
+      <td><code>stringArray</code></td>
+      <td><code>[]</code></td>
+      <td>The path of a directory containing jsonnet libraries (can be specified multiple times). Rightmost matching library will be used.</td>
+    </tr>
+    <tr>
+      <td><code>--snippet</code></td>
+      <td><code>stringArray</code></td>
+      <td><code>[]</code></td>
+      <td>The path of a jsonnet file to serve (can be specified multiple times). The value is used verbatim both as the file to evaluate and as the request path that serves it, e.g. --snippet=dir/foo.jsonnet is requested at /&lt;jsonnet-endpoint&gt;/dir/foo.jsonnet.</td>
+    </tr>
+    <tr>
+      <td><code>--snippet-directory</code></td>
+      <td><code>stringArray</code></td>
+      <td><code>[]</code></td>
+      <td>The path of a directory containing snippets as subdirectories (can be specified multiple times). Snippets will be loaded from subdirectories of the given path, where the directory name is the snippet name.</td>
+    </tr>
+  </tbody>
+</table>
+<p>Snippet name resolution uses Go&rsquo;s <code>os.OpenRoot</code>, which rejects <code>..</code> traversal
+and symlinks that escape the configured directory. This is security-critical;
+see <a href="/rendering/evaluation-and-security/">Evaluation and security</a>
+.</p>
+<h2 id="external-variables">External variables</h2>
+<table>
+  <thead>
+    <tr><th>Flag</th><th>Type</th><th>Default</th><th>Description</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>--ext-var</code></td>
+      <td><code>stringArray</code></td>
+      <td><code>[]</code></td>
+      <td>External variable as KEY=VALUE for std.extVar lookups (can be specified multiple times). Takes precedence over JAAS_EXT_VAR_* env vars on conflict.</td>
+    </tr>
+  </tbody>
+</table>
+<p><strong>Environment variable alternative:</strong> set <code>JAAS_EXT_VAR_&lt;NAME&gt;=&lt;VALUE&gt;</code> to
+expose <code>&lt;NAME&gt;</code> as an external variable. The <code>--ext-var</code> flag overrides the env
+mechanism on key conflict. See
+<a href="/rendering/external-variables-and-tlas/">External variables and TLAs</a>
+ for usage
+examples.</p>
+<h2 id="evaluation-limits">Evaluation limits</h2>
+<table>
+  <thead>
+    <tr><th>Flag</th><th>Type</th><th>Default</th><th>Description</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>--evaluation-timeout</code></td>
+      <td><code>duration</code></td>
+      <td><code>5s</code></td>
+      <td>Maximum duration a single Jsonnet evaluation is allowed to take. Set to 0 to disable.</td>
+    </tr>
+    <tr>
+      <td><code>--max-concurrent-evals</code></td>
+      <td><code>int</code></td>
+      <td><code>max(GOMAXPROCS×4, 16)</code></td>
+      <td>Maximum number of in-flight Jsonnet evaluations. Excess requests return 503 (HTTP) or RequeueAfter (operator). Set to 0 to disable. Defaults to max(GOMAXPROCS*4, 16).</td>
+    </tr>
+    <tr>
+      <td><code>--max-stack</code></td>
+      <td><code>int</code></td>
+      <td><code>500</code></td>
+      <td>Maximum Jsonnet call-stack depth. Set to 0 to use go-jsonnet&#39;s default.</td>
+    </tr>
+  </tbody>
+</table>
+<p><code>--evaluation-timeout</code> fires the HTTP response but does not terminate the
+underlying go-jsonnet call — the evaluation continues consuming CPU until it
+finishes naturally. Size container resources accordingly and use
+<code>--max-concurrent-evals</code> to bound worst-case goroutine pile-up. See
+<a href="/rendering/evaluation-and-security/">Evaluation and security</a>
+ for the full
+discussion.</p>
+<h2 id="lifecycle">Lifecycle</h2>
+<table>
+  <thead>
+    <tr><th>Flag</th><th>Type</th><th>Default</th><th>Description</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>--shutdown-delay</code></td>
+      <td><code>duration</code></td>
+      <td><code>5s</code></td>
+      <td>Time to wait after readiness flips to false before initiating graceful shutdown; gives Kubernetes time to propagate the not-ready status to endpoint controllers. Set to 0 to disable.</td>
+    </tr>
+  </tbody>
+</table>
+<h2 id="operator-flux-integration">Operator (Flux integration)</h2>
+<p>The following flags are only active when <code>--enable-flux-integration</code> is set.</p>
+<table>
+  <thead>
+    <tr><th>Flag</th><th>Type</th><th>Default</th><th>Description</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>--artifact-gc-grace</code></td>
+      <td><code>duration</code></td>
+      <td><code>5m0s</code></td>
+      <td>Minimum time a superseded artifact revision is retained after being evicted from the keep-set. Closes the pin→fetch race in which a Flux consumer reads status.artifact a moment before the operator garbage-collects the superseded revision. Zero disables and restores eager pruning. The deletion path (snippet teardown) is unaffected.</td>
+    </tr>
+    <tr>
+      <td><code>--default-service-account</code></td>
+      <td><code>string</code></td>
+      <td><em>(empty)</em></td>
+      <td>ServiceAccount the operator impersonates when a JsonnetSnippet has no spec.serviceAccountName. Empty rejects such snippets at reconcile time.</td>
+    </tr>
+    <tr>
+      <td><code>--enable-flux-integration</code></td>
+      <td><code>bool</code></td>
+      <td><code>false</code></td>
+      <td>Boot the Kubernetes operator that watches JsonnetSnippet / JsonnetLibrary CRs and publishes evaluated results as Flux ExternalArtifacts.</td>
+    </tr>
+    <tr>
+      <td><code>--kubeconfig</code></td>
+      <td><code>string</code></td>
+      <td><em>(empty)</em></td>
+      <td>Path to a kubeconfig file for the operator. Empty falls back to KUBECONFIG env, then to in-cluster service-account credentials.</td>
+    </tr>
+    <tr>
+      <td><code>--label-selector</code></td>
+      <td><code>string</code></td>
+      <td><em>(empty)</em></td>
+      <td>Narrow the operator&#39;s watch to CRs matching this label selector. Empty selects every CR in the watched scope.</td>
+    </tr>
+    <tr>
+      <td><code>--max-artifact-bytes</code></td>
+      <td><code>int64</code></td>
+      <td><code>0</code></td>
+      <td>Cap the published artifact content size in bytes (rendered output in Output=rendered mode, the whole source tree in Output=source mode). Snippets exceeding this fail with ReasonArtifactTooLarge. Zero disables.</td>
+    </tr>
+    <tr>
+      <td><code>--max-withdraw-wait</code></td>
+      <td><code>duration</code></td>
+      <td><code>1h0m0s</code></td>
+      <td>Bound the time a deleted JsonnetSnippet&#39;s finalizer can hold while Publisher.Withdraw keeps failing. Past this, the operator emits a Warning WithdrawForced event, drops the finalizer, and lets the snippet be garbage-collected — possibly leaving an orphan tarball in storage. Required so a permanently-broken backend doesn&#39;t block namespace teardown.</td>
+    </tr>
+    <tr>
+      <td><code>--no-cross-namespace-refs</code></td>
+      <td><code>bool</code></td>
+      <td><code>true</code></td>
+      <td>When true (default), reject JsonnetSnippet / library CRs that reference a SourceRef in a different namespace.</td>
+    </tr>
+    <tr>
+      <td><code>--rerender-burst</code></td>
+      <td><code>int</code></td>
+      <td><code>120</code></td>
+      <td>Per-snippet token-bucket depth for re-render rate limiting.</td>
+    </tr>
+    <tr>
+      <td><code>--rerender-rate</code></td>
+      <td><code>string</code></td>
+      <td><code>60/min</code></td>
+      <td>Per-snippet steady-state re-render budget, as N/period (sec|min|hour). Token-bucket combined with --rerender-burst.</td>
+    </tr>
+    <tr>
+      <td><code>--watch-namespaces</code></td>
+      <td><code>string</code></td>
+      <td><em>(empty)</em></td>
+      <td>Comma-separated list of namespaces this operator watches. Empty (the default) means cluster-wide. When set, the manager&#39;s cache only observes CRs in these namespaces — multi-tenant operator-instances pattern. Falls back to JAAS_WATCH_NAMESPACES env var when the flag is empty.</td>
+    </tr>
+  </tbody>
+</table>
+<p><strong>Environment variable:</strong> <code>JAAS_WATCH_NAMESPACES</code> — comma-separated namespace
+list. Superseded by <code>--watch-namespaces</code> when both are set.</p>
+<h2 id="storage-server-local-and-s3">Storage server (local and S3)</h2>
+<p>The storage server is the HTTP file server that downstream Flux consumers fetch
+artifacts from. It is started only when <code>--enable-flux-integration</code> is set.</p>
+<table>
+  <thead>
+    <tr><th>Flag</th><th>Type</th><th>Default</th><th>Description</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>--storage-backend</code></td>
+      <td><code>string</code></td>
+      <td><code>local</code></td>
+      <td>Artifact backend the operator publishes ExternalArtifact tarballs through. local (default; emptyDir/PVC) or s3 (any S3-compatible object store; pairs with leader election for HA across replicas).</td>
+    </tr>
+    <tr>
+      <td><code>--storage-base-url</code></td>
+      <td><code>string</code></td>
+      <td><em>(empty)</em></td>
+      <td>Public URL prefix the operator&#39;s storage HTTP server serves tarballs at. Required when --enable-flux-integration is set.</td>
+    </tr>
+    <tr>
+      <td><code>--storage-listen-address</code></td>
+      <td><code>string</code></td>
+      <td><code>0.0.0.0</code></td>
+      <td>The listen address to bind to for the storage HTTP server</td>
+    </tr>
+    <tr>
+      <td><code>--storage-path</code></td>
+      <td><code>string</code></td>
+      <td><em>(empty)</em></td>
+      <td>Directory the operator writes ExternalArtifact tarballs to. Required when --enable-flux-integration is set.</td>
+    </tr>
+    <tr>
+      <td><code>--storage-port</code></td>
+      <td><code>string</code></td>
+      <td><code>8082</code></td>
+      <td>The port to bind to for the storage HTTP server</td>
+    </tr>
+    <tr>
+      <td><code>--storage-read-timeout</code></td>
+      <td><code>duration</code></td>
+      <td><code>30s</code></td>
+      <td>Maximum duration for reading the entire request on the storage server.</td>
+    </tr>
+    <tr>
+      <td><code>--storage-sweep-interval</code></td>
+      <td><code>duration</code></td>
+      <td><code>10m0s</code></td>
+      <td>How often the operator sweeps orphaned &lt;rev&gt;.tar.gz.tmp residue left by Puts whose process died mid-rename. Zero disables.</td>
+    </tr>
+    <tr>
+      <td><code>--storage-sweep-max-tmp-age</code></td>
+      <td><code>duration</code></td>
+      <td><code>30m0s</code></td>
+      <td>Minimum age before an orphaned .tmp file is eligible for sweep. Wider than the longest plausible in-flight Put to avoid racing live writers.</td>
+    </tr>
+    <tr>
+      <td><code>--storage-write-timeout</code></td>
+      <td><code>duration</code></td>
+      <td><code>5m0s</code></td>
+      <td>Maximum duration before timing out writes of the response on the storage server. Tarballs can be MBs, so this is generous by default.</td>
+    </tr>
+  </tbody>
+</table>
+<h3 id="s3-flags">S3 flags</h3>
+<p>Active only when <code>--storage-backend=s3</code>.</p>
+<table>
+  <thead>
+    <tr><th>Flag</th><th>Type</th><th>Default</th><th>Description</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>--s3-access-key</code></td>
+      <td><code>string</code></td>
+      <td><em>(empty)</em></td>
+      <td>Static AWS_ACCESS_KEY_ID. Empty triggers the IAM/IRSA discovery chain (AWS_*, web-identity, EC2 metadata).</td>
+    </tr>
+    <tr>
+      <td><code>--s3-anonymous</code></td>
+      <td><code>bool</code></td>
+      <td><code>false</code></td>
+      <td>Skip request signing entirely. Only useful against a public bucket — test/dev only.</td>
+    </tr>
+    <tr>
+      <td><code>--s3-bucket</code></td>
+      <td><code>string</code></td>
+      <td><em>(empty)</em></td>
+      <td>S3 bucket the artifacts live in. Must already exist. Required when --storage-backend=s3.</td>
+    </tr>
+    <tr>
+      <td><code>--s3-endpoint</code></td>
+      <td><code>string</code></td>
+      <td><em>(empty)</em></td>
+      <td>S3 service host:port (e.g. s3.amazonaws.com or minio.minio.svc:9000). Required when --storage-backend=s3.</td>
+    </tr>
+    <tr>
+      <td><code>--s3-prefix</code></td>
+      <td><code>string</code></td>
+      <td><em>(empty)</em></td>
+      <td>Optional object-key prefix prepended under the bucket, so jaas can coexist with other tenants in one bucket.</td>
+    </tr>
+    <tr>
+      <td><code>--s3-region</code></td>
+      <td><code>string</code></td>
+      <td><em>(empty)</em></td>
+      <td>S3 region the bucket lives in. Required for AWS multi-region setups; ignored by most S3-compatible servers.</td>
+    </tr>
+    <tr>
+      <td><code>--s3-secret-key</code></td>
+      <td><code>string</code></td>
+      <td><em>(empty)</em></td>
+      <td>Static AWS_SECRET_ACCESS_KEY. Pairs with --s3-access-key.</td>
+    </tr>
+    <tr>
+      <td><code>--s3-session-token</code></td>
+      <td><code>string</code></td>
+      <td><em>(empty)</em></td>
+      <td>Optional AWS_SESSION_TOKEN, paired with --s3-access-key/--s3-secret-key for temporary credentials.</td>
+    </tr>
+    <tr>
+      <td><code>--s3-use-ssl</code></td>
+      <td><code>bool</code></td>
+      <td><code>true</code></td>
+      <td>Talk HTTPS to the S3 endpoint. Set to false only for local MinIO over HTTP.</td>
+    </tr>
+  </tbody>
+</table>
+<h2 id="webhook-tls-provisioning">Webhook (TLS provisioning)</h2>
+<p>Active only when <code>--enable-webhook</code> is set (which also requires
+<code>--enable-flux-integration</code>).</p>
+<table>
+  <thead>
+    <tr><th>Flag</th><th>Type</th><th>Default</th><th>Description</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>--enable-webhook</code></td>
+      <td><code>bool</code></td>
+      <td><code>false</code></td>
+      <td>Boot the validating admission webhook for JsonnetSnippet. Requires --enable-flux-integration and a TLS cert/key in --webhook-cert-dir.</td>
+    </tr>
+    <tr>
+      <td><code>--webhook-cert-dir</code></td>
+      <td><code>string</code></td>
+      <td><code>/tmp/k8s-webhook-server/serving-certs</code></td>
+      <td>Directory holding the TLS cert (tls.crt) and key (tls.key) the webhook server presents.</td>
+    </tr>
+    <tr>
+      <td><code>--webhook-cert-mode</code></td>
+      <td><code>string</code></td>
+      <td><code>cert-manager</code></td>
+      <td>How the webhook&#39;s TLS material is provisioned: cert-manager (chart renders a Certificate; cert injected via Secret mount), or self-signed (operator generates a CA &#43; serving cert in-pod and patches the ValidatingWebhookConfiguration&#39;s caBundle).</td>
+    </tr>
+    <tr>
+      <td><code>--webhook-cert-validity</code></td>
+      <td><code>duration</code></td>
+      <td><code>8760h0m0s</code></td>
+      <td>Validity of the self-signed serving cert. Operators that want short-lived rotation should use cert-manager instead.</td>
+    </tr>
+    <tr>
+      <td><code>--webhook-port</code></td>
+      <td><code>int</code></td>
+      <td><code>9443</code></td>
+      <td>Port the validating webhook server binds to.</td>
+    </tr>
+    <tr>
+      <td><code>--webhook-service-name</code></td>
+      <td><code>string</code></td>
+      <td><code>jaas-webhook</code></td>
+      <td>Service name the webhook is reachable through. Used to build cert SANs when --webhook-cert-mode=self-signed.</td>
+    </tr>
+    <tr>
+      <td><code>--webhook-service-namespace</code></td>
+      <td><code>string</code></td>
+      <td><em>(empty)</em></td>
+      <td>Namespace the webhook Service lives in. Empty falls back to --leader-election-namespace, then to in-cluster downward API.</td>
+    </tr>
+    <tr>
+      <td><code>--webhook-validating-config-name</code></td>
+      <td><code>string</code></td>
+      <td><em>(empty)</em></td>
+      <td>Name of the ValidatingWebhookConfiguration whose caBundle this operator patches. Required when --webhook-cert-mode=self-signed.</td>
+    </tr>
+  </tbody>
+</table>
+<p>See <a href="/security/admission-webhook/">Admission webhook</a>
+ for the full <code>failurePolicy</code>
+trade-off and cert rotation details.</p>
+<h2 id="leader-election">Leader election</h2>
+<table>
+  <thead>
+    <tr><th>Flag</th><th>Type</th><th>Default</th><th>Description</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>--leader-election</code></td>
+      <td><code>bool</code></td>
+      <td><code>true</code></td>
+      <td>Enable controller-runtime leader election so only one operator replica reconciles at a time. Honored only when --enable-flux-integration is set.</td>
+    </tr>
+    <tr>
+      <td><code>--leader-election-id</code></td>
+      <td><code>string</code></td>
+      <td><code>jaas-operator</code></td>
+      <td>Lease object name used for leader election. Must be unique across JaaS installations sharing a namespace.</td>
+    </tr>
+    <tr>
+      <td><code>--leader-election-namespace</code></td>
+      <td><code>string</code></td>
+      <td><em>(empty)</em></td>
+      <td>Namespace holding the leader-election Lease. Empty defaults to the operator pod&#39;s namespace.</td>
+    </tr>
+  </tbody>
+</table>
+<h2 id="observability">Observability</h2>
+<h3 id="metrics">Metrics</h3>
+<table>
+  <thead>
+    <tr><th>Flag</th><th>Type</th><th>Default</th><th>Description</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>--metrics-bind-address</code></td>
+      <td><code>string</code></td>
+      <td><code>:8083</code></td>
+      <td>Bind address for the controller-runtime Prometheus metrics endpoint. Use &#34;0&#34; to disable. The default avoids the conflict between controller-runtime&#39;s built-in :8080 and the jsonnet HTTP server.</td>
+    </tr>
+  </tbody>
+</table>
+<h3 id="tracing">Tracing</h3>
+<table>
+  <thead>
+    <tr><th>Flag</th><th>Type</th><th>Default</th><th>Description</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>--tracing-endpoint</code></td>
+      <td><code>string</code></td>
+      <td><em>(empty)</em></td>
+      <td>OTLP gRPC collector host:port (e.g. otel-collector.observability.svc:4317). Empty disables tracing entirely.</td>
+    </tr>
+    <tr>
+      <td><code>--tracing-insecure</code></td>
+      <td><code>bool</code></td>
+      <td><code>false</code></td>
+      <td>Skip TLS when dialing the OTLP collector. Use only for in-cluster collectors that don&#39;t terminate TLS themselves.</td>
+    </tr>
+    <tr>
+      <td><code>--tracing-sample-ratio</code></td>
+      <td><code>float64</code></td>
+      <td><code>1</code></td>
+      <td>TraceID-ratio sampling (0.0..1.0). 1.0 samples every trace.</td>
+    </tr>
+  </tbody>
+</table>
+<h2 id="logging-and-lifecycle">Logging and lifecycle</h2>
+<table>
+  <thead>
+    <tr><th>Flag</th><th>Type</th><th>Default</th><th>Description</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>--log-format</code></td>
+      <td><code>string</code></td>
+      <td><code>json</code></td>
+      <td>The log output format to use (json, text)</td>
+    </tr>
+    <tr>
+      <td><code>--log-level</code></td>
+      <td><code>string</code></td>
+      <td><code>info</code></td>
+      <td>The log level to use (debug, info, warn, error)</td>
+    </tr>
+    <tr>
+      <td><code>--version</code></td>
+      <td><code>bool</code></td>
+      <td><code>false</code></td>
+      <td>Print version and exit</td>
+    </tr>
+  </tbody>
+</table>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/installation" term="installation" label="installation"/><category scheme="https://jaas.projects.metio.wtf/tags/configuration" term="configuration" label="configuration"/><category scheme="https://jaas.projects.metio.wtf/tags/flags" term="flags" label="flags"/><category scheme="https://jaas.projects.metio.wtf/tags/reference" term="reference" label="reference"/></entry><entry><title type="html">Reference</title><link href="https://jaas.projects.metio.wtf/reference/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/reference/configuration/?utm_source=atom_feed" rel="related" type="text/html" title="Configuration reference"/><link href="https://jaas.projects.metio.wtf/reference/helm-values/?utm_source=atom_feed" rel="related" type="text/html" title="Helm chart values"/><link href="https://jaas.projects.metio.wtf/rendering/joi-images/?utm_source=atom_feed" rel="related" type="text/html" title="JOI images"/><link href="https://jaas.projects.metio.wtf/get-started/kubernetes/?utm_source=atom_feed" rel="related" type="text/html" title="Kubernetes"/><link href="https://jaas.projects.metio.wtf/get-started/quickstart/?utm_source=atom_feed" rel="related" type="text/html" title="Quickstart"/><id>https://jaas.projects.metio.wtf/reference/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-26T15:54:29+02:00</updated><content type="html"><![CDATA[<blockquote>Look up exact values — every flag and Helm chart value, how to verify a release&rsquo;s signatures, and upgrade notes.</blockquote><p>Look-up material for exact values and release mechanics, generated from the binary
+and chart so it tracks the current contract.</p>
+<ul>
+<li><strong><a href="/reference/configuration/">Configuration reference</a>
+</strong> — every flag with its
+default.</li>
+<li><strong><a href="/reference/helm-values/">Helm chart values</a>
+</strong> — every chart value with its
+default.</li>
+<li><strong><a href="/reference/verifying-releases/">Verifying releases</a>
+</strong> — check the signed image
+and binaries before you run them.</li>
+<li><strong><a href="/reference/upgrading/">Upgrading</a>
+</strong> — the actions required when moving between
+releases.</li>
+</ul>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/reference" term="reference" label="reference"/><category scheme="https://jaas.projects.metio.wtf/tags/configuration" term="configuration" label="configuration"/><category scheme="https://jaas.projects.metio.wtf/tags/helm" term="helm" label="helm"/></entry></feed>

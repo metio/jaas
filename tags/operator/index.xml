@@ -1,0 +1,272 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Operator on Jsonnet-as-a-Service</title><link>https://jaas.projects.metio.wtf/tags/operator/</link><description>Recent content in Operator on Jsonnet-as-a-Service</description><generator>Hugo</generator><language>en</language><atom:link href="https://jaas.projects.metio.wtf/tags/operator/index.xml" rel="self" type="application/rss+xml"/><item><title>Admission webhook</title><link>https://jaas.projects.metio.wtf/security/admission-webhook/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/security/admission-webhook/</guid><description>&lt;p&gt;JaaS ships an optional validating admission webhook for &lt;code&gt;JsonnetSnippet&lt;/code&gt;. It is
+independent of, but layered on top of, &lt;a href="https://jaas.projects.metio.wtf/operator/operator-mode/"&gt;operator mode&lt;/a&gt;
+.&lt;/p&gt;
+&lt;h2 id="enabling-it"&gt;Enabling it&lt;/h2&gt;
+&lt;p&gt;Set &lt;code&gt;--enable-webhook&lt;/code&gt; to boot the webhook server. It requires
+&lt;code&gt;--enable-flux-integration&lt;/code&gt; (the webhook is wired only inside the operator boot
+path; enabling it alone is rejected as a flag error) and TLS material — &lt;code&gt;tls.crt&lt;/code&gt;
+and &lt;code&gt;tls.key&lt;/code&gt; — under &lt;code&gt;--webhook-cert-dir&lt;/code&gt; (default
+&lt;code&gt;/tmp/k8s-webhook-server/serving-certs&lt;/code&gt;). The server binds &lt;code&gt;--webhook-port&lt;/code&gt;
+(default &lt;code&gt;9443&lt;/code&gt;).&lt;/p&gt;
+&lt;h2 id="what-it-validates"&gt;What it validates&lt;/h2&gt;
+&lt;p&gt;The webhook rejects a &lt;code&gt;JsonnetSnippet&lt;/code&gt; whose &lt;code&gt;spec.externalVariables&lt;/code&gt; declares a
+key that collides with an operator-level &lt;code&gt;--ext-var&lt;/code&gt;. An operator-supplied
+external variable always wins, so a snippet that tries to redeclare one would
+render against a value it does not control; the webhook refuses the snippet at
+admission time instead.&lt;/p&gt;</description></item><item><title>Alerting</title><link>https://jaas.projects.metio.wtf/observability/alerting/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/observability/alerting/</guid><description>&lt;p&gt;JaaS turns a sustained problem into a notification two ways: a Prometheus
+&lt;code&gt;PrometheusRule&lt;/code&gt; that pages on its &lt;a href="https://jaas.projects.metio.wtf/observability/metrics/"&gt;metrics&lt;/a&gt;
+, and Kubernetes
+Events that Flux&amp;rsquo;s notification-controller can route to chat or e-mail.&lt;/p&gt;
+&lt;h2 id="the-binary"&gt;The binary&lt;/h2&gt;
+&lt;p&gt;The operator emits a standard Kubernetes &lt;code&gt;Event&lt;/code&gt; on every Ready-condition
+transition — &lt;code&gt;Normal&lt;/code&gt; for &lt;code&gt;Synced&lt;/code&gt;, &lt;code&gt;Warning&lt;/code&gt; for every other reason. The reason
+string fills both the event &lt;code&gt;reason&lt;/code&gt; and &lt;code&gt;action&lt;/code&gt;. These Events need no flag to
+enable; they are written whenever the operator reconciles.&lt;/p&gt;</description></item><item><title>Creating source artifacts</title><link>https://jaas.projects.metio.wtf/operator/creating-sources/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/operator/creating-sources/</guid><description>&lt;p&gt;A &lt;code&gt;JsonnetSnippet&lt;/code&gt;&amp;rsquo;s &lt;code&gt;spec.sourceRef&lt;/code&gt; consumes a Flux source. The operator reads
+the referenced source CR&amp;rsquo;s &lt;code&gt;status.artifact.url&lt;/code&gt;, downloads the tarball Flux&amp;rsquo;s
+source-controller serves there, verifies its &lt;code&gt;status.artifact.digest&lt;/code&gt;, and
+extracts it into the snippet&amp;rsquo;s file tree. Every supported kind —
+&lt;code&gt;GitRepository&lt;/code&gt;, &lt;code&gt;OCIRepository&lt;/code&gt;, and &lt;code&gt;Bucket&lt;/code&gt; — reaches the operator through
+that same &lt;code&gt;status.artifact&lt;/code&gt; contract, so the operator never talks to a git
+remote, an OCI registry, or an object store directly. Flux owns that fetch; the
+operator consumes the artifact Flux already produced.&lt;/p&gt;</description></item><item><title>Dashboard</title><link>https://jaas.projects.metio.wtf/observability/dashboard/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/observability/dashboard/</guid><description>&lt;p&gt;JaaS publishes a maintained Grafana dashboard for its own operator as a
+single-layer OCI image at &lt;code&gt;ghcr.io/metio/jaas-dashboard&lt;/code&gt;. Render it through JaaS the
+same way you&amp;rsquo;d render any snippet — no manual JSON to copy around.&lt;/p&gt;
+&lt;p&gt;The dashboard opens with an &lt;a href="https://jaas.projects.metio.wtf/observability/slos/"&gt;SLO&lt;/a&gt;
+ band — reconcile
+availability against its objective, error budget remaining, reconcile-latency p95
+against its objective, and an availability-versus-objective trend — over a band of
+operator internals that explain any movement: reconciles by reason, evaluation
+throughput and backpressure, rendered output size, storage sweeps, and the
+controller-runtime workqueue. The series are the &lt;a href="https://jaas.projects.metio.wtf/observability/metrics/"&gt;metrics&lt;/a&gt;
+
+the operator exports.&lt;/p&gt;</description></item><item><title>ExternalArtifact output contract</title><link>https://jaas.projects.metio.wtf/api/externalartifact/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/api/externalartifact/</guid><description>&lt;p&gt;For every successfully evaluated &lt;code&gt;JsonnetSnippet&lt;/code&gt;, the JaaS operator upserts a
+Flux &lt;code&gt;ExternalArtifact&lt;/code&gt; CR (&lt;code&gt;source.toolkit.fluxcd.io/v1&lt;/code&gt;) in the same namespace
+as the snippet. JaaS does not own the &lt;code&gt;ExternalArtifact&lt;/code&gt; CRD — it is defined and
+installed by Flux&amp;rsquo;s source-controller. The full CRD schema is in the
+&lt;a href="https://fluxcd.io/flux/components/source/externalartifacts/"&gt;Flux ExternalArtifact reference&lt;/a&gt;
+;
+below is the subset JaaS writes and the invariants downstream consumers can rely on.&lt;/p&gt;
+&lt;p&gt;For task-oriented context, see &lt;a href="https://jaas.projects.metio.wtf/operator/operator-mode/"&gt;Operator mode&lt;/a&gt;
+.&lt;/p&gt;
+&lt;h2 id="what-jaas-writes"&gt;What JaaS writes&lt;/h2&gt;
+&lt;h3 id="specsourceref"&gt;&lt;code&gt;spec.sourceRef&lt;/code&gt;&lt;/h3&gt;
+&lt;p&gt;JaaS stamps a back-pointer to the originating snippet on &lt;code&gt;spec.sourceRef&lt;/code&gt;:&lt;/p&gt;</description></item><item><title>Jsonnet libraries</title><link>https://jaas.projects.metio.wtf/rendering/jsonnet-libraries/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/rendering/jsonnet-libraries/</guid><description>&lt;p&gt;Snippets import reusable Jsonnet from two places: namespaced &lt;code&gt;JsonnetLibrary&lt;/code&gt;
+custom resources and OCI-mounted shared libraries the operator carries on disk.
+Both feed the same import-alias namespace, so a snippet&amp;rsquo;s &lt;code&gt;import&lt;/code&gt; statements
+look identical regardless of where the library comes from.&lt;/p&gt;
+&lt;h2 id="the-jsonnetlibrary-crd"&gt;The JsonnetLibrary CRD&lt;/h2&gt;
+&lt;p&gt;A &lt;code&gt;JsonnetLibrary&lt;/code&gt; is a namespaced bundle of &lt;code&gt;.libsonnet&lt;/code&gt; files. Like a snippet,
+it declares exactly one source — inline &lt;code&gt;spec.files&lt;/code&gt; or a &lt;code&gt;spec.sourceRef&lt;/code&gt; to a
+Flux source (&lt;code&gt;GitRepository&lt;/code&gt;, &lt;code&gt;OCIRepository&lt;/code&gt;, &lt;code&gt;Bucket&lt;/code&gt;, &lt;code&gt;ExternalArtifact&lt;/code&gt;).
+The library carries no registration name of its own; the import alias is chosen
+on the snippet side.&lt;/p&gt;</description></item><item><title>JsonnetLibrary</title><link>https://jaas.projects.metio.wtf/api/jsonnetlibrary/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/api/jsonnetlibrary/</guid><description>&lt;p&gt;&lt;code&gt;JsonnetLibrary&lt;/code&gt; (&lt;code&gt;jlib&lt;/code&gt;) is a namespaced bundle of &lt;code&gt;.libsonnet&lt;/code&gt; files that
+&lt;code&gt;JsonnetSnippet&lt;/code&gt; CRs in the same namespace can import. The library carries no
+artifact of its own and no controller reconciles it — it serves purely as a
+supply-side source for snippets. The import alias is set on the snippet side
+via &lt;code&gt;LibraryRef.importPath&lt;/code&gt; (defaulting to the library&amp;rsquo;s &lt;code&gt;metadata.name&lt;/code&gt;); the
+library itself carries no registration name. Task-oriented guidance lives in
+&lt;a href="https://jaas.projects.metio.wtf/rendering/jsonnet-libraries/"&gt;Jsonnet libraries&lt;/a&gt;
+.&lt;/p&gt;
+&lt;h2 id="example"&gt;Example&lt;/h2&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-yaml" data-lang="yaml"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nt"&gt;apiVersion&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;jaas.metio.wtf/v1&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nt"&gt;kind&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;JsonnetLibrary&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nt"&gt;metadata&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="nt"&gt;name&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;mylib&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="nt"&gt;namespace&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;default&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nt"&gt;spec&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="nt"&gt;files&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="nt"&gt;main.libsonnet&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="p"&gt;|&lt;/span&gt;&lt;span class="sd"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; {
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; dashboard(env, cluster):: {
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; title: &amp;#39;%s / %s&amp;#39; % [env, cluster],
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; },
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; }&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;Exactly one of &lt;code&gt;spec.files&lt;/code&gt; or &lt;code&gt;spec.sourceRef&lt;/code&gt; must be set. Admission rejects
+CRs that set neither or both.&lt;/p&gt;</description></item><item><title>JsonnetSnippet</title><link>https://jaas.projects.metio.wtf/api/jsonnetsnippet/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/api/jsonnetsnippet/</guid><description>&lt;p&gt;&lt;code&gt;JsonnetSnippet&lt;/code&gt; (&lt;code&gt;jsnip&lt;/code&gt;) is the published unit of Jsonnet evaluation. The JaaS
+operator watches these namespaced CRs, evaluates the Jsonnet they describe, and
+upserts a Flux &lt;code&gt;ExternalArtifact&lt;/code&gt; whose &lt;code&gt;status.artifact.url&lt;/code&gt; points at the
+rendered result. Task-oriented guidance lives in
+&lt;a href="https://jaas.projects.metio.wtf/operator/operator-mode/"&gt;Operator mode&lt;/a&gt;
+ and &lt;a href="https://jaas.projects.metio.wtf/operator/snippet-sources/"&gt;Snippet sources&lt;/a&gt;
+.&lt;/p&gt;
+&lt;h2 id="example"&gt;Example&lt;/h2&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-yaml" data-lang="yaml"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nt"&gt;apiVersion&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;jaas.metio.wtf/v1&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nt"&gt;kind&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;JsonnetSnippet&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nt"&gt;metadata&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="nt"&gt;name&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;hello-world&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="nt"&gt;namespace&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;default&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nt"&gt;spec&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="nt"&gt;serviceAccountName&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;hello-world-tenant&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="nt"&gt;entryFile&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;main.jsonnet&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="nt"&gt;output&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;rendered&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="nt"&gt;history&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="m"&gt;3&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="nt"&gt;interval&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;10m&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="nt"&gt;suspend&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="kc"&gt;false&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="nt"&gt;files&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="nt"&gt;main.jsonnet&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="p"&gt;|&lt;/span&gt;&lt;span class="sd"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; local lib = import &amp;#39;mylib/main.libsonnet&amp;#39;;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; lib.dashboard(std.extVar(&amp;#39;env&amp;#39;), std.extVar(&amp;#39;cluster&amp;#39;))&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="nt"&gt;libraries&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt; &lt;/span&gt;- &lt;span class="nt"&gt;kind&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;JsonnetLibrary&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="nt"&gt;name&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;mylib&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="nt"&gt;importPath&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;mylib&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="nt"&gt;externalVariables&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt; &lt;/span&gt;- &lt;span class="nt"&gt;name&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;env&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="nt"&gt;value&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;production&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt; &lt;/span&gt;- &lt;span class="nt"&gt;name&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;cluster&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="nt"&gt;value&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;eu-west-1&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="nt"&gt;tlas&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt; &lt;/span&gt;- &lt;span class="nt"&gt;name&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;title&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="nt"&gt;value&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;My Dashboard&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt; &lt;/span&gt;- &lt;span class="nt"&gt;name&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;refreshSeconds&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="nt"&gt;value&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="s2"&gt;&amp;#34;60&amp;#34;&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="nt"&gt;code&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="kc"&gt;true&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;Exactly one of &lt;code&gt;spec.files&lt;/code&gt; or &lt;code&gt;spec.sourceRef&lt;/code&gt; must be set. Admission rejects
+CRs that set neither or both.&lt;/p&gt;</description></item><item><title>Kubernetes</title><link>https://jaas.projects.metio.wtf/get-started/kubernetes/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/get-started/kubernetes/</guid><description>&lt;p&gt;JaaS ships as a container image at &lt;code&gt;ghcr.io/metio/jaas:latest&lt;/code&gt; and as a Helm
+chart at &lt;code&gt;oci://ghcr.io/metio/helm-charts/jaas&lt;/code&gt;, also listed on
+&lt;a href="https://artifacthub.io/packages/helm/jaas/jaas"&gt;ArtifactHub&lt;/a&gt;
+. Pre-built
+binaries for Linux, macOS, and Windows are attached to each GitHub release for
+operators who prefer to run the binary directly.&lt;/p&gt;
+&lt;h2 id="prerequisites"&gt;Prerequisites&lt;/h2&gt;
+&lt;ul&gt;
+&lt;li&gt;A &lt;a href="https://kubernetes.io/"&gt;Kubernetes&lt;/a&gt;
+ cluster, &lt;strong&gt;v1.28 or later&lt;/strong&gt;, with
+&lt;code&gt;kubectl&lt;/code&gt; configured against it.&lt;/li&gt;
+&lt;li&gt;&lt;a href="https://helm.sh/"&gt;Helm&lt;/a&gt;
+ &lt;strong&gt;v3.14 or later&lt;/strong&gt; — OCI chart support is required to
+pull the chart from &lt;code&gt;ghcr.io&lt;/code&gt;.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;The Flux CR-based mode (below) additionally needs:&lt;/p&gt;</description></item><item><title>Logging</title><link>https://jaas.projects.metio.wtf/observability/logging/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/observability/logging/</guid><description>&lt;p&gt;JaaS logs through Go&amp;rsquo;s &lt;code&gt;log/slog&lt;/code&gt;. Every request, reconcile, and lifecycle event
+is a structured record you can filter and parse rather than scrape with a regex.
+In operator mode, controller-runtime&amp;rsquo;s own output — leader election, cache sync,
+manager startup — flows through the &lt;strong&gt;same&lt;/strong&gt; slog handler via the logr bridge
+(&lt;code&gt;ctrl.SetLogger(logr.FromSlogHandler(...))&lt;/code&gt;), so the manager&amp;rsquo;s logs share the
+configured level and format instead of emitting controller-runtime&amp;rsquo;s default zap
+output.&lt;/p&gt;
+&lt;h2 id="the-binary"&gt;The binary&lt;/h2&gt;
+&lt;p&gt;Two flags control logging. They apply in every mode JaaS runs in:&lt;/p&gt;</description></item><item><title>MCP server</title><link>https://jaas.projects.metio.wtf/integrations/mcp-server/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/integrations/mcp-server/</guid><description>&lt;p&gt;JaaS exposes its evaluator and operator status as &lt;a href="https://modelcontextprotocol.io/"&gt;Model Context Protocol&lt;/a&gt;
+
+tools, so an LLM agent (Claude Code, Claude Desktop, or any MCP client) calls
+them directly. There are two modes, each with its own transport:&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;Local rendering over stdio&lt;/strong&gt; — &lt;code&gt;jaas mcp&lt;/code&gt; wraps the same evaluator the HTTP
+endpoint and the operator use, with no cluster and no Kubernetes client. This
+is the cluster-free authoring loop.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;In-cluster operator introspection over HTTP&lt;/strong&gt; — &lt;code&gt;--enable-mcp&lt;/code&gt; adds a
+streamable-HTTP server inside the operator pod that reads &lt;code&gt;JsonnetSnippet&lt;/code&gt;
+status as the operator&amp;rsquo;s ServiceAccount.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;The tools are thin adapters over existing code, so an agent&amp;rsquo;s render is
+byte-identical to the HTTP endpoint and the operator.&lt;/p&gt;</description></item><item><title>Metrics</title><link>https://jaas.projects.metio.wtf/observability/metrics/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/observability/metrics/</guid><description>&lt;p&gt;The JaaS operator exposes a Prometheus metrics endpoint covering controller-runtime&amp;rsquo;s
+standard families plus a custom &lt;code&gt;jaas_*&lt;/code&gt; family the reconciler registers. Scrape
+it for dashboards and feed it into the shipped &lt;a href="https://jaas.projects.metio.wtf/observability/alerting/"&gt;alerts&lt;/a&gt;
+.&lt;/p&gt;
+&lt;h2 id="the-binary"&gt;The binary&lt;/h2&gt;
+&lt;p&gt;controller-runtime&amp;rsquo;s Prometheus endpoint binds &lt;code&gt;--metrics-bind-address&lt;/code&gt; (default
+&lt;code&gt;:8083&lt;/code&gt;), serving the standard text exposition format at &lt;code&gt;/metrics&lt;/code&gt;. Setting it
+to &lt;code&gt;0&lt;/code&gt; disables the endpoint. The default deliberately avoids controller-runtime&amp;rsquo;s
+built-in &lt;code&gt;:8080&lt;/code&gt;, which would collide with the Jsonnet HTTP port.&lt;/p&gt;
+&lt;p&gt;The full flag list with defaults is on the
+&lt;a href="https://jaas.projects.metio.wtf/reference/configuration/"&gt;configuration page&lt;/a&gt;
+.&lt;/p&gt;</description></item><item><title>Observability</title><link>https://jaas.projects.metio.wtf/observability/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/observability/</guid><description>&lt;p&gt;JaaS gives you four ways to see what it is doing in a cluster. Structured logs
+tell you what happened on a single request or reconcile; traces follow one
+operation across its spans; metrics aggregate behaviour into time series for
+dashboards and alerts; and alerts plus Kubernetes Events turn a sustained
+problem into a page or a notification.&lt;/p&gt;
+&lt;p&gt;Each pillar has its own page covering both the binary&amp;rsquo;s flags and the Helm chart
+keys that drive them:&lt;/p&gt;</description></item><item><title>Operator mode</title><link>https://jaas.projects.metio.wtf/operator/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/operator/</guid><description>&lt;p&gt;With Flux integration enabled, JaaS watches &lt;code&gt;JsonnetSnippet&lt;/code&gt; resources, evaluates
+them, and publishes each result as an &lt;code&gt;ExternalArtifact&lt;/code&gt; that Flux consumers can
+deploy. These pages cover the operator and the sources it reads and writes.&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;&lt;a href="https://jaas.projects.metio.wtf/operator/operator-mode/"&gt;Operator mode&lt;/a&gt;
+&lt;/strong&gt; — enable the operator and the
+custom resources it reconciles.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;a href="https://jaas.projects.metio.wtf/operator/snippet-sources/"&gt;Snippet sources&lt;/a&gt;
+&lt;/strong&gt; — point a snippet at a Flux
+source for its inputs.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;a href="https://jaas.projects.metio.wtf/operator/creating-sources/"&gt;Creating source artifacts&lt;/a&gt;
+&lt;/strong&gt; — how snippets are
+published as &lt;code&gt;ExternalArtifact&lt;/code&gt; outputs.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;a href="https://jaas.projects.metio.wtf/operator/storage-and-ha/"&gt;Storage and HA&lt;/a&gt;
+&lt;/strong&gt; — artifact storage backends and
+leader-elected high availability.&lt;/li&gt;
+&lt;/ul&gt;</description></item><item><title>Operator mode</title><link>https://jaas.projects.metio.wtf/operator/operator-mode/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/operator/operator-mode/</guid><description>&lt;p&gt;JaaS runs as a Kubernetes operator alongside its HTTP renderer. In this mode it
+watches custom resources, evaluates the Jsonnet they describe, and publishes the
+result as a Flux &lt;a href="https://fluxcd.io/"&gt;&lt;code&gt;ExternalArtifact&lt;/code&gt;&lt;/a&gt;
+ that downstream
+controllers consume. The HTTP renderer keeps running; the operator is an
+additional set of goroutines, not a separate binary.&lt;/p&gt;
+&lt;h2 id="enabling-the-operator"&gt;Enabling the operator&lt;/h2&gt;
+&lt;p&gt;Set &lt;code&gt;--enable-flux-integration&lt;/code&gt; on the binary:&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-shell" data-lang="shell"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;jaas --enable-flux-integration &lt;span class="se"&gt;\
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; --storage-path&lt;span class="o"&gt;=&lt;/span&gt;/var/lib/jaas/artifacts &lt;span class="se"&gt;\
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; --storage-base-url&lt;span class="o"&gt;=&lt;/span&gt;http://jaas-storage.jaas.svc:8082
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;&lt;code&gt;--storage-path&lt;/code&gt; and &lt;code&gt;--storage-base-url&lt;/code&gt; are required in operator mode — they
+tell the operator where to write artifact tarballs and the public URL prefix
+downstream consumers fetch them from.&lt;/p&gt;</description></item><item><title>Quickstart</title><link>https://jaas.projects.metio.wtf/get-started/quickstart/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/get-started/quickstart/</guid><description>&lt;p&gt;This tutorial takes you from an empty cluster to one published Flux
+&lt;code&gt;ExternalArtifact&lt;/code&gt; carrying rendered JSON. The path is operator mode with no
+optional knobs — no webhook, no S3, no Flux source CRs — and a single
+&lt;code&gt;JsonnetSnippet&lt;/code&gt; whose source is inline &lt;code&gt;spec.files&lt;/code&gt;.&lt;/p&gt;
+&lt;h2 id="prerequisites"&gt;Prerequisites&lt;/h2&gt;
+&lt;ul&gt;
+&lt;li&gt;
+&lt;p&gt;A Kubernetes cluster. &lt;code&gt;kind&lt;/code&gt;, &lt;code&gt;minikube&lt;/code&gt;, or a managed cluster all work.&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;code&gt;kubectl&lt;/code&gt; configured to talk to it.&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;code&gt;helm&lt;/code&gt; 3.x.&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;Flux installed, at &lt;strong&gt;v2.7.0 or newer&lt;/strong&gt;. A &lt;code&gt;JsonnetSnippet&lt;/code&gt; publishes its
+result as a Flux &lt;code&gt;ExternalArtifact&lt;/code&gt;, and the &lt;code&gt;ExternalArtifact&lt;/code&gt; CRD lands in
+source-controller v1.7.0 (Flux v2.7.0) — earlier bundles have no such CRD and
+the publish path fails. Install all of Flux:&lt;/p&gt;</description></item><item><title>Service level objectives</title><link>https://jaas.projects.metio.wtf/observability/slos/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/observability/slos/</guid><description>&lt;p&gt;The JaaS operator tracks two service-level objectives. Each is an objective on a
+service-level indicator (SLI) computed from the &lt;a href="https://jaas.projects.metio.wtf/observability/metrics/"&gt;metrics&lt;/a&gt;
+,
+measured over a rolling window. The published dashboard renders them, and the Helm
+chart can alert on them.&lt;/p&gt;
+&lt;h2 id="slo-1--reconcile-availability"&gt;SLO 1 — reconcile availability&lt;/h2&gt;
+&lt;p&gt;&lt;strong&gt;Objective:&lt;/strong&gt; ≥ &lt;strong&gt;99%&lt;/strong&gt; of syncing reconciles reach &lt;code&gt;Ready=True&lt;/code&gt;, over a &lt;strong&gt;28-day&lt;/strong&gt;
+window.&lt;/p&gt;
+&lt;p&gt;The SLI counts only reconciles that were actually trying to sync — the intentional
+&lt;code&gt;Pending&lt;/code&gt; and &lt;code&gt;Suspended&lt;/code&gt; states are excluded from both halves:&lt;/p&gt;</description></item><item><title>Snippet sources</title><link>https://jaas.projects.metio.wtf/operator/snippet-sources/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/operator/snippet-sources/</guid><description>&lt;p&gt;A &lt;code&gt;JsonnetSnippet&lt;/code&gt; declares exactly one source for its Jsonnet bytes: either
+inline &lt;code&gt;spec.files&lt;/code&gt; or a &lt;code&gt;spec.sourceRef&lt;/code&gt; pointing at a Flux source. Admission
+rejects a snippet that sets both or neither. The operator resolves the source
+into an in-memory file tree, evaluates &lt;code&gt;spec.entryFile&lt;/code&gt; within it, and publishes
+the result.&lt;/p&gt;
+&lt;h2 id="inline-files"&gt;Inline files&lt;/h2&gt;
+&lt;p&gt;&lt;code&gt;spec.files&lt;/code&gt; is a map of filename to Jsonnet source. The operator evaluates the
+entry file (&lt;code&gt;spec.entryFile&lt;/code&gt;, default &lt;code&gt;main.jsonnet&lt;/code&gt;) against the rest of the
+map. This is the simplest source — the snippet is self-contained, with no
+external dependency to fetch:&lt;/p&gt;</description></item><item><title>Storage and high availability</title><link>https://jaas.projects.metio.wtf/operator/storage-and-ha/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/operator/storage-and-ha/</guid><description>&lt;p&gt;In &lt;a href="https://jaas.projects.metio.wtf/operator/operator-mode/"&gt;operator mode&lt;/a&gt;
+ JaaS renders each &lt;code&gt;JsonnetSnippet&lt;/code&gt; into
+a tar.gz artifact, stores it, and publishes an &lt;code&gt;ExternalArtifact&lt;/code&gt; CR that points a
+Flux consumer at the tarball over HTTP. JaaS publishes artifacts through one of two
+storage backends — local filesystem or S3-compatible object storage — with optional
+leader election for multi-replica high availability and configurable revision
+retention.&lt;/p&gt;
+&lt;h2 id="serving-the-tarballs"&gt;Serving the tarballs&lt;/h2&gt;
+&lt;p&gt;Regardless of backend, the operator runs an HTTP server that Flux consumers fetch
+artifacts from. Three flags govern it, and &lt;code&gt;--storage-base-url&lt;/code&gt; and
+&lt;code&gt;--storage-path&lt;/code&gt; are required whenever &lt;code&gt;--enable-flux-integration&lt;/code&gt; is set:&lt;/p&gt;</description></item><item><title>Tenancy and RBAC</title><link>https://jaas.projects.metio.wtf/security/tenancy-and-rbac/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/security/tenancy-and-rbac/</guid><description>&lt;p&gt;In &lt;a href="https://jaas.projects.metio.wtf/operator/operator-mode/"&gt;operator mode&lt;/a&gt;
+ the JaaS operator never acts with its
+own broad privileges when touching tenant resources. Every reconcile of a
+&lt;code&gt;JsonnetSnippet&lt;/code&gt; runs against the RBAC of a tenant ServiceAccount, so a snippet
+can only reach what its own ServiceAccount is allowed to reach.&lt;/p&gt;
+&lt;h2 id="per-snippet-impersonation"&gt;Per-snippet impersonation&lt;/h2&gt;
+&lt;p&gt;Each &lt;code&gt;JsonnetSnippet&lt;/code&gt; carries a &lt;code&gt;spec.serviceAccountName&lt;/code&gt;. On every reconcile the
+operator mints a short-lived Bearer token for that ServiceAccount through the
+Kubernetes TokenRequest API (&lt;code&gt;serviceaccounts/token: create&lt;/code&gt;) and performs all
+tenant-side API calls — reading &lt;code&gt;JsonnetLibrary&lt;/code&gt; objects, fetching Flux source
+artifacts, and writing the published &lt;code&gt;ExternalArtifact&lt;/code&gt; — as that ServiceAccount.
+The operator does not use the &lt;code&gt;impersonate&lt;/code&gt; verb; it uses a real token, so the
+apiserver evaluates the tenant&amp;rsquo;s own RBAC.&lt;/p&gt;</description></item><item><title>Tracing</title><link>https://jaas.projects.metio.wtf/observability/tracing/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/observability/tracing/</guid><description>&lt;p&gt;The JaaS operator exports OpenTelemetry traces over OTLP gRPC. With an endpoint
+configured, each reconcile and the work it fans out into — source fetch, library
+resolution, evaluation, publish — becomes a span you can follow in a tracing
+backend. When no endpoint is set, the OpenTelemetry SDK runs in no-op mode and
+emits nothing, so tracing carries no cost until you opt in.&lt;/p&gt;
+&lt;h2 id="the-binary"&gt;The binary&lt;/h2&gt;
+&lt;p&gt;Three flags configure the exporter:&lt;/p&gt;</description></item></channel></rss>

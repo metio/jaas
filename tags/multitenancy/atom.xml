@@ -1,0 +1,157 @@
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en"><generator uri="https://gohugo.io/" version="0.163.3">Hugo</generator><title type="html">Multitenancy on Jsonnet-as-a-Service</title><link href="https://jaas.projects.metio.wtf/tags/multitenancy/" rel="alternate" type="text/html" title="html"/><link href="https://jaas.projects.metio.wtf/tags/multitenancy/index.xml" rel="alternate" type="application/rss+xml" title="rss"/><link href="https://jaas.projects.metio.wtf/tags/multitenancy/atom.xml" rel="self" type="application/atom+xml" title="atom"/><updated>2026-07-24T07:17:17+00:00</updated><author><name>metio.wtf</name></author><id>https://jaas.projects.metio.wtf/tags/multitenancy/</id><entry><title type="html">Tenancy and RBAC</title><link href="https://jaas.projects.metio.wtf/security/tenancy-and-rbac/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/security/admission-webhook/?utm_source=atom_feed" rel="related" type="text/html" title="Admission webhook"/><link href="https://jaas.projects.metio.wtf/observability/alerting/?utm_source=atom_feed" rel="related" type="text/html" title="Alerting"/><link href="https://jaas.projects.metio.wtf/operator/creating-sources/?utm_source=atom_feed" rel="related" type="text/html" title="Creating source artifacts"/><link href="https://jaas.projects.metio.wtf/runbooks/crossnamespacerefrejected/?utm_source=atom_feed" rel="related" type="text/html" title="CrossNamespaceRefRejected"/><link href="https://jaas.projects.metio.wtf/observability/dashboard/?utm_source=atom_feed" rel="related" type="text/html" title="Dashboard"/><id>https://jaas.projects.metio.wtf/security/tenancy-and-rbac/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-26T15:54:29+02:00</updated><content type="html"><![CDATA[<blockquote>Per-snippet ServiceAccount impersonation, the minimal operator ClusterRole, the tenant Role callers must grant, and the watch-scope flags.</blockquote><p>In <a href="/operator/operator-mode/">operator mode</a>
+ the JaaS operator never acts with its
+own broad privileges when touching tenant resources. Every reconcile of a
+<code>JsonnetSnippet</code> runs against the RBAC of a tenant ServiceAccount, so a snippet
+can only reach what its own ServiceAccount is allowed to reach.</p>
+<h2 id="per-snippet-impersonation">Per-snippet impersonation</h2>
+<p>Each <code>JsonnetSnippet</code> carries a <code>spec.serviceAccountName</code>. On every reconcile the
+operator mints a short-lived Bearer token for that ServiceAccount through the
+Kubernetes TokenRequest API (<code>serviceaccounts/token: create</code>) and performs all
+tenant-side API calls — reading <code>JsonnetLibrary</code> objects, fetching Flux source
+artifacts, and writing the published <code>ExternalArtifact</code> — as that ServiceAccount.
+The operator does not use the <code>impersonate</code> verb; it uses a real token, so the
+apiserver evaluates the tenant&rsquo;s own RBAC.</p>
+<p>When a snippet omits <code>spec.serviceAccountName</code>, the operator falls back to the
+ServiceAccount named in <code>--default-service-account</code>. If that flag is also empty,
+such a snippet is rejected at reconcile time rather than silently running with
+elevated rights. Set <code>--default-service-account</code> to a low-privilege account if
+you want snippets without an explicit ServiceAccount to reconcile at all.</p>
+<h2 id="the-operators-own-clusterrole">The operator&rsquo;s own ClusterRole</h2>
+<p>Because every tenant-side call is the tenant&rsquo;s, the operator&rsquo;s own ClusterRole
+stays minimal:</p>
+<ul>
+<li><code>serviceaccounts/token: create</code> — to mint the Bearer tokens above.</li>
+<li><code>get</code>/<code>list</code>/<code>watch</code> on <code>customresourcedefinitions.apiextensions.k8s.io</code> — the
+CRD watcher subscribes to the cluster&rsquo;s CRD stream so that Flux source-kind
+watches engage automatically when a previously-absent CRD becomes established,
+without a process restart.</li>
+<li>Watch verbs on the JaaS CRDs (<code>JsonnetSnippet</code>, <code>JsonnetLibrary</code>) and on the
+Flux source kinds it chains from (<code>GitRepository</code>, <code>OCIRepository</code>, <code>Bucket</code>,
+<code>ExternalArtifact</code>).</li>
+</ul>
+<p>The operator does not need <code>create</code>/<code>update</code>/<code>patch</code> on <code>ExternalArtifact</code> in its
+own ClusterRole — that write is done as the tenant, so the verb lives on the
+tenant Role below.</p>
+<h2 id="the-tenant-role">The tenant Role</h2>
+<p>The ServiceAccount each snippet runs as needs explicit verbs, or the first
+reconcile fails with <code>Forbidden</code> and the failure points at the wrong cause. Grant
+this Role in the tenant&rsquo;s namespace:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l">rbac.authorization.k8s.io/v1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">Role</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">metadata</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">&lt;tenant-namespace&gt;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">jaas-tenant</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">rules</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="c"># Required: the operator writes the snippet&#39;s ExternalArtifact as</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="c"># the tenant ServiceAccount. Without these the publish step is denied.</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span>- <span class="nt">apiGroups</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="l">source.toolkit.fluxcd.io]</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">resources</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="l">externalartifacts]</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">verbs</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="l">get, create, update, patch]</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="c"># Required only when the snippet uses spec.libraries (JsonnetLibrary refs).</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span>- <span class="nt">apiGroups</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="l">jaas.metio.wtf]</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">resources</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="l">jsonnetlibraries]</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">verbs</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="l">get, list]</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="c"># Required only when the snippet uses spec.sourceRef. Grant only</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="c"># the source kinds your tenants actually reference.</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span>- <span class="nt">apiGroups</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="l">source.toolkit.fluxcd.io]</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">resources</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="l">gitrepositories, ocirepositories, buckets, externalartifacts]</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">verbs</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="l">get]</span><span class="w">
+</span></span></span></code></pre></div><p>Notes on each rule:</p>
+<ul>
+<li>The <code>externalartifacts</code> write verbs (<code>create</code>, <code>update</code>, <code>patch</code>) are
+mandatory. The operator writes the published artifact CR through the
+impersonating client on purpose, so one tenant Role governs both source-side
+reads and artifact-side writes.</li>
+<li>The <code>jsonnetlibraries</code> rule is needed only when a snippet references libraries
+through <code>spec.libraries</code>. See <a href="/operator/snippet-sources/">snippet sources</a>
+ for how
+libraries reach a snippet.</li>
+<li>The source-kind <code>get</code> rule is needed only when a snippet has a <code>spec.sourceRef</code>.
+Grant only the kinds your tenants reference. The <code>externalartifacts</code> entry here
+covers chained snippets — snippet B reading the <code>ExternalArtifact</code> snippet A
+publishes.</li>
+</ul>
+<h2 id="binding-per-namespace">Binding per namespace</h2>
+<p>For namespace-scoped multitenancy, bind the Role to each tenant ServiceAccount in
+its own namespace with a <code>RoleBinding</code>:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l">rbac.authorization.k8s.io/v1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">RoleBinding</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">metadata</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">&lt;tenant-namespace&gt;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">jaas-tenant</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">roleRef</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">apiGroup</span><span class="p">:</span><span class="w"> </span><span class="l">rbac.authorization.k8s.io</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">Role</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">jaas-tenant</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">subjects</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span>- <span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">ServiceAccount</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">&lt;tenant-service-account&gt;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">&lt;tenant-namespace&gt;</span><span class="w">
+</span></span></span></code></pre></div><p>Each tenant namespace gets its own <code>Role</code> + <code>RoleBinding</code>, so a snippet&rsquo;s blast
+radius is its own namespace&rsquo;s grants.</p>
+<h2 id="single-tenant-clusters">Single-tenant clusters</h2>
+<p>When a cluster runs only your own workloads and snippets do not need isolating from
+each other, a Role per namespace is more than you need. The operator still
+impersonates a ServiceAccount — it never applies with its own identity — so the
+simplest setup is one shared account:</p>
+<ol>
+<li>
+<p>Create a single ServiceAccount and grant it the rights your snippets need. On a
+single-tenant cluster that can be broad: a <code>ClusterRoleBinding</code> to the built-in
+<code>cluster-admin</code> ClusterRole lets any snippet read any source and publish into
+any namespace.</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l">v1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">ServiceAccount</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">metadata</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">jaas-snippets</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">jaas-system</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nn">---</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l">rbac.authorization.k8s.io/v1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">ClusterRoleBinding</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">metadata</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">jaas-snippets-admin</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">roleRef</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">apiGroup</span><span class="p">:</span><span class="w"> </span><span class="l">rbac.authorization.k8s.io</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">ClusterRole</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">cluster-admin</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">subjects</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span>- <span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">ServiceAccount</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">jaas-snippets</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">jaas-system</span><span class="w">
+</span></span></span></code></pre></div></li>
+<li>
+<p>Point the operator&rsquo;s <code>--default-service-account</code> at it (set through the chart&rsquo;s
+operator values), and leave <code>spec.serviceAccountName</code> off your snippets. Every
+snippet then reconciles as that one account.</p>
+</li>
+</ol>
+<p>This trades isolation for simplicity — every snippet has the same rights, so use it
+only where you trust every snippet author. To move to multitenancy later, give
+individual snippets their own <code>spec.serviceAccountName</code> scoped to a tenant Role as
+above; anything still relying on the default keeps working.</p>
+<h2 id="restricting-cross-namespace-references">Restricting cross-namespace references</h2>
+<p><code>--no-cross-namespace-refs</code> defaults to <code>true</code>: a <code>JsonnetSnippet</code> or
+<code>JsonnetLibrary</code> whose <code>sourceRef</code> targets a different namespace is rejected. Keep
+this on for multitenancy — it stops one tenant from pointing a snippet at another
+tenant&rsquo;s source. Set it to <code>false</code> only when you operate every namespace yourself
+and deliberately want cross-namespace chaining.</p>
+<h2 id="narrowing-the-watch">Narrowing the watch</h2>
+<p>Two flags scope which CRs the operator reconciles:</p>
+<ul>
+<li><code>--label-selector</code> narrows the watch to CRs whose labels match the selector.
+Empty (the default) selects every CR in the watched scope. Use it to run an
+operator over only a labelled subset of snippets.</li>
+<li><code>--watch-namespaces</code> (or the <code>JAAS_WATCH_NAMESPACES</code> environment variable) takes
+a comma-separated namespace list and restricts the manager&rsquo;s cache to those
+namespaces. Empty (the default) is cluster-wide. The Helm chart&rsquo;s
+<code>operator.watchNamespaces</code> mirrors this: when set, it threads the value into the
+deployment&rsquo;s <code>--watch-namespaces</code> argument and pivots the rendered RBAC to one
+<code>RoleBinding</code> per listed namespace instead of a cluster-wide
+<code>ClusterRoleBinding</code>. Cluster-scoped resources (CRDs, the optional
+<code>ValidatingWebhookConfiguration</code>) stay bound through a <code>ClusterRoleBinding</code>,
+since they are inherently cluster-scoped.</li>
+</ul>
+<p>The full flag list, with defaults, is on the
+<a href="/reference/configuration/">configuration page</a>
+.</p>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/operator" term="operator" label="operator"/><category scheme="https://jaas.projects.metio.wtf/tags/rbac" term="rbac" label="rbac"/><category scheme="https://jaas.projects.metio.wtf/tags/multitenancy" term="multitenancy" label="multitenancy"/></entry></feed>

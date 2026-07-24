@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Grafana on Jsonnet-as-a-Service</title><link>https://jaas.projects.metio.wtf/tags/grafana/</link><description>Recent content in Grafana on Jsonnet-as-a-Service</description><generator>Hugo</generator><language>en</language><atom:link href="https://jaas.projects.metio.wtf/tags/grafana/index.xml" rel="self" type="application/rss+xml"/><item><title>Dashboard</title><link>https://jaas.projects.metio.wtf/observability/dashboard/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/observability/dashboard/</guid><description>&lt;p&gt;JaaS publishes a maintained Grafana dashboard for its own operator as a
+single-layer OCI image at &lt;code&gt;ghcr.io/metio/jaas-dashboard&lt;/code&gt;. Render it through JaaS the
+same way you&amp;rsquo;d render any snippet — no manual JSON to copy around.&lt;/p&gt;
+&lt;p&gt;The dashboard opens with an &lt;a href="https://jaas.projects.metio.wtf/observability/slos/"&gt;SLO&lt;/a&gt;
+ band — reconcile
+availability against its objective, error budget remaining, reconcile-latency p95
+against its objective, and an availability-versus-objective trend — over a band of
+operator internals that explain any movement: reconciles by reason, evaluation
+throughput and backpressure, rendered output size, storage sweeps, and the
+controller-runtime workqueue. The series are the &lt;a href="https://jaas.projects.metio.wtf/observability/metrics/"&gt;metrics&lt;/a&gt;
+
+the operator exports.&lt;/p&gt;</description></item><item><title>Grafana dashboards</title><link>https://jaas.projects.metio.wtf/guides/grafana-dashboards/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/guides/grafana-dashboards/</guid><description>&lt;p&gt;JaaS pairs with the
+&lt;a href="https://grafana.github.io/grafana-operator/"&gt;grafana-operator&lt;/a&gt;
+ to manage
+Grafana dashboards as code: you author the dashboard in Jsonnet, the JaaS
+operator renders it and publishes the dashboard JSON as a Flux
+&lt;code&gt;ExternalArtifact&lt;/code&gt;, and the grafana-operator reconciles that artifact into a live
+Grafana instance.&lt;/p&gt;
+&lt;p&gt;This tutorial covers the JaaS side — authoring the dashboard, importing
+grafonnet as a &lt;code&gt;JsonnetLibrary&lt;/code&gt;, and publishing the rendered JSON. For the
+grafana-operator side (the &lt;code&gt;GrafanaDashboard&lt;/code&gt; CR, datasources, folders), see the
+links at the end.&lt;/p&gt;</description></item></channel></rss>

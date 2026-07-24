@@ -1,0 +1,619 @@
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en"><generator uri="https://gohugo.io/" version="0.163.3">Hugo</generator><title type="html">API reference on Jsonnet-as-a-Service</title><link href="https://jaas.projects.metio.wtf/api/" rel="alternate" type="text/html" title="html"/><link href="https://jaas.projects.metio.wtf/api/index.xml" rel="alternate" type="application/rss+xml" title="rss"/><link href="https://jaas.projects.metio.wtf/api/atom.xml" rel="self" type="application/atom+xml" title="atom"/><updated>2026-07-24T07:17:17+00:00</updated><author><name>metio.wtf</name></author><id>https://jaas.projects.metio.wtf/api/</id><entry><title type="html">ExternalArtifact output contract</title><link href="https://jaas.projects.metio.wtf/api/externalartifact/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/api/jsonnetsnippet/?utm_source=atom_feed" rel="related" type="text/html" title="JsonnetSnippet"/><link href="https://jaas.projects.metio.wtf/operator/creating-sources/?utm_source=atom_feed" rel="related" type="text/html" title="Creating source artifacts"/><link href="https://jaas.projects.metio.wtf/api/jsonnetlibrary/?utm_source=atom_feed" rel="related" type="text/html" title="JsonnetLibrary"/><link href="https://jaas.projects.metio.wtf/operator/operator-mode/?utm_source=atom_feed" rel="related" type="text/html" title="Operator mode"/><link href="https://jaas.projects.metio.wtf/security/admission-webhook/?utm_source=atom_feed" rel="related" type="text/html" title="Admission webhook"/><id>https://jaas.projects.metio.wtf/api/externalartifact/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-26T15:54:29+02:00</updated><content type="html"><![CDATA[<blockquote>The shape JaaS writes to the Flux ExternalArtifact CR and the contract downstream consumers depend on.</blockquote><p>For every successfully evaluated <code>JsonnetSnippet</code>, the JaaS operator upserts a
+Flux <code>ExternalArtifact</code> CR (<code>source.toolkit.fluxcd.io/v1</code>) in the same namespace
+as the snippet. JaaS does not own the <code>ExternalArtifact</code> CRD — it is defined and
+installed by Flux&rsquo;s source-controller. The full CRD schema is in the
+<a href="https://fluxcd.io/flux/components/source/externalartifacts/">Flux ExternalArtifact reference</a>
+;
+below is the subset JaaS writes and the invariants downstream consumers can rely on.</p>
+<p>For task-oriented context, see <a href="/operator/operator-mode/">Operator mode</a>
+.</p>
+<h2 id="what-jaas-writes">What JaaS writes</h2>
+<h3 id="specsourceref"><code>spec.sourceRef</code></h3>
+<p>JaaS stamps a back-pointer to the originating snippet on <code>spec.sourceRef</code>:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">spec</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">sourceRef</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l">jaas.metio.wtf/v1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">JsonnetSnippet</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">&lt;snippet-name&gt;</span><span class="w">
+</span></span></span></code></pre></div><p>The namespace is always the snippet&rsquo;s own namespace — JaaS never publishes an
+<code>ExternalArtifact</code> to a different namespace. The three fields
+(<code>apiVersion</code>, <code>kind</code>, <code>name</code>) are wire-stable: downstream consumers that do
+producer-aware reverse lookup (such as stageset-controller&rsquo;s RFC-0012 resolution)
+match on this triple. Renaming any field is a breaking change.</p>
+<h3 id="statusartifact"><code>status.artifact</code></h3>
+<p>After a successful publish, JaaS writes the following fields under <code>status.artifact</code>:</p>
+<table>
+	<thead>
+			<tr>
+					<th>Field</th>
+					<th>Type</th>
+					<th>Description</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><code>url</code></td>
+					<td>string</td>
+					<td>HTTP URL of the published tarball. Revision-addressed: <code>&lt;storage-base-url&gt;/&lt;namespace&gt;/&lt;name&gt;/&lt;sha256-hex&gt;.tar.gz</code>. Byte-stable for the lifetime of the revision in the keep-set — re-publishing a different revision does not mutate the bytes at this URL.</td>
+			</tr>
+			<tr>
+					<td><code>path</code></td>
+					<td>string</td>
+					<td>Storage-backend-relative path of the tarball.</td>
+			</tr>
+			<tr>
+					<td><code>revision</code></td>
+					<td>string</td>
+					<td><code>sha256:&lt;hex&gt;</code> content hash of the artifact. In <code>rendered</code> output mode this is the sha256 of the evaluated JSON; in <code>source</code> mode it is a deterministic hash over all source files (sorted by filename).</td>
+			</tr>
+			<tr>
+					<td><code>digest</code></td>
+					<td>string</td>
+					<td><code>sha256:&lt;hex&gt;</code> of the tarball bytes (the <code>.tar.gz</code> itself, not the content). Used by Flux consumers to verify integrity after download.</td>
+			</tr>
+			<tr>
+					<td><code>size</code></td>
+					<td>int64</td>
+					<td>Tarball size in bytes.</td>
+			</tr>
+			<tr>
+					<td><code>lastUpdateTime</code></td>
+					<td>string</td>
+					<td>RFC3339 timestamp of the most recent successful publish.</td>
+			</tr>
+	</tbody>
+</table>
+<h3 id="statusconditions"><code>status.conditions</code></h3>
+<p>JaaS writes a single <code>Ready</code> condition on every successful publish:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">status</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">conditions</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span>- <span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l">Ready</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">status</span><span class="p">:</span><span class="w"> </span><span class="s2">&#34;True&#34;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">reason</span><span class="p">:</span><span class="w"> </span><span class="l">Succeeded</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">message</span><span class="p">:</span><span class="w"> </span><span class="l">artifact published</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">lastTransitionTime</span><span class="p">:</span><span class="w"> </span><span class="l">&lt;RFC3339&gt;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">observedGeneration</span><span class="p">:</span><span class="w"> </span><span class="l">&lt;generation&gt;</span><span class="w">
+</span></span></span></code></pre></div><p><code>lastTransitionTime</code> is preserved across steady-state republishes (same
+<code>Ready=True</code>, new revision) so the timestamp does not churn. It advances only
+when the condition transitions (e.g. from <code>False</code> to <code>True</code> after a failure
+clears).</p>
+<h2 id="what-downstream-consumers-rely-on">What downstream consumers rely on</h2>
+<p><strong>Gate on <code>Ready=True</code> before fetching.</strong> Every Flux consumer — including
+<code>kustomize-controller</code>, <code>helm-controller</code>, and JaaS&rsquo;s own chained-snippet
+<code>sourceRef</code> resolver — treats an <code>ExternalArtifact</code> as not-yet-consumable until
+<code>status.conditions[Ready].status == &quot;True&quot;</code>. A snippet that has not yet
+completed its first successful reconcile will have no <code>Ready</code> condition (or
+<code>Ready=False</code>) and leaves chained snippets blocked with reason <code>SourceNotReady</code>.</p>
+<p><strong>URL is revision-addressed and byte-stable.</strong> The URL published in
+<code>status.artifact.url</code> has the form
+<code>&lt;storage-base-url&gt;/&lt;namespace&gt;/&lt;name&gt;/&lt;sha256-hex&gt;.tar.gz</code>. The bytes at that
+URL are immutable for as long as the revision is in the snippet&rsquo;s keep-set
+(<code>spec.history</code>). Consumers can safely re-fetch a pinned URL (e.g. during
+rollback) and verify it against the recorded <code>digest</code>. Once a revision leaves
+the keep-set it is garbage-collected after the operator&rsquo;s GC grace period; a
+fetch after that point returns 404.</p>
+<p><strong>Revision identifies content, not time.</strong> Two publishes that produce identical
+content (same evaluated JSON or same source files) yield the same <code>revision</code>.
+Consumers that cache by revision can skip a re-fetch when the revision has not
+changed.</p>
+<p><strong>The snippet mirrors <code>status.artifactURL</code>.</strong> To avoid a second lookup, the
+originating <code>JsonnetSnippet</code> also carries the URL in its own
+<code>status.artifactURL</code>. <code>kubectl describe jsonnetsnippet</code> therefore surfaces the
+artifact location directly.</p>
+<h2 id="tarball-contents">Tarball contents</h2>
+<p>The tarball layout depends on <code>spec.output</code> of the originating <code>JsonnetSnippet</code>:</p>
+<table>
+	<thead>
+			<tr>
+					<th><code>spec.output</code></th>
+					<th>Tarball contents</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><code>rendered</code> (default)</td>
+					<td>A single <code>rendered.json</code> holding the evaluated JSON output.</td>
+			</tr>
+			<tr>
+					<td><code>source</code></td>
+					<td>Every source file from the resolved snippet source (inline <code>spec.files</code> or the files extracted from the <code>spec.sourceRef</code> tarball), with their original relative paths.</td>
+			</tr>
+	</tbody>
+</table>
+<p>All tarballs are produced deterministically: entries are sorted by path and
+<code>ModTime</code> is zeroed. Two publishes from the same input produce byte-identical
+<code>.tar.gz</code> files and therefore the same <code>revision</code> and <code>digest</code>.</p>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/api" term="api" label="api"/><category scheme="https://jaas.projects.metio.wtf/tags/flux" term="flux" label="flux"/><category scheme="https://jaas.projects.metio.wtf/tags/operator" term="operator" label="operator"/><category scheme="https://jaas.projects.metio.wtf/tags/snippets" term="snippets" label="snippets"/></entry><entry><title type="html">JsonnetLibrary</title><link href="https://jaas.projects.metio.wtf/api/jsonnetlibrary/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/api/externalartifact/?utm_source=atom_feed" rel="related" type="text/html" title="ExternalArtifact output contract"/><link href="https://jaas.projects.metio.wtf/rendering/jsonnet-libraries/?utm_source=atom_feed" rel="related" type="text/html" title="Jsonnet libraries"/><link href="https://jaas.projects.metio.wtf/api/jsonnetsnippet/?utm_source=atom_feed" rel="related" type="text/html" title="JsonnetSnippet"/><link href="https://jaas.projects.metio.wtf/security/admission-webhook/?utm_source=atom_feed" rel="related" type="text/html" title="Admission webhook"/><link href="https://jaas.projects.metio.wtf/observability/alerting/?utm_source=atom_feed" rel="related" type="text/html" title="Alerting"/><id>https://jaas.projects.metio.wtf/api/jsonnetlibrary/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-26T15:54:29+02:00</updated><content type="html"><![CDATA[<blockquote>Field-by-field reference for the JsonnetLibrary custom resource at apiVersion jaas.metio.wtf/v1.</blockquote><p><code>JsonnetLibrary</code> (<code>jlib</code>) is a namespaced bundle of <code>.libsonnet</code> files that
+<code>JsonnetSnippet</code> CRs in the same namespace can import. The library carries no
+artifact of its own and no controller reconciles it — it serves purely as a
+supply-side source for snippets. The import alias is set on the snippet side
+via <code>LibraryRef.importPath</code> (defaulting to the library&rsquo;s <code>metadata.name</code>); the
+library itself carries no registration name. Task-oriented guidance lives in
+<a href="/rendering/jsonnet-libraries/">Jsonnet libraries</a>
+.</p>
+<h2 id="example">Example</h2>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l">jaas.metio.wtf/v1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">JsonnetLibrary</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">metadata</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">mylib</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">default</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">spec</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">files</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">main.libsonnet</span><span class="p">:</span><span class="w"> </span><span class="p">|</span><span class="sd">
+</span></span></span><span class="line"><span class="cl"><span class="sd">      {
+</span></span></span><span class="line"><span class="cl"><span class="sd">        dashboard(env, cluster):: {
+</span></span></span><span class="line"><span class="cl"><span class="sd">          title: &#39;%s / %s&#39; % [env, cluster],
+</span></span></span><span class="line"><span class="cl"><span class="sd">        },
+</span></span></span><span class="line"><span class="cl"><span class="sd">      }</span><span class="w">
+</span></span></span></code></pre></div><p>Exactly one of <code>spec.files</code> or <code>spec.sourceRef</code> must be set. Admission rejects
+CRs that set neither or both.</p>
+<h2 id="spec-fields">Spec fields</h2>
+<p><code>JsonnetLibrarySpec</code> embeds <code>SnippetSource</code> directly (the same source shape used
+by <code>JsonnetSnippetSpec</code>).</p>
+<table>
+	<thead>
+			<tr>
+					<th>Field</th>
+					<th>Type</th>
+					<th>Default</th>
+					<th>Description</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><code>files</code></td>
+					<td>map[string]string</td>
+					<td>—</td>
+					<td>Inline map of filename to Jsonnet/libsonnet source. Exactly one of <code>files</code> or <code>sourceRef</code> must be set.</td>
+			</tr>
+			<tr>
+					<td><code>sourceRef.apiVersion</code></td>
+					<td>string</td>
+					<td><code>source.toolkit.fluxcd.io/v1</code></td>
+					<td>APIVersion of the referenced Flux source CR.</td>
+			</tr>
+			<tr>
+					<td><code>sourceRef.kind</code></td>
+					<td>string</td>
+					<td>—</td>
+					<td>Kind of the referenced source. One of: <code>GitRepository</code>, <code>OCIRepository</code>, <code>Bucket</code>, <code>ExternalArtifact</code>. Required when <code>sourceRef</code> is set.</td>
+			</tr>
+			<tr>
+					<td><code>sourceRef.name</code></td>
+					<td>string</td>
+					<td>—</td>
+					<td>Name of the referenced source CR. Required when <code>sourceRef</code> is set. Minimum length 1.</td>
+			</tr>
+			<tr>
+					<td><code>sourceRef.namespace</code></td>
+					<td>string</td>
+					<td>library&rsquo;s namespace</td>
+					<td>Namespace of the referenced source CR. Cross-namespace references are rejected by default; they are allowed only when the operator runs with <code>--no-cross-namespace-refs=false</code>.</td>
+			</tr>
+			<tr>
+					<td><code>sourceRef.path</code></td>
+					<td>string</td>
+					<td>— (artifact root)</td>
+					<td>Subdirectory within the fetched tarball to treat as the library root. Empty means the archive root — required for jb-vendored trees (e.g. a <code>sourceRef</code> pointing at a Flux <code>OCIRepository</code> for a JOI image) where the library aliases resolve against the full vendor tree.</td>
+			</tr>
+	</tbody>
+</table>
+<h2 id="status">Status</h2>
+<p><code>JsonnetLibrary</code> shares the <code>SyncStatus</code> type with <code>JsonnetSnippet</code>. No controller
+populates it, so every field stays empty; the subresource is present on the type so
+a library reconciler can populate it without a schema change.</p>
+<table>
+	<thead>
+			<tr>
+					<th>Field</th>
+					<th>Type</th>
+					<th>Description</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><code>observedGeneration</code></td>
+					<td>int64</td>
+					<td><code>.metadata.generation</code> last reconciled. Unpopulated.</td>
+			</tr>
+			<tr>
+					<td><code>conditions</code></td>
+					<td>[]Condition</td>
+					<td>Standard apimachinery conditions. Unpopulated.</td>
+			</tr>
+			<tr>
+					<td><code>revision</code></td>
+					<td>string</td>
+					<td>Unpopulated.</td>
+			</tr>
+			<tr>
+					<td><code>artifactURL</code></td>
+					<td>string</td>
+					<td>Unpopulated.</td>
+			</tr>
+			<tr>
+					<td><code>lastSyncTime</code></td>
+					<td>Time</td>
+					<td>Unpopulated.</td>
+			</tr>
+			<tr>
+					<td><code>history</code></td>
+					<td>[]RevisionEntry</td>
+					<td>Unpopulated.</td>
+			</tr>
+	</tbody>
+</table>
+<p>For how snippets reference libraries, see <a href="/api/jsonnetsnippet/">/api/jsonnetsnippet/</a>
+
+(<code>spec.libraries</code>) and <a href="/rendering/jsonnet-libraries/">Jsonnet libraries</a>
+.</p>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/api" term="api" label="api"/><category scheme="https://jaas.projects.metio.wtf/tags/libraries" term="libraries" label="libraries"/><category scheme="https://jaas.projects.metio.wtf/tags/operator" term="operator" label="operator"/></entry><entry><title type="html">JsonnetSnippet</title><link href="https://jaas.projects.metio.wtf/api/jsonnetsnippet/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/api/externalartifact/?utm_source=atom_feed" rel="related" type="text/html" title="ExternalArtifact output contract"/><link href="https://jaas.projects.metio.wtf/operator/creating-sources/?utm_source=atom_feed" rel="related" type="text/html" title="Creating source artifacts"/><link href="https://jaas.projects.metio.wtf/api/jsonnetlibrary/?utm_source=atom_feed" rel="related" type="text/html" title="JsonnetLibrary"/><link href="https://jaas.projects.metio.wtf/operator/operator-mode/?utm_source=atom_feed" rel="related" type="text/html" title="Operator mode"/><link href="https://jaas.projects.metio.wtf/security/admission-webhook/?utm_source=atom_feed" rel="related" type="text/html" title="Admission webhook"/><id>https://jaas.projects.metio.wtf/api/jsonnetsnippet/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-07-16T19:38:04+02:00</updated><content type="html"><![CDATA[<blockquote>Field-by-field reference for the JsonnetSnippet custom resource at apiVersion jaas.metio.wtf/v1.</blockquote><p><code>JsonnetSnippet</code> (<code>jsnip</code>) is the published unit of Jsonnet evaluation. The JaaS
+operator watches these namespaced CRs, evaluates the Jsonnet they describe, and
+upserts a Flux <code>ExternalArtifact</code> whose <code>status.artifact.url</code> points at the
+rendered result. Task-oriented guidance lives in
+<a href="/operator/operator-mode/">Operator mode</a>
+ and <a href="/operator/snippet-sources/">Snippet sources</a>
+.</p>
+<h2 id="example">Example</h2>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l">jaas.metio.wtf/v1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">JsonnetSnippet</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">metadata</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">hello-world</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">default</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">spec</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">serviceAccountName</span><span class="p">:</span><span class="w"> </span><span class="l">hello-world-tenant</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">entryFile</span><span class="p">:</span><span class="w"> </span><span class="l">main.jsonnet</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">output</span><span class="p">:</span><span class="w"> </span><span class="l">rendered</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">history</span><span class="p">:</span><span class="w"> </span><span class="m">3</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">interval</span><span class="p">:</span><span class="w"> </span><span class="l">10m</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">suspend</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">files</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">main.jsonnet</span><span class="p">:</span><span class="w"> </span><span class="p">|</span><span class="sd">
+</span></span></span><span class="line"><span class="cl"><span class="sd">      local lib = import &#39;mylib/main.libsonnet&#39;;
+</span></span></span><span class="line"><span class="cl"><span class="sd">      lib.dashboard(std.extVar(&#39;env&#39;), std.extVar(&#39;cluster&#39;))</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">libraries</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span>- <span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">JsonnetLibrary</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">mylib</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">importPath</span><span class="p">:</span><span class="w"> </span><span class="l">mylib</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">externalVariables</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span>- <span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">env</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">value</span><span class="p">:</span><span class="w"> </span><span class="l">production</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span>- <span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">cluster</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">value</span><span class="p">:</span><span class="w"> </span><span class="l">eu-west-1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">tlas</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span>- <span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">title</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">value</span><span class="p">:</span><span class="w"> </span><span class="l">My Dashboard</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span>- <span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">refreshSeconds</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">value</span><span class="p">:</span><span class="w"> </span><span class="s2">&#34;60&#34;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">code</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
+</span></span></span></code></pre></div><p>Exactly one of <code>spec.files</code> or <code>spec.sourceRef</code> must be set. Admission rejects
+CRs that set neither or both.</p>
+<h2 id="spec-fields">Spec fields</h2>
+<table>
+	<thead>
+			<tr>
+					<th>Field</th>
+					<th>Type</th>
+					<th>Default</th>
+					<th>Description</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><code>serviceAccountName</code></td>
+					<td>string</td>
+					<td>—</td>
+					<td>ServiceAccount the operator impersonates for every Kubernetes API call made on behalf of this snippet (source fetches, ExternalArtifact upserts). Must exist in the snippet&rsquo;s namespace. When empty, the operator&rsquo;s <code>--default-service-account</code> applies. Reconciliation is denied when neither is set (<code>ReasonServiceAccountMissing</code>).</td>
+			</tr>
+			<tr>
+					<td><code>entryFile</code></td>
+					<td>string</td>
+					<td><code>main.jsonnet</code></td>
+					<td>File (relative to the resolved source root) that go-jsonnet evaluates. Restricted to <code>[A-Za-z0-9._/-]+</code> with no <code>..</code> segments. Maximum 255 characters.</td>
+			</tr>
+			<tr>
+					<td><code>files</code></td>
+					<td>map[string]string</td>
+					<td>—</td>
+					<td>Inline map of filename to Jsonnet source. Exactly one of <code>files</code> or <code>sourceRef</code> must be set.</td>
+			</tr>
+			<tr>
+					<td><code>sourceRef.apiVersion</code></td>
+					<td>string</td>
+					<td><code>source.toolkit.fluxcd.io/v1</code></td>
+					<td>APIVersion of the referenced Flux source CR.</td>
+			</tr>
+			<tr>
+					<td><code>sourceRef.kind</code></td>
+					<td>string</td>
+					<td>—</td>
+					<td>Kind of the referenced source. One of: <code>GitRepository</code>, <code>OCIRepository</code>, <code>Bucket</code>, <code>ExternalArtifact</code>. Required when <code>sourceRef</code> is set.</td>
+			</tr>
+			<tr>
+					<td><code>sourceRef.name</code></td>
+					<td>string</td>
+					<td>—</td>
+					<td>Name of the referenced source CR. Required when <code>sourceRef</code> is set. Minimum length 1.</td>
+			</tr>
+			<tr>
+					<td><code>sourceRef.namespace</code></td>
+					<td>string</td>
+					<td>snippet&rsquo;s namespace</td>
+					<td>Namespace of the referenced source CR. Cross-namespace references are rejected by default; they are allowed only when the operator runs with <code>--no-cross-namespace-refs=false</code>.</td>
+			</tr>
+			<tr>
+					<td><code>sourceRef.path</code></td>
+					<td>string</td>
+					<td>— (artifact root)</td>
+					<td>Subdirectory within the fetched tarball to treat as the source root. Empty means the archive root.</td>
+			</tr>
+			<tr>
+					<td><code>libraries</code></td>
+					<td>[]LibraryRef</td>
+					<td>—</td>
+					<td><code>JsonnetLibrary</code> CRs importable from this snippet. Libraries not listed here are invisible to the snippet even when present in the cluster. See <a href="/rendering/jsonnet-libraries/">Jsonnet libraries</a>
+.</td>
+			</tr>
+			<tr>
+					<td><code>libraries[*].apiVersion</code></td>
+					<td>string</td>
+					<td><code>jaas.metio.wtf/v1</code></td>
+					<td>APIVersion of the library CR.</td>
+			</tr>
+			<tr>
+					<td><code>libraries[*].kind</code></td>
+					<td>string</td>
+					<td>—</td>
+					<td>Kind of the library CR. Currently only <code>JsonnetLibrary</code> is accepted. Required.</td>
+			</tr>
+			<tr>
+					<td><code>libraries[*].name</code></td>
+					<td>string</td>
+					<td>—</td>
+					<td>Name of the referenced <code>JsonnetLibrary</code> CR. Required. Minimum length 1.</td>
+			</tr>
+			<tr>
+					<td><code>libraries[*].namespace</code></td>
+					<td>string</td>
+					<td>snippet&rsquo;s namespace</td>
+					<td>Namespace of the referenced library CR. Cross-namespace references are rejected by default; they are allowed only when the operator runs with <code>--no-cross-namespace-refs=false</code>.</td>
+			</tr>
+			<tr>
+					<td><code>libraries[*].importPath</code></td>
+					<td>string</td>
+					<td>library&rsquo;s <code>metadata.name</code></td>
+					<td>Alias used in <code>import</code> statements inside the snippet&rsquo;s Jsonnet source. Must be unique across <code>spec.libraries</code> — two entries that resolve to the same import path are rejected (at admission, and at reconcile if admission is bypassed). Collisions with OCI-mounted shared library aliases are likewise rejected.</td>
+			</tr>
+			<tr>
+					<td><code>tlas</code></td>
+					<td>[]JsonnetVariable</td>
+					<td>—</td>
+					<td>Top-level arguments passed to the snippet&rsquo;s outermost function. Each entry binds one argument by name.</td>
+			</tr>
+			<tr>
+					<td><code>tlas[*].name</code></td>
+					<td>string</td>
+					<td>—</td>
+					<td>Argument name. Required. Minimum length 1, maximum 253. Must be unique across <code>spec.tlas</code>; the apiserver rejects a duplicate.</td>
+			</tr>
+			<tr>
+					<td><code>tlas[*].value</code></td>
+					<td>string</td>
+					<td><code>&quot;&quot;</code></td>
+					<td>The bound value, interpreted per <code>code</code>.</td>
+			</tr>
+			<tr>
+					<td><code>tlas[*].code</code></td>
+					<td>bool</td>
+					<td><code>false</code></td>
+					<td>How <code>value</code> is interpreted. <code>false</code> binds it verbatim as a Jsonnet string (<code>jsonnet --tla-str</code>). <code>true</code> parses it as Jsonnet source and binds the result (<code>jsonnet --tla-code</code>), so <code>&quot;3&quot;</code> becomes the number 3 and <code>[&quot;a&quot;,&quot;b&quot;]</code> an array. A code entry requires a non-empty <code>value</code>; source that does not parse fails the evaluation with <code>ReasonEvaluationFailed</code>.</td>
+			</tr>
+			<tr>
+					<td><code>externalVariables</code></td>
+					<td>[]JsonnetVariable</td>
+					<td>—</td>
+					<td>Seeds <code>std.extVar</code> lookups for this snippet&rsquo;s evaluation. Each entry binds one variable by name. Names that conflict with the operator&rsquo;s <code>--ext-var</code> set are rejected at admission; if admission is bypassed, the reconciler refuses the conflicting name with <code>ReasonExternalVariableConflict</code>.</td>
+			</tr>
+			<tr>
+					<td><code>externalVariables[*].name</code></td>
+					<td>string</td>
+					<td>—</td>
+					<td>The <code>std.extVar(&quot;&lt;name&gt;&quot;)</code> key. Required. Minimum length 1, maximum 253. Must be unique across <code>spec.externalVariables</code>; the apiserver rejects a duplicate.</td>
+			</tr>
+			<tr>
+					<td><code>externalVariables[*].value</code></td>
+					<td>string</td>
+					<td><code>&quot;&quot;</code></td>
+					<td>The bound value, interpreted per <code>code</code>.</td>
+			</tr>
+			<tr>
+					<td><code>externalVariables[*].code</code></td>
+					<td>bool</td>
+					<td><code>false</code></td>
+					<td>How <code>value</code> is interpreted. <code>false</code> binds it verbatim as a Jsonnet string (<code>jsonnet --ext-str</code>). <code>true</code> parses it as Jsonnet source and binds the result (<code>jsonnet --ext-code</code>), so <code>&quot;3&quot;</code> becomes the number 3 and <code>{ cpu: 2 }</code> an object. A code entry requires a non-empty <code>value</code>; source that does not parse fails the evaluation with <code>ReasonEvaluationFailed</code>.</td>
+			</tr>
+			<tr>
+					<td><code>output</code></td>
+					<td>string</td>
+					<td><code>rendered</code></td>
+					<td>What bytes the published ExternalArtifact carries. <code>rendered</code>: the evaluated JSON (a single <code>rendered.json</code> in the tarball). <code>source</code>: the raw <code>.jsonnet</code>/<code>.libsonnet</code> files, for downstream consumers that re-evaluate themselves.</td>
+			</tr>
+			<tr>
+					<td><code>suspend</code></td>
+					<td>bool</td>
+					<td><code>false</code></td>
+					<td>When <code>true</code>, the operator skips the evaluation pipeline, leaves the existing ExternalArtifact in place, and reports <code>Ready=False</code> with reason <code>Suspended</code>. Setting back to <code>false</code> resumes reconciliation. Mirrors Flux&rsquo;s <code>spec.suspend</code> convention.</td>
+			</tr>
+			<tr>
+					<td><code>history</code></td>
+					<td>int32</td>
+					<td><code>1</code></td>
+					<td>Number of past revisions retained in storage. Minimum 1, maximum 50. Setting to N &gt; 1 lets downstream consumers pin to an older revision via its sha256 for rollback or blue-green flows. The keep-set is tracked in <code>status.history</code>.</td>
+			</tr>
+			<tr>
+					<td><code>interval</code></td>
+					<td>Duration</td>
+					<td>— (watch-only)</td>
+					<td>Period between successful reconciles regardless of watch events. Picks up state outside the watched graph (environment drift, OCI library refreshes, etc.). Bounded at admission to between <code>30s</code> and <code>24h</code>. Failed reconciles use controller-runtime&rsquo;s exponential backoff; <code>interval</code> governs only the steady-state cadence.</td>
+			</tr>
+	</tbody>
+</table>
+<p><code>sourceRef.kind</code> is deliberately restricted to the enum of real Flux source
+kinds (<code>GitRepository</code>, <code>OCIRepository</code>, <code>Bucket</code>, <code>ExternalArtifact</code>). JaaS
+<em>consumes</em> an artifact published by a source, so the kind must name a CR that
+actually exposes a <code>status.artifact</code>. This is intentionally narrower than
+stageset-controller&rsquo;s open producer-kind reference, which points at whatever a
+producer chooses to emit.</p>
+<h2 id="status">Status</h2>
+<p><code>status</code> follows the <code>SyncStatus</code> shape shared by all JaaS CRs.</p>
+<table>
+	<thead>
+			<tr>
+					<th>Field</th>
+					<th>Type</th>
+					<th>Description</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><code>observedGeneration</code></td>
+					<td>int64</td>
+					<td><code>.metadata.generation</code> of the spec the controller last reconciled. Lets clients distinguish stale status from up-to-date.</td>
+			</tr>
+			<tr>
+					<td><code>conditions</code></td>
+					<td>[]Condition</td>
+					<td>Standard apimachinery conditions. The <code>Ready</code> condition summarises whether the most recent reconcile succeeded; <code>reason</code> and <code>message</code> carry per-stage failure detail. See Ready condition reasons below.</td>
+			</tr>
+			<tr>
+					<td><code>revision</code></td>
+					<td>string</td>
+					<td><code>sha256:&lt;hex&gt;</code> content hash of the last successfully reconciled source. Empty until the first successful reconcile.</td>
+			</tr>
+			<tr>
+					<td><code>artifactURL</code></td>
+					<td>string</td>
+					<td>HTTP URL of the last successfully published artifact tarball. Preserved across subsequent failures so the last-known-good URL stays observable. Empty until the first successful publish.</td>
+			</tr>
+			<tr>
+					<td><code>lastSyncTime</code></td>
+					<td>Time</td>
+					<td>Timestamp of the most recent successful reconcile.</td>
+			</tr>
+			<tr>
+					<td><code>lastHandledReconcileAt</code></td>
+					<td>string</td>
+					<td>Value of the <code>reconcile.fluxcd.io/requestedAt</code> annotation the controller most recently acted on. After a manual re-trigger (see <a href="#triggering-a-reconcile">Triggering a reconcile</a>
+) completes, the controller copies the requested token here, so tooling can poll status to confirm the request was handled.</td>
+			</tr>
+			<tr>
+					<td><code>history</code></td>
+					<td>[]RevisionEntry</td>
+					<td>Most-recent N revisions retained in storage (<code>N</code> = <code>spec.history</code>). Index 0 is the most recent (matches <code>revision</code>). Each entry carries <code>revision</code> (sha256:hex) and <code>time</code> (publish time).</td>
+			</tr>
+	</tbody>
+</table>
+<h3 id="ready-condition-reasons">Ready condition reasons</h3>
+<p>Every reason string is wire-stable — runbooks key off these values.</p>
+<table>
+	<thead>
+			<tr>
+					<th>Reason</th>
+					<th>Status</th>
+					<th>Description</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><code>Synced</code></td>
+					<td>True</td>
+					<td>Most recent reconcile completed end-to-end and produced a publishable artifact. This is the source-controller-style success reason — JaaS produces an artifact — distinct from the <code>Succeeded</code> reason that apply-style controllers report.</td>
+			</tr>
+			<tr>
+					<td><code>Pending</code></td>
+					<td>False</td>
+					<td>Snippet observed but not yet reconciled (transient).</td>
+			</tr>
+			<tr>
+					<td><code>Suspended</code></td>
+					<td>False</td>
+					<td><code>spec.suspend</code> is <code>true</code>; evaluation is paused.</td>
+			</tr>
+			<tr>
+					<td><code>InvalidSpec</code></td>
+					<td>False</td>
+					<td>Spec-level validation failure (missing <code>main.jsonnet</code>, invalid source combination, etc.).</td>
+			</tr>
+			<tr>
+					<td><code>LibraryNotFound</code></td>
+					<td>False</td>
+					<td>A <code>spec.libraries</code> entry references a <code>JsonnetLibrary</code> CR that cannot be found.</td>
+			</tr>
+			<tr>
+					<td><code>CrossNamespaceRefRejected</code></td>
+					<td>False</td>
+					<td><code>--no-cross-namespace-refs</code> is enabled and a library or source reference is outside the snippet&rsquo;s namespace.</td>
+			</tr>
+			<tr>
+					<td><code>ExternalVariableConflict</code></td>
+					<td>False</td>
+					<td><code>spec.externalVariables</code> names a key already owned by the operator&rsquo;s <code>--ext-var</code> set.</td>
+			</tr>
+			<tr>
+					<td><code>ServiceAccountMissing</code></td>
+					<td>False</td>
+					<td>Neither <code>spec.serviceAccountName</code> nor <code>--default-service-account</code> is set.</td>
+			</tr>
+			<tr>
+					<td><code>EvaluationFailed</code></td>
+					<td>False</td>
+					<td>go-jsonnet returned a diagnostic (syntax error, runtime error, etc.).</td>
+			</tr>
+			<tr>
+					<td><code>EvaluationTimeout</code></td>
+					<td>False</td>
+					<td>The eval deadline fired before the snippet finished.</td>
+			</tr>
+			<tr>
+					<td><code>SourceNotReady</code></td>
+					<td>False</td>
+					<td>The referenced Flux source CR exists but is not yet <code>Ready</code> or has no <code>status.artifact</code>.</td>
+			</tr>
+			<tr>
+					<td><code>SourceFetchFailed</code></td>
+					<td>False</td>
+					<td>Fetching or verifying the source artifact failed (HTTP error, digest mismatch, tar corruption).</td>
+			</tr>
+			<tr>
+					<td><code>SourceRefNotYetSupported</code></td>
+					<td>False</td>
+					<td><code>spec.sourceRef</code> is set but the operator is running without <code>--enable-flux-integration</code>. Start the operator with that flag, or remove <code>spec.sourceRef</code> from the snippet.</td>
+			</tr>
+			<tr>
+					<td><code>DependencyCycle</code></td>
+					<td>False</td>
+					<td>The snippet&rsquo;s dependency chain (via <code>spec.sourceRef</code> or <code>spec.libraries</code>) transitively points back at itself.</td>
+			</tr>
+			<tr>
+					<td><code>ArtifactTooLarge</code></td>
+					<td>False</td>
+					<td>Rendered content exceeds the operator&rsquo;s <code>--max-artifact-bytes</code> limit.</td>
+			</tr>
+			<tr>
+					<td><code>RBACDenied</code></td>
+					<td>False</td>
+					<td>An apiserver call failed with Forbidden, or the source CR&rsquo;s kind is not registered. Non-transient — backoff is disabled. The message names the verb and resource the cluster operator must grant.</td>
+			</tr>
+	</tbody>
+</table>
+<p>Each reason has a remediation page at <code>/runbooks/&lt;reason-lowercased&gt;/</code>. See <a href="/operator/operator-mode/">Operator mode</a>
+ for lifecycle details and <a href="/api/externalartifact/">ExternalArtifact output contract</a>
+ for the artifact contract.</p>
+<h2 id="triggering-a-reconcile">Triggering a reconcile</h2>
+<p>The controller re-renders a snippet on every watch event and, when <code>spec.interval</code> is set, on that cadence. To force an immediate out-of-band reconcile — for example after changing an operator-level external variable that lives outside the watched graph — stamp the Flux-convention <code>reconcile.fluxcd.io/requestedAt</code> annotation with a fresh token:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">flux reconcile <span class="nb">source</span> chart jsonnetsnippet/my-snippet --namespace team-a
+</span></span></code></pre></div><p>or, without the Flux CLI:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl annotate jsonnetsnippet/my-snippet --namespace team-a <span class="se">\
+</span></span></span><span class="line"><span class="cl">  reconcile.fluxcd.io/requestedAt<span class="o">=</span><span class="s2">&#34;</span><span class="k">$(</span>date +%s<span class="k">)</span><span class="s2">&#34;</span> --overwrite
+</span></span></code></pre></div><p>Changing the annotation is itself a watch event, so the reconcile starts immediately — <code>spec.generation</code> does not need to change. Once the reconcile completes, the controller copies the token into <code>status.lastHandledReconcileAt</code>; poll that field to confirm the request was handled.</p>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/api" term="api" label="api"/><category scheme="https://jaas.projects.metio.wtf/tags/snippets" term="snippets" label="snippets"/><category scheme="https://jaas.projects.metio.wtf/tags/operator" term="operator" label="operator"/><category scheme="https://jaas.projects.metio.wtf/tags/flux" term="flux" label="flux"/></entry></feed>

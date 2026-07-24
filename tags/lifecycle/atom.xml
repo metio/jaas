@@ -1,0 +1,153 @@
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en"><generator uri="https://gohugo.io/" version="0.163.3">Hugo</generator><title type="html">Lifecycle on Jsonnet-as-a-Service</title><link href="https://jaas.projects.metio.wtf/tags/lifecycle/" rel="alternate" type="text/html" title="html"/><link href="https://jaas.projects.metio.wtf/tags/lifecycle/index.xml" rel="alternate" type="application/rss+xml" title="rss"/><link href="https://jaas.projects.metio.wtf/tags/lifecycle/atom.xml" rel="self" type="application/atom+xml" title="atom"/><updated>2026-07-24T07:17:17+00:00</updated><author><name>metio.wtf</name></author><id>https://jaas.projects.metio.wtf/tags/lifecycle/</id><entry><title type="html">CRD watch engagement failing</title><link href="https://jaas.projects.metio.wtf/runbooks/crd-watch-engagement/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/runbooks/invalidspec/?utm_source=atom_feed" rel="related" type="text/html" title="InvalidSpec"/><link href="https://jaas.projects.metio.wtf/runbooks/operator-pod-down/?utm_source=atom_feed" rel="related" type="text/html" title="Operator pod not ready"/><link href="https://jaas.projects.metio.wtf/runbooks/pending/?utm_source=atom_feed" rel="related" type="text/html" title="Pending"/><link href="https://jaas.projects.metio.wtf/runbooks/suspended/?utm_source=atom_feed" rel="related" type="text/html" title="Suspended"/><link href="https://jaas.projects.metio.wtf/runbooks/synced/?utm_source=atom_feed" rel="related" type="text/html" title="Synced"/><id>https://jaas.projects.metio.wtf/runbooks/crd-watch-engagement/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-18T20:07:20+02:00</updated><content type="html"><![CDATA[<blockquote>A runtime watch on a Flux source CRD failed to engage, so snippets referencing that kind no longer re-render on upstream changes</blockquote><p>Fires when <code>jaas_crd_watch_engagement_failures_total{gvk=...}</code> has increased above the per-hour threshold for the alert window. The operator lazy-watches Flux source CRDs: at boot, only the CRDs already installed get a watch; when a previously-missing CRD becomes <code>Established=True</code> (you installed source-controller after the operator, say), the <code>crdWatcher</code> engages a runtime watch on it via <code>Controller.Watch</code>. <strong>When that engagement fails, the apiextensions informer fires no further events on a stable CRD</strong> — so the watch stays un-engaged until either the CRD object&rsquo;s metadata/status is changed by something else, or the operator restarts.</p>
+<p>The visible symptom is that snippets with <code>spec.sourceRef.Kind=&lt;the affected kind&gt;</code> stop re-rendering on upstream source updates. There is no per-snippet status signal — they sit at their last-rendered revision, drifting from upstream.</p>
+<h2 id="symptom">Symptom</h2>
+<ul>
+<li><code>JaaSCRDWatchEngagementFailing</code> alert is firing with <code>gvk</code> labelling the affected kind.</li>
+<li><code>kubectl describe jsonnetsnippet</code> on snippets referencing that GVK shows a Ready condition that hasn&rsquo;t moved in hours/days.</li>
+<li>Upstream Flux source CRs (GitRepository, OCIRepository, Bucket, ExternalArtifact) show recent <code>status.artifact.revision</code> changes that the jaas snippets aren&rsquo;t picking up.</li>
+</ul>
+<h2 id="diagnosis">Diagnosis</h2>
+<h3 id="step-1--confirm-the-crd-is-actually-installed-and-established">Step 1 — confirm the CRD is actually installed and Established</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl get crd &lt;plural&gt;.source.toolkit.fluxcd.io <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --output <span class="nv">jsonpath</span><span class="o">=</span><span class="s1">&#39;{.status.conditions[?(@.type==&#34;Established&#34;)].status}{&#34;\n&#34;}&#39;</span>
+</span></span></code></pre></div><p>Expect <code>True</code>. If the CRD is not installed or not yet Established, the watcher is correct to skip; install / wait.</p>
+<h3 id="step-2--check-the-operators-rbac-on-the-source-kind">Step 2 — check the operator&rsquo;s RBAC on the source kind</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl auth can-i list &lt;plural&gt;.source.toolkit.fluxcd.io <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --as<span class="o">=</span>system:serviceaccount:&lt;ns&gt;:&lt;operator-sa&gt;
+</span></span><span class="line"><span class="cl">kubectl auth can-i watch &lt;plural&gt;.source.toolkit.fluxcd.io <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --as<span class="o">=</span>system:serviceaccount:&lt;ns&gt;:&lt;operator-sa&gt;
+</span></span></code></pre></div><p>If either is &ldquo;no&rdquo;, the chart&rsquo;s <code>operator-tenants</code> ClusterRole (or per-namespace RoleBinding when <code>watchNamespaces</code> is set) is missing the <code>get/list/watch</code> verbs on this kind. Update the chart&rsquo;s <code>FluxSourceKinds</code> mapping or add the verb manually.</p>
+<h3 id="step-3--check-controller-runtime-cache-state">Step 3 — check controller-runtime cache state</h3>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace &lt;ns&gt; logs &lt;operator-pod&gt; <span class="p">|</span> grep -E <span class="s1">&#39;engage|Failed to watch|cache&#39;</span> <span class="p">|</span> tail -20
+</span></span></code></pre></div><p>Look for <code>cache reconnect</code>, <code>informer failed</code>, or <code>Watch failed: forbidden</code>. A transient cache reconnect during a heavy load period can trip engagement once; the bounded-retry mechanism re-engages automatically. Sustained failures point at RBAC or a misconfigured <code>MetricsBindAddress</code>.</p>
+<h2 id="remediation">Remediation</h2>
+<ol>
+<li>
+<p><strong>Fix the verb / kind / RBAC</strong> issue identified above.</p>
+</li>
+<li>
+<p><strong>Roll the operator pod</strong> to force a fresh <code>SetupWithManager</code> pass, which re-detects every Flux CRD and re-engages watches that succeed on first try:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace &lt;ns&gt; rollout restart deployment &lt;operator-deployment&gt;
+</span></span></code></pre></div></li>
+<li>
+<p><strong>Verify</strong> the counter stops increasing and the alert clears.</p>
+</li>
+</ol>
+<h2 id="when-the-alert-is-noisy">When the alert is noisy</h2>
+<p>If <code>jaas_crd_watch_engagement_failures_total</code> ticks once at boot but never again, that&rsquo;s the expected bounded-retry behavior: the first attempt failed (transient race during cache start), the retry succeeded. Raise <code>crdWatchEngagementFailuresPerHour</code> if the boot-time blip is noisy enough to page.</p>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/runbooks" term="runbooks" label="runbooks"/><category scheme="https://jaas.projects.metio.wtf/tags/troubleshooting" term="troubleshooting" label="troubleshooting"/><category scheme="https://jaas.projects.metio.wtf/tags/lifecycle" term="lifecycle" label="lifecycle"/></entry><entry><title type="html">InvalidSpec</title><link href="https://jaas.projects.metio.wtf/runbooks/invalidspec/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/runbooks/crd-watch-engagement/?utm_source=atom_feed" rel="related" type="text/html" title="CRD watch engagement failing"/><link href="https://jaas.projects.metio.wtf/runbooks/operator-pod-down/?utm_source=atom_feed" rel="related" type="text/html" title="Operator pod not ready"/><link href="https://jaas.projects.metio.wtf/runbooks/pending/?utm_source=atom_feed" rel="related" type="text/html" title="Pending"/><link href="https://jaas.projects.metio.wtf/runbooks/suspended/?utm_source=atom_feed" rel="related" type="text/html" title="Suspended"/><link href="https://jaas.projects.metio.wtf/runbooks/synced/?utm_source=atom_feed" rel="related" type="text/html" title="Synced"/><id>https://jaas.projects.metio.wtf/runbooks/invalidspec/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-18T20:07:20+02:00</updated><content type="html"><![CDATA[<blockquote>The snippet&rsquo;s spec contains a field combination the reconciler cannot process, such as a missing entryFile or conflicting source fields</blockquote><h2 id="symptom">Symptom</h2>
+<p><code>READY=False</code>, <code>REASON=InvalidSpec</code>. The condition Message names which field is at fault.</p>
+<h2 id="cause">Cause</h2>
+<p>Spec-level validation that admission should have caught but the reconciler is enforcing as a fallback:</p>
+<ul>
+<li><code>spec.entryFile</code> is empty</li>
+<li>both <code>spec.files</code> and <code>spec.sourceRef</code> are set (mutually exclusive)</li>
+<li>neither <code>spec.files</code> nor <code>spec.sourceRef</code> is set</li>
+<li><code>spec.entryFile</code> does not match any key in the resolved file map</li>
+</ul>
+<h2 id="diagnosis">Diagnosis</h2>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace &lt;ns&gt; describe jsonnetsnippet &lt;name&gt;
+</span></span></code></pre></div><p>Read the Message — it names the field.</p>
+<h2 id="remediation">Remediation</h2>
+<p>Fix the spec and reapply. If the validating webhook is enabled (<code>--enable-webhook</code>), <code>kubectl apply</code> rejects the invalid spec at admission instead of letting it land and fail later.</p>
+<p>If you&rsquo;re seeing <code>InvalidSpec</code> on apply through the webhook, that&rsquo;s a bug — file an issue with the rejected manifest.</p>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/runbooks" term="runbooks" label="runbooks"/><category scheme="https://jaas.projects.metio.wtf/tags/troubleshooting" term="troubleshooting" label="troubleshooting"/><category scheme="https://jaas.projects.metio.wtf/tags/lifecycle" term="lifecycle" label="lifecycle"/></entry><entry><title type="html">Operator pod not ready</title><link href="https://jaas.projects.metio.wtf/runbooks/operator-pod-down/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/runbooks/crd-watch-engagement/?utm_source=atom_feed" rel="related" type="text/html" title="CRD watch engagement failing"/><link href="https://jaas.projects.metio.wtf/runbooks/invalidspec/?utm_source=atom_feed" rel="related" type="text/html" title="InvalidSpec"/><link href="https://jaas.projects.metio.wtf/runbooks/pending/?utm_source=atom_feed" rel="related" type="text/html" title="Pending"/><link href="https://jaas.projects.metio.wtf/runbooks/suspended/?utm_source=atom_feed" rel="related" type="text/html" title="Suspended"/><link href="https://jaas.projects.metio.wtf/runbooks/synced/?utm_source=atom_feed" rel="related" type="text/html" title="Synced"/><id>https://jaas.projects.metio.wtf/runbooks/operator-pod-down/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-18T20:07:20+02:00</updated><content type="html"><![CDATA[<blockquote>At least one jaas pod has been Ready=False for the configured alert window, so new snippets are not being reconciled</blockquote><p>Linked from the <code>JaaSOperatorPodDown</code> alert. Fires when at least one jaas pod has been <code>Ready=False</code> for the alert window (default 5m).</p>
+<h2 id="symptom">Symptom</h2>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-text" data-lang="text"><span class="line"><span class="cl">ALERTS{alertname=&#34;JaaSOperatorPodDown&#34;, namespace=&#34;&lt;jaas-ns&gt;&#34;}
+</span></span></code></pre></div><ul>
+<li>New JsonnetSnippets stay <code>Ready=Unknown</code> indefinitely (no controller reconciling them).</li>
+<li>Existing snippets keep serving stale <code>ExternalArtifact</code> content (the storage HTTP server may still respond; reconciliation is the part that stopped).</li>
+</ul>
+<h2 id="cause">Cause</h2>
+<p>One of the chart&rsquo;s two probes is failing:</p>
+<ul>
+<li><strong>Liveness</strong> (<code>/live</code>) is unconditional 200 — a failure here means the pod&rsquo;s HTTP server itself isn&rsquo;t responding (deadlock, OOM, panic).</li>
+<li><strong>Readiness</strong> (<code>/ready</code>) consults <code>HealthState</code>, which goes <code>false</code> during <code>drainBeforeShutdown</code> or before the listeners bind.</li>
+<li><strong>Startup</strong> (<code>/start</code>) returns 503 until <code>MarkStarted()</code> is called — bind failures (port already in use, permission denied) keep the pod stuck here forever.</li>
+</ul>
+<p>Frequent causes:</p>
+<ol>
+<li><strong>Bind failure</strong> on one of the HTTP servers (jsonnet, management, storage, metrics, webhook). The pod logs a clear &ldquo;listen tcp: address already in use&rdquo; or similar at boot.</li>
+<li><strong>OOMKilled</strong> — a pathological snippet allocated a huge object; the kubelet killed the pod. <code>kubectl describe pod</code> shows <code>Last State: Terminated, Reason: OOMKilled</code>.</li>
+<li><strong>Image pull failure</strong> — registry rate limit, wrong tag, missing pull secret.</li>
+<li><strong>TLS cert missing or unreadable</strong> when <code>operator.webhook.enabled=true</code> and the cert-manager Secret hasn&rsquo;t materialized.</li>
+<li><strong>Lease contention</strong> that leaves no replica as leader (every replica reconnecting to renew, never holding the lease).</li>
+</ol>
+<h2 id="diagnosis">Diagnosis</h2>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl"><span class="c1"># Which probes are failing? Events tell you.</span>
+</span></span><span class="line"><span class="cl">kubectl --namespace &lt;jaas-ns&gt; describe pod --selector app.kubernetes.io/name<span class="o">=</span>jaas
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># Pod logs — the boot sequence prints every listener it binds.</span>
+</span></span><span class="line"><span class="cl">kubectl --namespace &lt;jaas-ns&gt; logs --selector app.kubernetes.io/name<span class="o">=</span>jaas --tail<span class="o">=</span><span class="m">300</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># Compare against the expected listener set.</span>
+</span></span><span class="line"><span class="cl">kubectl --namespace &lt;jaas-ns&gt; get svc --selector app.kubernetes.io/name<span class="o">=</span>jaas
+</span></span></code></pre></div><p>For OOM:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace &lt;jaas-ns&gt; top pod --selector app.kubernetes.io/name<span class="o">=</span>jaas
+</span></span><span class="line"><span class="cl">kubectl --namespace &lt;jaas-ns&gt; get pod --selector app.kubernetes.io/name<span class="o">=</span>jaas --output yaml <span class="se">\
+</span></span></span><span class="line"><span class="cl">  <span class="p">|</span> grep -A3 lastState
+</span></span></code></pre></div><p>For lease problems (multi-replica only):</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace &lt;jaas-ns&gt; get lease &lt;release-name&gt;-operator --output yaml
+</span></span></code></pre></div><p><code>holderIdentity</code> flipping every renewal interval is a sign of network flake or apiserver pressure — the replicas can&rsquo;t keep the lease stable.</p>
+<h2 id="remediation">Remediation</h2>
+<ul>
+<li><strong>Bind failure.</strong> Free the colliding port (often <code>8080</code>, when the controller-runtime metrics endpoint defaults conflict with the jsonnet HTTP port — confirm <code>--metrics-bind-address</code> is <code>:8083</code>).</li>
+<li><strong>OOMKilled.</strong> Raise <code>resources.memory</code>, then identify the runaway snippet — it is usually obvious from <code>jaas_snippet_rendered_bytes</code>.</li>
+<li><strong>Image pull.</strong> Standard k8s drill: check secrets, registry, tag.</li>
+<li><strong>TLS cert.</strong> With <code>certMode=cert-manager</code>, confirm the Issuer / Certificate are ready. With <code>certMode=self-signed</code>, the operator regenerates on boot — a permission error on the cert-dir mount blocks it.</li>
+<li><strong>Lease flap.</strong> Try <code>kubectl --namespace &lt;jaas-ns&gt; delete lease &lt;release-name&gt;-operator</code> to force a fresh election. If it keeps flapping, the cluster has bigger problems than JaaS.</li>
+</ul>
+<h2 id="prevention">Prevention</h2>
+<ul>
+<li>Pin <code>replicas.max: 1</code> and <code>LeaderElectionReleaseOnCancel: true</code> (chart defaults). Multi-replica is only worth it for storage-backed HA — single-replica is the simpler operational story.</li>
+<li>Run the cleanup Job (<code>operator.cleanupOnDelete.enabled: true</code>, chart default) so a <code>helm uninstall</code> of a wedged operator unwinds the finalizers instead of leaving orphaned snippets.</li>
+<li>Pair this alert with <code>JaaSControllerWorkqueueDepthHigh</code> (<a href="/runbooks/workqueue-saturation/">workqueue-saturation</a>
+). A pod-down event almost always coincides with a saturated queue from snippets piling up.</li>
+</ul>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/runbooks" term="runbooks" label="runbooks"/><category scheme="https://jaas.projects.metio.wtf/tags/troubleshooting" term="troubleshooting" label="troubleshooting"/><category scheme="https://jaas.projects.metio.wtf/tags/lifecycle" term="lifecycle" label="lifecycle"/></entry><entry><title type="html">Pending</title><link href="https://jaas.projects.metio.wtf/runbooks/pending/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/runbooks/crd-watch-engagement/?utm_source=atom_feed" rel="related" type="text/html" title="CRD watch engagement failing"/><link href="https://jaas.projects.metio.wtf/runbooks/invalidspec/?utm_source=atom_feed" rel="related" type="text/html" title="InvalidSpec"/><link href="https://jaas.projects.metio.wtf/runbooks/operator-pod-down/?utm_source=atom_feed" rel="related" type="text/html" title="Operator pod not ready"/><link href="https://jaas.projects.metio.wtf/runbooks/suspended/?utm_source=atom_feed" rel="related" type="text/html" title="Suspended"/><link href="https://jaas.projects.metio.wtf/runbooks/synced/?utm_source=atom_feed" rel="related" type="text/html" title="Synced"/><id>https://jaas.projects.metio.wtf/runbooks/pending/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-18T20:07:20+02:00</updated><content type="html"><![CDATA[<blockquote>The snippet has been observed by the operator but its first reconcile pass has not yet completed</blockquote><h2 id="symptom">Symptom</h2>
+<p><code>kubectl get jsonnetsnippet</code> shows <code>READY=Unknown</code> (or <code>False</code> with <code>REASON=Pending</code>) immediately after the snippet was created or its spec was updated.</p>
+<h2 id="cause">Cause</h2>
+<p>The operator has observed the CR but hasn&rsquo;t completed its first reconcile pass yet. Transient by design.</p>
+<h2 id="diagnosis">Diagnosis</h2>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace &lt;ns&gt; describe jsonnetsnippet &lt;name&gt;
+</span></span></code></pre></div><p>If the timestamp on the <code>Pending</code> condition is older than ~30 seconds, the operator is either:</p>
+<ul>
+<li>not running (<code>kubectl --namespace &lt;jaas-namespace&gt; get pods</code>)</li>
+<li>backed up on its work queue (check <code>kubectl --namespace &lt;jaas-namespace&gt; logs deploy/jaas</code> and the <code>workqueue_depth</code> metric)</li>
+<li>not the leader (multi-replica install, <code>kubectl --namespace &lt;jaas-namespace&gt; get lease</code> shows the holder)</li>
+</ul>
+<h2 id="remediation">Remediation</h2>
+<p>If transient, wait. If persistent:</p>
+<ul>
+<li>restart the operator: <code>kubectl --namespace &lt;jaas-namespace&gt; rollout restart deploy/jaas</code></li>
+<li>inspect the operator&rsquo;s logs for errors</li>
+</ul>
+<p>If the snippet is stuck in <code>Pending</code> because the work queue is saturated, increase replicas (with leader election ON) or raise the rate-limiter budget (<code>--rerender-rate</code>, <code>--rerender-burst</code>).</p>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/runbooks" term="runbooks" label="runbooks"/><category scheme="https://jaas.projects.metio.wtf/tags/troubleshooting" term="troubleshooting" label="troubleshooting"/><category scheme="https://jaas.projects.metio.wtf/tags/lifecycle" term="lifecycle" label="lifecycle"/></entry><entry><title type="html">Suspended</title><link href="https://jaas.projects.metio.wtf/runbooks/suspended/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/runbooks/crd-watch-engagement/?utm_source=atom_feed" rel="related" type="text/html" title="CRD watch engagement failing"/><link href="https://jaas.projects.metio.wtf/runbooks/invalidspec/?utm_source=atom_feed" rel="related" type="text/html" title="InvalidSpec"/><link href="https://jaas.projects.metio.wtf/runbooks/operator-pod-down/?utm_source=atom_feed" rel="related" type="text/html" title="Operator pod not ready"/><link href="https://jaas.projects.metio.wtf/runbooks/pending/?utm_source=atom_feed" rel="related" type="text/html" title="Pending"/><link href="https://jaas.projects.metio.wtf/runbooks/synced/?utm_source=atom_feed" rel="related" type="text/html" title="Synced"/><id>https://jaas.projects.metio.wtf/runbooks/suspended/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-18T20:07:20+02:00</updated><content type="html"><![CDATA[<blockquote>Reconciliation is intentionally paused because spec.suspend is true; the last published artifact remains intact</blockquote><h2 id="symptom">Symptom</h2>
+<p><code>READY=False</code>, <code>REASON=Suspended</code>. The snippet&rsquo;s <code>spec.suspend</code> is set to <code>true</code>.</p>
+<h2 id="cause">Cause</h2>
+<p>An operator (or automation) paused reconciliation for this snippet, typically to investigate a downstream issue without the artifact being rewritten underneath them. The last-published <code>ExternalArtifact</code> and its on-disk tarball stay intact — downstream Flux consumers keep serving the last successful render.</p>
+<p>This is a normal, intentional state. It is not a failure.</p>
+<h2 id="diagnosis">Diagnosis</h2>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace &lt;ns&gt; get jsonnetsnippet &lt;name&gt; --output <span class="nv">jsonpath</span><span class="o">=</span><span class="s1">&#39;{.spec.suspend}&#39;</span>
+</span></span></code></pre></div><p>If the value is <code>true</code>, the suspension is set on the spec. Check <code>kubectl describe</code> for the last condition transition timestamp to see when it happened.</p>
+<h2 id="remediation">Remediation</h2>
+<p>To resume reconciliation:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace &lt;ns&gt; patch jsonnetsnippet &lt;name&gt; --type<span class="o">=</span>merge --patch <span class="s1">&#39;{&#34;spec&#34;:{&#34;suspend&#34;:false}}&#39;</span>
+</span></span></code></pre></div><p>Or remove the field entirely:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace &lt;ns&gt; edit jsonnetsnippet &lt;name&gt;
+</span></span><span class="line"><span class="cl"><span class="c1"># delete the `suspend: true` line under spec</span>
+</span></span></code></pre></div><p>The next reconcile picks up the snippet&rsquo;s current spec and republishes if anything has drifted.</p>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/runbooks" term="runbooks" label="runbooks"/><category scheme="https://jaas.projects.metio.wtf/tags/troubleshooting" term="troubleshooting" label="troubleshooting"/><category scheme="https://jaas.projects.metio.wtf/tags/lifecycle" term="lifecycle" label="lifecycle"/></entry><entry><title type="html">Synced</title><link href="https://jaas.projects.metio.wtf/runbooks/synced/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/runbooks/crd-watch-engagement/?utm_source=atom_feed" rel="related" type="text/html" title="CRD watch engagement failing"/><link href="https://jaas.projects.metio.wtf/runbooks/invalidspec/?utm_source=atom_feed" rel="related" type="text/html" title="InvalidSpec"/><link href="https://jaas.projects.metio.wtf/runbooks/operator-pod-down/?utm_source=atom_feed" rel="related" type="text/html" title="Operator pod not ready"/><link href="https://jaas.projects.metio.wtf/runbooks/pending/?utm_source=atom_feed" rel="related" type="text/html" title="Pending"/><link href="https://jaas.projects.metio.wtf/runbooks/suspended/?utm_source=atom_feed" rel="related" type="text/html" title="Suspended"/><id>https://jaas.projects.metio.wtf/runbooks/synced/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-18T20:07:20+02:00</updated><content type="html"><![CDATA[<blockquote>The snippet reconciled end-to-end and its ExternalArtifact is current; no action is required</blockquote><h2 id="symptom">Symptom</h2>
+<p><code>kubectl get jsonnetsnippet</code> shows <code>READY=True</code> with <code>REASON=Synced</code>. This is the healthy state — no action required.</p>
+<h2 id="cause">Cause</h2>
+<p>The most recent reconcile pass completed end-to-end: source resolved, libraries resolved, eval succeeded, tarball published, ExternalArtifact upserted.</p>
+<h2 id="diagnosis">Diagnosis</h2>
+<p>To inspect the published artifact:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace &lt;ns&gt; get externalartifact &lt;snippet-name&gt; --output yaml
+</span></span></code></pre></div><p>The <code>status.artifact.url</code> points at the operator&rsquo;s storage HTTP server. Curl it from a pod in the cluster to confirm the bytes match:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace &lt;ns&gt; run --rm --stdin --tty --restart<span class="o">=</span>Never tmp --image<span class="o">=</span>docker.io/library/curlimages/curl -- <span class="se">\
+</span></span></span><span class="line"><span class="cl">  curl -sL &lt;status.artifact.url&gt; <span class="p">|</span> tar tzv
+</span></span></code></pre></div><h2 id="remediation">Remediation</h2>
+<p>None — this is the healthy state.</p>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/runbooks" term="runbooks" label="runbooks"/><category scheme="https://jaas.projects.metio.wtf/tags/troubleshooting" term="troubleshooting" label="troubleshooting"/><category scheme="https://jaas.projects.metio.wtf/tags/lifecycle" term="lifecycle" label="lifecycle"/></entry></feed>

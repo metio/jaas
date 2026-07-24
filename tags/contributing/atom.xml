@@ -1,0 +1,319 @@
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en"><generator uri="https://gohugo.io/" version="0.163.3">Hugo</generator><title type="html">Contributing on Jsonnet-as-a-Service</title><link href="https://jaas.projects.metio.wtf/tags/contributing/" rel="alternate" type="text/html" title="html"/><link href="https://jaas.projects.metio.wtf/tags/contributing/index.xml" rel="alternate" type="application/rss+xml" title="rss"/><link href="https://jaas.projects.metio.wtf/tags/contributing/atom.xml" rel="self" type="application/atom+xml" title="atom"/><updated>2026-07-24T07:17:17+00:00</updated><author><name>metio.wtf</name></author><id>https://jaas.projects.metio.wtf/tags/contributing/</id><entry><title type="html">Building and Testing</title><link href="https://jaas.projects.metio.wtf/contributing/building/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/contributing/ci-and-release/?utm_source=atom_feed" rel="related" type="text/html" title="CI and Releases"/><link href="https://jaas.projects.metio.wtf/integrations/claude-code/?utm_source=atom_feed" rel="related" type="text/html" title="Claude Code skill"/><id>https://jaas.projects.metio.wtf/contributing/building/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-07-16T23:00:41+02:00</updated><content type="html"><![CDATA[<blockquote>Build JaaS and run its full test suite through the flake&rsquo;s development shell.</blockquote><p>The host needs no Go toolchain. Every build and test command runs through the
+development shell that <code>flake.nix</code> defines, with <code>flake.lock</code> pinning each tool
+to an exact version:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">nix develop --command &lt;command&gt;
+</span></span></code></pre></div><p>CI runs the same shell, so a gate that is green locally is green there by
+construction. Run <code>nix develop</code> on its own to drop into an interactive shell and
+invoke the tools bare.</p>
+<p>The shell carries the Go toolchain, the static-analysis suite, the docs and
+dashboard tooling, and the envtest assets. <code>KUBEBUILDER_ASSETS</code> points at an
+<code>etcd</code> + <code>kube-apiserver</code> + <code>kubectl</code> bundle assembled from nixpkgs, so the
+envtest-backed tests run offline with nothing to download.</p>
+<h2 id="building">Building</h2>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">nix develop --command go build -o jaas .
+</span></span></code></pre></div><p>The <code>Dockerfile</code> builds the production image. It accepts <code>VERSION</code> and <code>COMMIT</code>
+build args:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">docker build -t ghcr.io/metio/jaas:dev .
+</span></span><span class="line"><span class="cl">docker build --build-arg <span class="nv">VERSION</span><span class="o">=</span>v1 --build-arg <span class="nv">COMMIT</span><span class="o">=</span>abc123 -t ghcr.io/metio/jaas:dev .
+</span></span></code></pre></div><h2 id="regenerating-generated-code">Regenerating generated code</h2>
+<p>The CRD manifests under <code>config/crd/bases/</code> and <code>api/v1/zz_generated.deepcopy.go</code>
+are produced by <code>controller-gen</code>. Regenerate both after touching <code>api/v1/</code> types,
+and commit the result:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">nix develop --command generate
+</span></span></code></pre></div><p><code>verify.yml</code>&rsquo;s <code>generated</code> job runs that same command and fails on any diff, so
+stale manifests cannot ship. The command is declared in <code>flake.nix</code> and reads
+<code>scripts/generate.sh</code> — one definition the gate and this page both point at.</p>
+<p><code>controller-gen</code> itself comes from the <code>go.mod</code> <code>tool</code> directive, so its version
+lives there and Renovate bumps it.</p>
+<h2 id="static-analysis">Static analysis</h2>
+<p>golangci-lint is not used. The standalone tools below run directly, both in CI
+and in the development shell:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">nix develop --command go vet ./...
+</span></span><span class="line"><span class="cl">nix develop --command staticcheck ./...     <span class="c1"># config: staticcheck.conf, checks = [&#34;all&#34;]</span>
+</span></span><span class="line"><span class="cl">nix develop --command gofumpt -l .          <span class="c1"># empty output means clean; any output is a failure</span>
+</span></span><span class="line"><span class="cl">nix develop --command gosec ./...           <span class="c1"># inline #nosec justifications silence false positives</span>
+</span></span><span class="line"><span class="cl">nix develop --command govulncheck ./...     <span class="c1"># reachable-from-code advisories only</span>
+</span></span><span class="line"><span class="cl">nix develop --command arch-go               <span class="c1"># architecture rules; config: arch-go.yml</span>
+</span></span><span class="line"><span class="cl">nix develop --command modernize ./...       <span class="c1"># newer-Go idiom check</span>
+</span></span></code></pre></div><h2 id="test-layers">Test layers</h2>
+<h3 id="pure-unit-tests">Pure unit tests</h3>
+<p>Table-driven tests with no external state. They live next to the code they cover
+across <code>internal/...</code> and <code>api/v1/</code>. Several act as drift gates:
+<code>conditions_test.go</code> verifies that every <code>Reason*</code> constant has a matching
+<code>docs/runbooks/&lt;reason&gt;.md</code>, and <code>TestErrorResponse_StableCodeValues</code> pins the
+wire-level <code>ErrCode*</code> strings against accidental rename.</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">nix develop --command go <span class="nb">test</span> -count<span class="o">=</span><span class="m">1</span> -race -cover ./...
+</span></span></code></pre></div><p>To run a single test by name:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">nix develop --command go <span class="nb">test</span> -count<span class="o">=</span><span class="m">1</span> -v -run TestName ./internal/handler/
+</span></span></code></pre></div><h3 id="envtest-backed-operator-tests">Envtest-backed operator tests</h3>
+<p>Files named <code>envtest_*_test.go</code> (in <code>internal/operator/</code>,
+<code>internal/webhook/selfsigned/</code>, and <code>main_envtest_test.go</code> at the repo root) boot
+a real <code>kube-apiserver</code> and <code>etcd</code> via controller-runtime&rsquo;s <code>envtest</code> package and
+run the reconciler, webhook, and full <code>run(...)</code> function against them.</p>
+<p>The tests share one apiserver instance per test binary, guarded by a <code>sync.Once</code>,
+so the startup cost is paid once. Each test <code>t.Skip</code>s when <code>KUBEBUILDER_ASSETS</code>
+is unset — there is no build tag. The development shell exports it, so these
+tests run by default; on a host without the assets they silently skip.</p>
+<p>The envtest harness sets <code>Config.SkipImpersonation</code> (the only place that setting
+is allowed) and defaults <code>MetricsBindAddress</code> to <code>&quot;0&quot;</code> so parallel test cases do
+not fight over the metrics port.</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">nix develop --command go <span class="nb">test</span> -count<span class="o">=</span><span class="m">1</span> -race -cover ./...
+</span></span></code></pre></div><h3 id="golden--example-end-to-end-tests">Golden / example end-to-end tests</h3>
+<p><code>examples_test.go</code> boots the full binary via <code>runInBackground</code> and asserts HTTP
+responses against golden files under <code>testdata/golden/</code>. Comparison is semantic —
+both sides are parsed as JSON and compared on the parsed values, so whitespace
+and key ordering are irrelevant.</p>
+<p>After changing an example or adding a new one, regenerate the golden files:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">nix develop --command go <span class="nb">test</span> -update ./...
+</span></span></code></pre></div><p>Inspect and commit the diff in <code>testdata/golden/</code>.</p>
+<h3 id="fuzz-tests">Fuzz tests</h3>
+<p>Fuzz targets in <code>internal/handler/</code>, <code>internal/sources/</code>, and <code>internal/urlguard/</code>
+harden the request path, the tar/gzip artifact unpacker, and the SSRF URL/IP
+parser against adversarial input. CI exercises their seed corpus as ordinary unit
+tests. To fuzz interactively:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">nix develop --command go <span class="nb">test</span> -fuzz<span class="o">=</span>FuzzName -fuzztime<span class="o">=</span>30s ./internal/urlguard/
+</span></span></code></pre></div><h3 id="benchmarks">Benchmarks</h3>
+<p>Throughput benchmarks in <code>internal/eval/</code>, <code>internal/storage/</code>, and
+<code>internal/operator/</code> cover reconcile throughput, watch mapping, and the
+tenant-client cache. They are baselines, not merge gates. The reconcile benchmark
+is envtest-backed and skips without <code>KUBEBUILDER_ASSETS</code>.</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">nix develop --command go <span class="nb">test</span> -bench<span class="o">=</span>. -benchmem -run<span class="o">=</span>^$ ./internal/operator/
+</span></span></code></pre></div><h3 id="kind-operator-smoke-tests">Kind operator smoke tests</h3>
+<p>The cluster-level layer runs outside <code>go test</code>. Pure-<code>kubectl</code> bash scenarios in
+<code>hack/smoke/</code> run against a real kind cluster via
+<code>.github/workflows/kind-smoke.yml</code>. To run a scenario locally against any
+reachable cluster, deploy JaaS and invoke the scenario scripts directly:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">hack/smoke/scenario-basic.sh
+</span></span></code></pre></div><p>See <a href="/contributing/ci-and-release/">CI and releases</a>
+ for how the smoke layer fits
+into the two-angle end-to-end strategy.</p>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/contributing" term="contributing" label="contributing"/><category scheme="https://jaas.projects.metio.wtf/tags/building" term="building" label="building"/><category scheme="https://jaas.projects.metio.wtf/tags/testing" term="testing" label="testing"/></entry><entry><title type="html">CI and Releases</title><link href="https://jaas.projects.metio.wtf/contributing/ci-and-release/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/contributing/building/?utm_source=atom_feed" rel="related" type="text/html" title="Building and Testing"/><link href="https://jaas.projects.metio.wtf/integrations/claude-code/?utm_source=atom_feed" rel="related" type="text/html" title="Claude Code skill"/><id>https://jaas.projects.metio.wtf/contributing/ci-and-release/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-18T20:07:20+02:00</updated><content type="html"><![CDATA[<blockquote>The verify.yml PR gate, the static-analysis tool set, and the calendar-based hand-rolled release pipeline.</blockquote><h2 id="static-analysis">Static analysis</h2>
+<p>golangci-lint is not used. The tools below run directly, both in CI and locally inside the dev shell (see <a href="/contributing/building/">Building and Testing</a>
+). Every tool is a separate, auditable binary with its own config file.</p>
+<table>
+	<thead>
+			<tr>
+					<th>Tool</th>
+					<th>Scope</th>
+					<th>Config</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><code>go vet</code> (all analyzers)</td>
+					<td>Go correctness</td>
+					<td>—</td>
+			</tr>
+			<tr>
+					<td><a href="https://staticcheck.dev">staticcheck</a>
+</td>
+					<td>Bugs, simplifications, style</td>
+					<td><code>staticcheck.conf</code> (<code>checks = [&quot;all&quot;]</code>)</td>
+			</tr>
+			<tr>
+					<td><a href="https://github.com/securego/gosec">gosec</a>
+</td>
+					<td>Security patterns</td>
+					<td>inline <code>#nosec</code> justifications</td>
+			</tr>
+			<tr>
+					<td><a href="https://go.dev/security/vuln/">govulncheck</a>
+</td>
+					<td>Known vulnerabilities in the dependency graph</td>
+					<td>—</td>
+			</tr>
+			<tr>
+					<td><a href="https://github.com/arch-go/arch-go">arch-go</a>
+</td>
+					<td>Architecture rules</td>
+					<td><code>arch-go.yml</code></td>
+			</tr>
+			<tr>
+					<td><a href="https://github.com/mvdan/gofumpt">gofumpt</a>
+</td>
+					<td>Strict formatting</td>
+					<td>—</td>
+			</tr>
+			<tr>
+					<td><a href="https://reuse.software">REUSE</a>
+</td>
+					<td>License / copyright metadata on every file</td>
+					<td><code>REUSE.toml</code></td>
+			</tr>
+			<tr>
+					<td><a href="https://yamllint.readthedocs.io">yamllint</a>
+</td>
+					<td>YAML</td>
+					<td><code>.yamllint.yaml</code></td>
+			</tr>
+			<tr>
+					<td><a href="https://github.com/rhysd/actionlint">actionlint</a>
+</td>
+					<td>GitHub Actions workflows</td>
+					<td>—</td>
+			</tr>
+			<tr>
+					<td><a href="https://github.com/DavidAnson/markdownlint-cli2">markdownlint</a>
+</td>
+					<td>Markdown</td>
+					<td><code>.markdownlint.yaml</code></td>
+			</tr>
+			<tr>
+					<td><a href="https://github.com/crate-ci/typos">typos</a>
+</td>
+					<td>Spelling</td>
+					<td><code>.typos.toml</code></td>
+			</tr>
+			<tr>
+					<td><a href="https://github.com/aquasecurity/trivy">Trivy</a>
+</td>
+					<td>Container image CVEs</td>
+					<td>—</td>
+			</tr>
+	</tbody>
+</table>
+<h3 id="architecture-rules">Architecture rules</h3>
+<p><code>arch-go.yml</code> pins two invariants enforced with 100% compliance:</p>
+<ul>
+<li><code>api/v1</code> depends on neither the operator internals nor <code>sigs.k8s.io/controller-runtime</code>. The CRD types stay importable by external consumers without dragging the manager in. Scheme registration uses apimachinery&rsquo;s <code>runtime.NewSchemeBuilder</code> for exactly this reason.</li>
+<li><code>internal/urlguard</code> — the SSRF-defence layer — depends on the standard library only, with no internal and no external imports. This keeps the IP/URL validation logic self-contained and straightforward to fuzz in isolation.</li>
+</ul>
+<h2 id="the-verifyyml-pr-gate">The verify.yml PR gate</h2>
+<p><code>.github/workflows/verify.yml</code> fans out into one job per concern. A failure points straight at the offending gate. CI installs each tool fresh via <code>go run &lt;tool&gt;@latest</code>; the dev shell pre-installs the same tools at the same versions, so local and CI runs agree.</p>
+<table>
+	<thead>
+			<tr>
+					<th>Job</th>
+					<th>What it runs</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><code>test</code></td>
+					<td><code>go build ./...</code> then <code>go test -v -race -shuffle=on -coverprofile=cover.out ./...</code></td>
+			</tr>
+			<tr>
+					<td><code>lint-go</code></td>
+					<td><code>go vet ./...</code>, <code>staticcheck ./...</code>, <code>gosec ./...</code>, <code>gofumpt -l .</code> (fails on any output)</td>
+			</tr>
+			<tr>
+					<td><code>vulnerabilities</code></td>
+					<td><code>govulncheck ./...</code> — reachable-from-code advisories are a hard merge gate</td>
+			</tr>
+			<tr>
+					<td><code>architecture</code></td>
+					<td><code>arch-go</code> against <code>arch-go.yml</code></td>
+			</tr>
+			<tr>
+					<td><code>reuse</code></td>
+					<td><code>fsfe/reuse-action</code> — every file must carry SPDX headers</td>
+			</tr>
+			<tr>
+					<td><code>yaml</code></td>
+					<td><code>yamllint</code> against <code>.yamllint.yaml</code></td>
+			</tr>
+			<tr>
+					<td><code>github-actions</code></td>
+					<td><code>actionlint</code></td>
+			</tr>
+			<tr>
+					<td><code>markdown</code></td>
+					<td><code>markdownlint-cli2</code> against <code>.markdownlint.yaml</code></td>
+			</tr>
+			<tr>
+					<td><code>typos</code></td>
+					<td><code>typos</code> against <code>.typos.toml</code></td>
+			</tr>
+			<tr>
+					<td><code>prose</code></td>
+					<td>Vale against the shared metio/vale-config style; error-level findings (naming/branding) fail the gate</td>
+			</tr>
+			<tr>
+					<td><code>container-image</code></td>
+					<td><code>docker buildx</code> build (load, no push) followed by Trivy scan; hard-fails on any fixable <code>CRITICAL</code>/<code>HIGH</code></td>
+			</tr>
+	</tbody>
+</table>
+<h3 id="all-green-aggregate">All-green aggregate</h3>
+<p>The workflow ends with a single <code>all-green</code> job:</p>
+<ul>
+<li><code>needs</code> every other job</li>
+<li>runs <code>if: always()</code></li>
+<li>fails unless each dependency <code>result</code> is <code>success</code> or <code>skipped</code></li>
+</ul>
+<p>That one job is the <strong>only</strong> check marked required in branch protection. Adding a new job to the <code>needs</code> list of <code>all-green</code> covers it automatically; no new required check needs to be registered.</p>
+<p>The <code>govulncheck</code> gate is a hard blocker. A reachable-from-code advisory that cannot be fixed by bumping a dependency blocks the PR until resolved. Resolution is usually a <code>toolchain</code> bump in <code>go.mod</code> (for stdlib advisories) or <code>go get -u</code> (for module advisories).</p>
+<h2 id="the-release-pipeline">The release pipeline</h2>
+<p>Releases are calendar-based and automated. <code>.github/workflows/release.yml</code> runs on a Monday cron (<code>47 7 * * MON</code>) plus manual <code>workflow_dispatch</code>. The version is computed from the run date:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">date +<span class="s1">&#39;%Y.%-m.%-d&#39;</span>
+</span></span></code></pre></div><p>For a Monday run on 2026-06-22 that produces <code>2026.6.22</code>.</p>
+<p>goreleaser is not used. GPG is not used. The pipeline is hand-rolled across three jobs.</p>
+<h3 id="prepare">prepare</h3>
+<p>Counts commits since the last release touching the build-relevant paths (<code>go.mod main.go internal api config Dockerfile</code>). Every downstream job gates on that count being non-zero (or there being no prior release at all), so an empty week publishes nothing.</p>
+<h3 id="build">build</h3>
+<p>A cross-compile matrix over ten platform/arch combinations:</p>
+<ul>
+<li><code>linux/amd64</code>, <code>linux/arm</code> (v7), <code>linux/arm64</code>, <code>linux/ppc64le</code>, <code>linux/riscv64</code>, <code>linux/s390x</code></li>
+<li><code>windows/amd64</code>, <code>windows/arm64</code></li>
+<li><code>darwin/amd64</code>, <code>darwin/arm64</code></li>
+</ul>
+<p>Each platform compiles with:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl"><span class="nv">CGO_ENABLED</span><span class="o">=</span><span class="m">0</span> go build -trimpath <span class="se">\
+</span></span></span><span class="line"><span class="cl">  -ldflags<span class="o">=</span><span class="s2">&#34;-s -w -X main.version=&lt;ver&gt; -X main.commit=&lt;sha&gt;&#34;</span> .
+</span></span></code></pre></div><p>Archives are <code>tar.gz</code> on linux/darwin and <code>zip</code> on windows (with a <code>.exe</code> binary), each bundling <code>LICENSE</code> and <code>README.md</code>.</p>
+<h3 id="container">container</h3>
+<p>A single <code>docker buildx</code> multi-arch push to <code>ghcr.io/metio/jaas:{latest,&lt;version&gt;}</code> over the six linux arches. The <code>Dockerfile</code> builder is pinned to <code>$BUILDPLATFORM</code> and cross-compiles via Go&rsquo;s <code>GOARCH</code>, so the multi-arch build needs no QEMU.</p>
+<p>SBOM and provenance are attached. The image is signed with cosign keyless immediately after push:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">cosign sign <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --yes <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --annotations <span class="s2">&#34;repo=metio/jaas&#34;</span> <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --annotations <span class="s2">&#34;workflow=Automated Release&#34;</span> <span class="se">\
+</span></span></span><span class="line"><span class="cl">  ghcr.io/metio/jaas@&lt;digest&gt;
+</span></span></code></pre></div><p>Identity is proven by the workflow&rsquo;s OIDC certificate issued by Fulcio; there is no key to distribute.</p>
+<h3 id="github">github</h3>
+<p>Gates on both <code>build</code> and <code>container</code> succeeding. Downloads all platform archives, computes a single <code>SHA256SUMS</code> over them, signs it with cosign keyless (Sigstore bundle format), and publishes the GitHub Release with all archives, the checksum file, and the bundle attached.</p>
+<p>To verify a release download:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">cosign verify-blob jaas_&lt;version&gt;_SHA256SUMS <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --bundle jaas_&lt;version&gt;_SHA256SUMS.bundle <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --certificate-identity-regexp <span class="s1">&#39;^https://github.com/metio/jaas/\.github/workflows/release\.yml@refs/&#39;</span> <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+</span></span><span class="line"><span class="cl">sha256sum -c jaas_&lt;version&gt;_SHA256SUMS
+</span></span></code></pre></div><p>To verify the container image:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">cosign verify ghcr.io/metio/jaas:&lt;version&gt; <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --certificate-identity-regexp <span class="s1">&#39;^https://github.com/metio/jaas/\.github/workflows/release\.yml@refs/&#39;</span> <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+</span></span></code></pre></div>]]></content><category scheme="https://jaas.projects.metio.wtf/tags/contributing" term="contributing" label="contributing"/><category scheme="https://jaas.projects.metio.wtf/tags/ci" term="ci" label="ci"/><category scheme="https://jaas.projects.metio.wtf/tags/release" term="release" label="release"/></entry><entry><title type="html">Claude Code skill</title><link href="https://jaas.projects.metio.wtf/integrations/claude-code/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/contributing/building/?utm_source=atom_feed" rel="related" type="text/html" title="Building and Testing"/><link href="https://jaas.projects.metio.wtf/contributing/ci-and-release/?utm_source=atom_feed" rel="related" type="text/html" title="CI and Releases"/><link href="https://jaas.projects.metio.wtf/integrations/mcp-server/?utm_source=atom_feed" rel="related" type="text/html" title="MCP server"/><id>https://jaas.projects.metio.wtf/integrations/claude-code/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-26T15:54:29+02:00</updated><content type="html"><![CDATA[<blockquote>Install the JaaS Claude Code skill so Claude authors and operates JsonnetSnippet and JsonnetLibrary resources with accurate, current field knowledge.</blockquote><p>Install the JaaS skill into <a href="https://claude.com/claude-code">Claude Code</a>
+ and
+Claude gains working knowledge of JaaS: it authors and edits <code>JsonnetSnippet</code> and
+<code>JsonnetLibrary</code> resources, wires snippets to inline files or a Flux source
+(<code>GitRepository</code> / <code>OCIRepository</code> / <code>Bucket</code> / <code>ExternalArtifact</code>), chains one
+snippet&rsquo;s output into another, pairs JaaS with the grafana-operator or
+stageset-controller, configures per-snippet ServiceAccount impersonation, and
+calls the HTTP rendering endpoint with top-level arguments and external variables.
+The skill points Claude at the live documentation and a compact cheat-sheet, so it
+reaches for current fields and defaults instead of guessing.</p>
+<p>The skill ships in this repository under <code>skills/jaas/</code> (<code>SKILL.md</code> plus
+<code>references/reference.md</code>), packaged as a Claude Code plugin via the manifests in
+<code>.claude-plugin/</code>.</p>
+<h2 id="install">Install</h2>
+<p>Add this repository as a plugin marketplace, then install the plugin:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-text" data-lang="text"><span class="line"><span class="cl">/plugin marketplace add metio/jaas
+</span></span><span class="line"><span class="cl">/plugin install jaas@jaas
+</span></span></code></pre></div><p>The first command registers the <code>jaas</code> marketplace from
+<a href="https://github.com/metio/jaas">github.com/metio/jaas</a>
+; the second installs the
+<code>jaas</code> plugin from it. Claude activates the skill automatically whenever a
+repository holds <code>JsonnetSnippet</code> or <code>JsonnetLibrary</code> manifests or JaaS is
+otherwise in play.</p>
+<h2 id="what-it-grants-claude">What it grants Claude</h2>
+<p>The skill&rsquo;s only tools are <code>kubectl</code> and <code>curl</code>, so Claude can inspect snippets
+and call the renderer but takes no broader action. It treats
+<a href="https://jaas.projects.metio.wtf/">the documentation site</a>
+ as the source of truth
+— including the machine-readable <code>/llms.txt</code> index and the concatenated
+<code>/llms-full.txt</code> — and falls back to the bundled cheat-sheet for quick field
+lookups. The guidance covers the authoring gotchas that are easy to get wrong:
+exactly one of <code>spec.files</code> or <code>spec.sourceRef</code>, the library alias field being
+<code>importPath</code> (not <code>as</code>), single-layer <code>OCIRepository</code> artifacts, and the
+ServiceAccount impersonation RBAC each snippet needs.</p>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/contributing" term="contributing" label="contributing"/><category scheme="https://jaas.projects.metio.wtf/tags/claude" term="claude" label="claude"/><category scheme="https://jaas.projects.metio.wtf/tags/skill" term="skill" label="skill"/><category scheme="https://jaas.projects.metio.wtf/tags/plugin" term="plugin" label="plugin"/></entry></feed>

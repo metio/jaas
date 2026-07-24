@@ -1,0 +1,226 @@
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en"><generator uri="https://gohugo.io/" version="0.163.3">Hugo</generator><title type="html">Tuning on Jsonnet-as-a-Service</title><link href="https://jaas.projects.metio.wtf/tags/tuning/" rel="alternate" type="text/html" title="html"/><link href="https://jaas.projects.metio.wtf/tags/tuning/index.xml" rel="alternate" type="application/rss+xml" title="rss"/><link href="https://jaas.projects.metio.wtf/tags/tuning/atom.xml" rel="self" type="application/atom+xml" title="atom"/><updated>2026-07-24T07:17:17+00:00</updated><author><name>metio.wtf</name></author><id>https://jaas.projects.metio.wtf/tags/tuning/</id><entry><title type="html">Scale and capacity</title><link href="https://jaas.projects.metio.wtf/running/scale-and-capacity/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/running/production/?utm_source=atom_feed" rel="related" type="text/html" title="Production"/><link href="https://jaas.projects.metio.wtf/running/disaster-recovery/?utm_source=atom_feed" rel="related" type="text/html" title="Backup and disaster recovery"/><link href="https://jaas.projects.metio.wtf/reference/configuration/?utm_source=atom_feed" rel="related" type="text/html" title="Configuration reference"/><link href="https://jaas.projects.metio.wtf/reference/helm-values/?utm_source=atom_feed" rel="related" type="text/html" title="Helm chart values"/><link href="https://jaas.projects.metio.wtf/get-started/kubernetes/?utm_source=atom_feed" rel="related" type="text/html" title="Kubernetes"/><id>https://jaas.projects.metio.wtf/running/scale-and-capacity/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-26T15:54:29+02:00</updated><content type="html"><![CDATA[<blockquote>Size and tune a JaaS install for your workload — replica CPU and memory, the leader-election HA model, the throughput knobs, and the saturation signals that tell you when you&rsquo;ve run out of headroom.</blockquote><p>Size and tune JaaS for the snippet workload you run. This page covers how a single
+replica&rsquo;s CPU and memory scale with evaluation load, what adding replicas does (and
+doesn&rsquo;t) buy you, the knobs that govern throughput, and the metrics that tell you
+when you&rsquo;re at capacity.</p>
+<h2 id="sizing-a-replica">Sizing a replica</h2>
+<p>A replica&rsquo;s resource use is driven by two things: <strong>Jsonnet evaluation</strong> (CPU) and
+the <strong>per-fetch byte budget plus eval working set</strong> (memory).</p>
+<p><strong>CPU is evaluation.</strong> Each in-flight evaluation pins roughly one CPU for its
+working set, and go-jsonnet has no mid-evaluation cancellation — once an evaluation
+starts it runs to completion or to its memory ceiling, even after
+<code>--evaluation-timeout</code> (default <code>5s</code>) fires on the parent. Provision CPU for the
+worst-case concurrent eval load, not the average.</p>
+<p><strong>Memory has a bounded worst case.</strong> Resident memory during a publish is
+approximately:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-text" data-lang="text"><span class="line"><span class="cl">concurrent fetches × fetch byte budget  +  concurrent evals × per-eval working set
+</span></span></code></pre></div><p>The fetch byte budget is bounded by internal caps in the source fetcher (these are
+<strong>not</strong> flags — they are fixed constants, not operator-tunable):</p>
+<table>
+	<thead>
+			<tr>
+					<th>Cap</th>
+					<th>Value</th>
+					<th>Bounds</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><code>MaxArchiveBytes</code></td>
+					<td>64 MiB</td>
+					<td>the compressed download body</td>
+			</tr>
+			<tr>
+					<td><code>MaxExtractedBytes</code></td>
+					<td>64 MiB</td>
+					<td>the sum of every extracted entry held in memory</td>
+			</tr>
+			<tr>
+					<td><code>MaxPerEntryBytes</code></td>
+					<td>16 MiB</td>
+					<td>any single tar entry</td>
+			</tr>
+			<tr>
+					<td><code>MaxDecompressedBytes</code></td>
+					<td>512 MiB</td>
+					<td>the gzip stream&rsquo;s decompressed output (gzip-bomb defence)</td>
+			</tr>
+	</tbody>
+</table>
+<p>Concurrent downloads are themselves capped (4 in-flight), so the peak
+ephemeral-storage cost of in-flight downloads is bounded by that count × the 64 MiB
+archive cap. The render output adds to this: cap it per snippet with
+<code>--max-artifact-bytes</code> (default <code>0</code>, disabled — snippets that exceed it fail with
+<code>ReasonArtifactTooLarge</code>), and watch the <code>jaas_snippet_rendered_bytes</code> histogram to
+see the real distribution before you pick a value.</p>
+<p>The chart defaults (64 MiB memory, 32m CPU) are fine for a quickstart but will OOM
+under sustained rendering. A reasonable starting point for a production operator:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">resources</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">memory</span><span class="p">:</span><span class="w"> </span><span class="l">256Mi</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">cpu</span><span class="p">:</span><span class="w"> </span><span class="l">100m</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">operator</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">storage</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">maxArtifactBytes</span><span class="p">:</span><span class="w"> </span><span class="m">16777216</span><span class="w">  </span><span class="c"># 16 MiB; snippets above this fail ReasonArtifactTooLarge</span><span class="w">
+</span></span></span></code></pre></div><p>Raise the memory request toward <code>concurrent evals × largest expected artifact</code> plus
+the fetch budget if you render large dashboards or run many tenants. See
+<a href="/running/production/">Production</a>
+ for the same sizing decision in the context
+of a full hardening checklist.</p>
+<h2 id="replicas-and-ha">Replicas and HA</h2>
+<p>JaaS uses controller-runtime leader election, <strong>on by default</strong> whenever
+<code>--enable-flux-integration</code> is set (<code>--leader-election</code>, <code>true</code>). The lease lives at
+<code>--leader-election-namespace</code> / <code>--leader-election-id</code> (<code>jaas-operator</code>). The lease
+is released on shutdown (<code>LeaderElectionReleaseOnCancel</code>), so a rolling update hands
+off in seconds rather than waiting out the lease duration.</p>
+<p>What scales by adding replicas, and what does not:</p>
+<table>
+	<thead>
+			<tr>
+					<th>Component</th>
+					<th>Runs on</th>
+					<th>Scales with replicas</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>Jsonnet render HTTP server</td>
+					<td>every replica</td>
+					<td>Yes — render throughput is per-pod</td>
+			</tr>
+			<tr>
+					<td>Management probes (<code>/live</code>, <code>/ready</code>, <code>/start</code>)</td>
+					<td>every replica</td>
+					<td>Yes</td>
+			</tr>
+			<tr>
+					<td>Storage HTTP server (artifact downloads)</td>
+					<td>every replica</td>
+					<td>Yes</td>
+			</tr>
+			<tr>
+					<td>Validating admission webhook</td>
+					<td>every replica</td>
+					<td>Yes</td>
+			</tr>
+			<tr>
+					<td>Reconcilers + the manager cache + storage writes</td>
+					<td><strong>leader only</strong></td>
+					<td>No — reconcile is single-leader</td>
+			</tr>
+	</tbody>
+</table>
+<p>Adding replicas raises HTTP render and download throughput and gives the webhook
+and probes redundancy, but it does <strong>not</strong> parallelise reconciliation: only the
+lease-holder reconciles and writes artifacts. The non-leaders stand by to take the
+lease over on failure.</p>
+<p>Because every replica serves artifact downloads but only the leader writes them,
+<strong>multi-replica installs require shared-readable storage</strong>: either the <code>s3</code> backend
+(<code>--storage-backend=s3</code> — all replicas read the same bucket, the leader writes) or
+the <code>local</code> backend on an RWX PVC. The default <code>local</code> backend on an emptyDir or RWO
+PVC is single-replica only. The backend matrix and the full HA setup live in
+<a href="/operator/storage-and-ha/">Storage and HA</a>
+; pick a backend there before scaling out.</p>
+<h2 id="tuning-throughput">Tuning throughput</h2>
+<p>Each knob below names what it controls, its default, when to move it, and the metric
+that signals the need.</p>
+<h3 id="--max-concurrent-evals"><code>--max-concurrent-evals</code></h3>
+<p>Global cap on in-flight Jsonnet evaluations across the HTTP and operator paths.
+Default is <code>max(GOMAXPROCS × 4, 16)</code>. Excess work is rejected — HTTP requests get a
+<code>503</code>, the operator requeues with backoff. <code>0</code> disables the gate entirely.</p>
+<ul>
+<li><strong>Raise it</strong> when <code>jaas_eval_unavailable_total</code> climbs while CPU still has
+headroom and evals are short — you&rsquo;re rejecting work you could run.</li>
+<li><strong>Lower it</strong> when the pod approaches its memory limit under load — fewer
+concurrent evals means a smaller worst-case working set.</li>
+<li><strong>Watch</strong> <code>jaas_eval_in_flight</code> against <code>jaas_eval_max_concurrent</code>: in-flight
+pegged at the cap while <code>jaas_eval_unavailable_total</code> grows is saturation.</li>
+</ul>
+<h3 id="--max-stack"><code>--max-stack</code></h3>
+<p>Maximum Jsonnet call-stack depth, default <code>500</code>; <code>0</code> falls back to go-jsonnet&rsquo;s own
+default. Raise only for legitimately deep recursive templates that hit the limit;
+keep it bounded so a runaway recursive snippet can&rsquo;t exhaust the stack.</p>
+<h3 id="--evaluation-timeout"><code>--evaluation-timeout</code></h3>
+<p>Maximum wall-clock time a single evaluation may take, default <code>5s</code>; <code>0</code> disables it.
+Lower it to fail pathological snippets faster; raise it for genuinely expensive
+renders. Because evaluation is uncancellable, a timed-out parent leaves the eval
+goroutine running until it finishes naturally — watch
+<code>jaas_eval_outstanding_timed_out</code>, which counts exactly those orphans. A sustained
+non-zero value means your timeout is shorter than some snippet&rsquo;s real cost.</p>
+<h3 id="--rerender-rate-and---rerender-burst"><code>--rerender-rate</code> and <code>--rerender-burst</code></h3>
+<p>The per-snippet token bucket that bounds steady-state re-render churn. Defaults are
+<code>60/min</code> (rate, as <code>N/period</code> where period is <code>sec|min|hour</code>) and <code>120</code> (burst
+depth). Raise them for snippets whose upstream sources legitimately change faster
+than the budget; lower them to throttle a snippet whose update cadence is hammering
+the operator. The <code>jaas_snippet_rate_limited_total</code> counter (paired with a
+<code>RateLimited</code> Warning event) tells you when a snippet is hitting its bucket.</p>
+<h3 id="specinterval-and---storage-sweep-interval"><code>spec.interval</code> and <code>--storage-sweep-interval</code></h3>
+<p>A snippet&rsquo;s <code>spec.interval</code> sets how often the operator re-renders it absent a watch
+event — lengthen it for snippets that rarely change to cut reconcile load.
+<code>--storage-sweep-interval</code> (default <code>10m</code>; <code>0</code> disables) governs the background GC
+that clears orphaned <code>.tar.gz.tmp</code> residue; the sweep is off the hot reconcile path,
+so leave it unless <code>jaas_storage_sweep_failures_total</code> is climbing.</p>
+<h2 id="knowing-when-youre-at-capacity">Knowing when you&rsquo;re at capacity</h2>
+<p>Watch these saturation signals; each maps to a starter alert in the opt-in
+<code>PrometheusRule</code> (see <a href="/observability/alerting/">Alerting</a>
+):</p>
+<table>
+	<thead>
+			<tr>
+					<th>Signal</th>
+					<th>At capacity when</th>
+					<th>Alert</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><code>jaas_eval_in_flight</code> vs <code>jaas_eval_max_concurrent</code></td>
+					<td>in-flight pegged at the cap</td>
+					<td><code>JaaSEvalSaturation</code> (ratio ≥ 0.9 for 10m, guarded on the cap being non-zero)</td>
+			</tr>
+			<tr>
+					<td><code>jaas_eval_unavailable_total</code></td>
+					<td>climbing — evals are being rejected</td>
+					<td>(component of eval-saturation diagnosis)</td>
+			</tr>
+			<tr>
+					<td><code>jaas_eval_outstanding_timed_out</code></td>
+					<td>sustained non-zero — evals outrun the timeout</td>
+					<td>watch directly</td>
+			</tr>
+			<tr>
+					<td><code>controller_runtime</code> workqueue depth</td>
+					<td>can&rsquo;t drain</td>
+					<td><code>JaaSControllerWorkqueueDepthHigh</code> (depth &gt; 50 for 15m)</td>
+			</tr>
+			<tr>
+					<td>reconcile p95 latency</td>
+					<td>crosses the SLO ceiling</td>
+					<td><code>JaaSReconcileLatencyHigh</code></td>
+			</tr>
+	</tbody>
+</table>
+<p>These signals, the dashboard that plots them, and the reconcile SLOs are detailed
+under <a href="/observability/">Observability</a>
+ — start with <a href="/observability/metrics/">Metrics</a>
+,
+<a href="/observability/alerting/">Alerting</a>
+, and the <a href="/observability/slos/">SLOs</a>
+.</p>
+<p>To get a throughput baseline for <strong>your</strong> hardware before sizing, run the in-repo
+benchmarks: <code>BenchmarkReconcile_HappyPath</code> / <code>BenchmarkReconcile_Concurrent</code> in
+<code>internal/operator</code>, the <code>BenchmarkEvaluateAnonymousSnippet_*</code> evaluation
+benchmarks in <code>internal/eval</code>, and <code>BenchmarkStore_Put</code> /
+<code>BenchmarkStore_PutLargeArtifact</code> in <code>internal/storage</code>.</p>
+<h2 id="next-steps">Next steps</h2>
+<ul>
+<li><a href="/operator/storage-and-ha/">Storage and HA</a>
+ — pick the backend that lets you scale
+past one replica.</li>
+<li><a href="/running/production/">Production</a>
+ — the full pre-production hardening
+checklist.</li>
+<li><a href="/observability/">Observability</a>
+ — the metrics, alerts, dashboard, and SLOs that
+back the capacity signals above.</li>
+</ul>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/installation" term="installation" label="installation"/><category scheme="https://jaas.projects.metio.wtf/tags/scale" term="scale" label="scale"/><category scheme="https://jaas.projects.metio.wtf/tags/capacity" term="capacity" label="capacity"/><category scheme="https://jaas.projects.metio.wtf/tags/ha" term="ha" label="ha"/><category scheme="https://jaas.projects.metio.wtf/tags/performance" term="performance" label="performance"/><category scheme="https://jaas.projects.metio.wtf/tags/tuning" term="tuning" label="tuning"/></entry></feed>

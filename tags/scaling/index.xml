@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Scaling on Jsonnet-as-a-Service</title><link>https://jaas.projects.metio.wtf/tags/scaling/</link><description>Recent content in Scaling on Jsonnet-as-a-Service</description><generator>Hugo</generator><language>en</language><atom:link href="https://jaas.projects.metio.wtf/tags/scaling/index.xml" rel="self" type="application/rss+xml"/><item><title>Run in production</title><link>https://jaas.projects.metio.wtf/running/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/running/</guid><description>&lt;p&gt;Once JaaS is installed, these pages cover keeping it healthy in production: the
+posture to set before going live, what to watch day to day, how to size it, and
+how to recover its state.&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;&lt;a href="https://jaas.projects.metio.wtf/running/production/"&gt;Production&lt;/a&gt;
+&lt;/strong&gt; — the security and availability posture to
+set before going live.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;a href="https://jaas.projects.metio.wtf/running/operations/"&gt;Operations&lt;/a&gt;
+&lt;/strong&gt; — day-two running: what to watch and
+routine tasks.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;a href="https://jaas.projects.metio.wtf/running/scale-and-capacity/"&gt;Scale and capacity&lt;/a&gt;
+&lt;/strong&gt; — sizing, throughput, and
+resource tuning.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;a href="https://jaas.projects.metio.wtf/running/disaster-recovery/"&gt;Backup and disaster recovery&lt;/a&gt;
+&lt;/strong&gt; — what to back up
+and how to recover.&lt;/li&gt;
+&lt;/ul&gt;</description></item></channel></rss>

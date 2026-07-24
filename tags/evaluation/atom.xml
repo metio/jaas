@@ -1,0 +1,221 @@
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en"><generator uri="https://gohugo.io/" version="0.163.3">Hugo</generator><title type="html">Evaluation on Jsonnet-as-a-Service</title><link href="https://jaas.projects.metio.wtf/tags/evaluation/" rel="alternate" type="text/html" title="html"/><link href="https://jaas.projects.metio.wtf/tags/evaluation/index.xml" rel="alternate" type="application/rss+xml" title="rss"/><link href="https://jaas.projects.metio.wtf/tags/evaluation/atom.xml" rel="self" type="application/atom+xml" title="atom"/><updated>2026-07-24T07:17:17+00:00</updated><author><name>metio.wtf</name></author><id>https://jaas.projects.metio.wtf/tags/evaluation/</id><entry><title type="html">Eval-concurrency saturation</title><link href="https://jaas.projects.metio.wtf/runbooks/eval-saturation/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/runbooks/evaluationfailed/?utm_source=atom_feed" rel="related" type="text/html" title="EvaluationFailed"/><link href="https://jaas.projects.metio.wtf/runbooks/evaluationtimeout/?utm_source=atom_feed" rel="related" type="text/html" title="EvaluationTimeout"/><link href="https://jaas.projects.metio.wtf/runbooks/externalvariableconflict/?utm_source=atom_feed" rel="related" type="text/html" title="ExternalVariableConflict"/><link href="https://jaas.projects.metio.wtf/runbooks/artifacttoolarge/?utm_source=atom_feed" rel="related" type="text/html" title="ArtifactTooLarge"/><link href="https://jaas.projects.metio.wtf/runbooks/crd-watch-engagement/?utm_source=atom_feed" rel="related" type="text/html" title="CRD watch engagement failing"/><id>https://jaas.projects.metio.wtf/runbooks/eval-saturation/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-18T20:07:20+02:00</updated><content type="html"><![CDATA[<blockquote>The global concurrent-eval cap is full and the operator is shedding new evaluations, typically because a runaway snippet is holding slots past its deadline</blockquote><p>The global concurrent-eval cap (<code>--max-concurrent-evals</code>, default <code>max(GOMAXPROCS*4, 16)</code>) is full and new evaluations are being shed. The cap exists because the synchronous go-jsonnet API has no context-aware cancellation: once an eval starts it runs to natural completion, so an unbounded queue lets a runaway snippet pile up goroutines that outlive every caller&rsquo;s deadline. This state is not tied to a single status <code>Reason</code>.</p>
+<h2 id="symptom">Symptom</h2>
+<p>One or more of:</p>
+<ul>
+<li><code>JaaSEvalSaturation</code> is firing — <code>jaas_eval_in_flight / jaas_eval_max_concurrent</code> has been above the threshold (default <code>0.9</code>) for the alert window.</li>
+<li><code>JaaSEvalRejected</code> is firing — <code>rate(jaas_eval_unavailable_total[5m])</code> has been above the threshold.</li>
+<li>HTTP clients see <code>503 Service Unavailable</code> with body <code>{&quot;error&quot;: &quot;evaluation_unavailable&quot;, &quot;message&quot;: &quot;concurrent-eval cap is full; retry after backoff&quot;}</code>.</li>
+<li><code>kubectl describe jsonnetsnippet</code> shows recurring <code>Warning EvalUnavailable</code> events with message <code>reconcile deferred for 1s by --max-concurrent-evals</code>. The Ready condition is untouched — backpressure is not failure.</li>
+<li><code>jaas_eval_outstanding_timed_out</code> is also elevated — confirms the runaway-snippet diagnosis: orphaned evals are pinning slots while their parents have already given up.</li>
+</ul>
+<h2 id="diagnosis-why-is-the-cap-full">Diagnosis: why is the cap full?</h2>
+<p>The cap fills for two distinct reasons. The right remediation depends on which.</p>
+<h3 id="path-a--runaway-snippet-goroutines-outliving-their-ctx">Path A — runaway snippet (goroutines outliving their ctx)</h3>
+<p>Read the leak gauge. If it&rsquo;s non-zero and trending up, evaluations are starting but not finishing — almost always a single snippet whose work dwarfs <code>--evaluation-timeout</code>.</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl"><span class="c1"># Live count of evals whose parent reconcile already timed out:</span>
+</span></span><span class="line"><span class="cl">kubectl --namespace &lt;jaas-ns&gt; <span class="nb">exec</span> deploy/jaas -- <span class="se">\
+</span></span></span><span class="line"><span class="cl">  wget -qO- http://localhost:8083/metrics <span class="p">|</span> grep jaas_eval_outstanding_timed_out
+</span></span></code></pre></div><p>To find the culprit, scan recent reconcile logs for <code>Jsonnet evaluation timed out</code> followed by repeated <code>EvalUnavailable</code> warnings on the same snippet:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace &lt;jaas-ns&gt; logs deploy/jaas --since<span class="o">=</span>15m <span class="se">\
+</span></span></span><span class="line"><span class="cl">  <span class="p">|</span> grep -E <span class="s1">&#39;EvaluationTimeout|EvalUnavailable&#39;</span> <span class="se">\
+</span></span></span><span class="line"><span class="cl">  <span class="p">|</span> sort <span class="p">|</span> uniq -c <span class="p">|</span> sort -rn <span class="p">|</span> head
+</span></span></code></pre></div><p>The snippet whose name dominates that list is the culprit. Common causes:</p>
+<ul>
+<li>Deep recursion that takes seconds-to-minutes to complete naturally even after the parent deadline fires.</li>
+<li>Pathological library import that triggers go-jsonnet&rsquo;s worst-case eval order.</li>
+<li>A <code>std.foldl</code> over a generated array of millions of entries.</li>
+</ul>
+<h3 id="path-b--genuine-load-above-the-cap">Path B — genuine load above the cap</h3>
+<p>Leak gauge is at zero (or steady, not growing), <code>jaas_eval_in_flight</code> is pegged near the cap, and many distinct snippets show <code>EvalUnavailable</code> events. The cap is sized too small for the workload.</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl"><span class="c1"># Distribution of which snippets are seeing rejections — a flat</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># distribution across many snippets is path B; a single dominant</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># snippet is path A.</span>
+</span></span><span class="line"><span class="cl">kubectl --namespace &lt;jaas-ns&gt; <span class="nb">exec</span> deploy/jaas -- <span class="se">\
+</span></span></span><span class="line"><span class="cl">  wget -qO- http://localhost:8083/metrics <span class="se">\
+</span></span></span><span class="line"><span class="cl">  <span class="p">|</span> grep jaas_snippet_eval_unavailable_total
+</span></span></code></pre></div><h2 id="remediation">Remediation</h2>
+<h3 id="path-a--runaway-snippet">Path A — runaway snippet</h3>
+<ol>
+<li>
+<p><strong>Suspend the offender</strong> to stop new evals while you fix the snippet:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace &lt;ns&gt; patch jsonnetsnippet &lt;name&gt; --type merge <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --patch <span class="s1">&#39;{&#34;spec&#34;:{&#34;suspend&#34;:true}}&#39;</span>
+</span></span></code></pre></div></li>
+<li>
+<p><strong>Inspect the snippet</strong> to understand the cost. Lower <code>--max-stack</code> is a blunt clamp that rejects pathological recursion before it can leak. The chart&rsquo;s <code>operator.maxStack</code> defaults to 500; pull it down to ~200 if the snippet doesn&rsquo;t legitimately need deeper recursion.</p>
+</li>
+<li>
+<p><strong>Tighten <code>--evaluation-timeout</code></strong> if the snippet&rsquo;s natural completion time is the load-bearing factor. A 5s default lets a 60s pathological eval leak for nearly a minute; dropping to 1s shrinks the worst-case leak window.</p>
+</li>
+<li>
+<p><strong>Re-enable</strong> after the snippet spec is fixed:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace &lt;ns&gt; patch jsonnetsnippet &lt;name&gt; --type merge <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --patch <span class="s1">&#39;{&#34;spec&#34;:{&#34;suspend&#34;:false}}&#39;</span>
+</span></span></code></pre></div></li>
+</ol>
+<h3 id="path-b--genuine-load">Path B — genuine load</h3>
+<ol>
+<li>
+<p><strong>Raise the cap</strong> if the operator has CPU headroom. The default is <code>max(GOMAXPROCS*4, 16)</code>; double it via the chart:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">helm upgrade &lt;release&gt; &lt;chart&gt; --reuse-values <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --set arguments.maxConcurrentEvals<span class="o">=</span><span class="m">64</span>
+</span></span></code></pre></div><p>Each in-flight eval pins roughly one CPU when actively running, so the practical ceiling is bounded by node CPU. Past 2-3× GOMAXPROCS the gains drop sharply — more contention, same throughput.</p>
+</li>
+<li>
+<p><strong>Tune the per-snippet rate limiter</strong> if a small number of snippets dominate the request rate. <code>--rerender-rate</code> + <code>--rerender-burst</code> cap each snippet&rsquo;s reconcile frequency independent of the global eval cap.</p>
+</li>
+<li>
+<p><strong>Scale horizontally</strong> if a single replica can&rsquo;t keep up even at the raised cap. The chart&rsquo;s <code>replicas.max</code> controls the HPA ceiling; combined with the storage layer&rsquo;s leader election (S3 backend) you get multi-replica HA where every replica reads but only the lease-holder writes.</p>
+</li>
+</ol>
+<h2 id="when-not-to-raise-the-cap">When NOT to raise the cap</h2>
+<p>If the leak gauge is non-zero AND growing, raising the cap lets more goroutines pile up before the next saturation event. Diagnose path A first. The cap is a backpressure boundary, not a throughput knob.</p>
+<h2 id="disable-the-gate-not-recommended">Disable the gate (not recommended)</h2>
+<p><code>--max-concurrent-evals=0</code> disables the gate entirely. The leak gauge keeps working, but rejections never fire — a single runaway snippet can OOM the pod. Use only if you&rsquo;ve sized the workload precisely and want to surface saturation purely via the leak gauge.</p>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/runbooks" term="runbooks" label="runbooks"/><category scheme="https://jaas.projects.metio.wtf/tags/troubleshooting" term="troubleshooting" label="troubleshooting"/><category scheme="https://jaas.projects.metio.wtf/tags/evaluation" term="evaluation" label="evaluation"/></entry><entry><title type="html">Evaluation and security</title><link href="https://jaas.projects.metio.wtf/rendering/evaluation-and-security/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/runbooks/eval-saturation/?utm_source=atom_feed" rel="related" type="text/html" title="Eval-concurrency saturation"/><link href="https://jaas.projects.metio.wtf/runbooks/evaluationfailed/?utm_source=atom_feed" rel="related" type="text/html" title="EvaluationFailed"/><link href="https://jaas.projects.metio.wtf/runbooks/evaluationtimeout/?utm_source=atom_feed" rel="related" type="text/html" title="EvaluationTimeout"/><link href="https://jaas.projects.metio.wtf/runbooks/externalvariableconflict/?utm_source=atom_feed" rel="related" type="text/html" title="ExternalVariableConflict"/><link href="https://jaas.projects.metio.wtf/security/network-policy/?utm_source=atom_feed" rel="related" type="text/html" title="Network policy"/><id>https://jaas.projects.metio.wtf/rendering/evaluation-and-security/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-26T15:54:29+02:00</updated><content type="html"><![CDATA[<blockquote>Timeout, stack, and concurrency caps on evaluation, and the security model to lock down before exposing the service.</blockquote><p>JaaS runs Jsonnet on the server and returns the result over HTTP. Three caps
+bound each evaluation, and a small security model governs what a snippet and its
+callers can reach. Review and tune both sections before exposing the service to
+a wider audience.</p>
+<h2 id="evaluation-caps">Evaluation caps</h2>
+<table>
+	<thead>
+			<tr>
+					<th>Flag</th>
+					<th>Default</th>
+					<th>Effect</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><code>--evaluation-timeout</code></td>
+					<td><code>5s</code></td>
+					<td>Wall-clock budget per evaluation. Exceeding it returns <code>504 evaluation_timeout</code>. <code>0</code> disables the timeout.</td>
+			</tr>
+			<tr>
+					<td><code>--max-stack</code></td>
+					<td><code>500</code></td>
+					<td>Maximum Jsonnet call-stack depth. <code>0</code> uses go-jsonnet&rsquo;s own default.</td>
+			</tr>
+			<tr>
+					<td><code>--max-concurrent-evals</code></td>
+					<td><code>max(GOMAXPROCS*4, 16)</code></td>
+					<td>In-flight evaluations allowed at once. Excess requests return <code>503 evaluation_unavailable</code>. <code>0</code> disables the cap.</td>
+			</tr>
+	</tbody>
+</table>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">./jaas <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --snippet-directory examples/snippets/dashboards <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --evaluation-timeout 2s <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --max-stack <span class="m">1000</span> <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --max-concurrent-evals <span class="m">32</span>
+</span></span></code></pre></div><p>The default for <code>--max-concurrent-evals</code> bounds worst-case goroutine pile-up
+under a runaway snippet. Each in-flight evaluation pins roughly one CPU for its
+working set, so raising the cap far above the available parallelism queues work
+without adding throughput.</p>
+<h2 id="security-model">Security model</h2>
+<p><strong>Library paths are an unrestricted read scope.</strong> Any file reachable under a
+configured <code>--library-path</code>, or under a snippet&rsquo;s own directory, can be
+<code>import</code>-ed or <code>importstr</code>-ed by any snippet — go-jsonnet&rsquo;s importer does not
+sandbox per snippet. Scope these directories tightly. Never point them at <code>/</code>,
+<code>/etc</code>, or anywhere holding credentials.</p>
+<p><strong>Snippets are operator-controlled, not caller-controlled.</strong> Callers supply only
+top-level arguments through the query string. Jsonnet&rsquo;s <code>import</code> and <code>importstr</code>
+require string-literal paths, so a TLA or external variable cannot construct an
+import path. Deploying a snippet authored by someone you do not trust is
+equivalent to running their code on the server.</p>
+<p><strong>Snippet name resolution is sandboxed.</strong> The URL&rsquo;s snippet segment resolves
+through Go&rsquo;s <code>os.Root</code>, which rejects <code>..</code> traversal and symlinks that escape the
+configured snippet directory. A URL like <code>/jsonnet/../etc/passwd</code> returns <code>404</code>,
+even though the OS would otherwise resolve the path.</p>
+<p><strong>Evaluation has caps but no mid-flight cancellation.</strong> <code>--evaluation-timeout</code>
+bounds wall-clock time and <code>--max-stack</code> bounds call-stack depth, but go-jsonnet
+cannot abort an evaluation already running. A slow snippet keeps consuming CPU
+until it finishes naturally or the timeout fires the HTTP response. Size
+container CPU and memory limits to absorb that worst case.</p>
+<p>The Prometheus metrics <code>jaas_eval_in_flight</code> (gauge: live in-flight count),
+<code>jaas_eval_unavailable_total</code> (counter: cumulative cap rejections), and
+<code>jaas_eval_outstanding_timed_out</code> (gauge: evals still running after their
+request timed out) surface how close evaluation runs to these caps. See
+<a href="/observability/">Observability</a>
+ for detail.</p>
+<p>The HTTP status codes these caps produce are documented in the
+<a href="/rendering/rendering-endpoint/">rendering endpoint</a>
+ error contract.</p>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/security" term="security" label="security"/><category scheme="https://jaas.projects.metio.wtf/tags/limits" term="limits" label="limits"/><category scheme="https://jaas.projects.metio.wtf/tags/evaluation" term="evaluation" label="evaluation"/></entry><entry><title type="html">EvaluationFailed</title><link href="https://jaas.projects.metio.wtf/runbooks/evaluationfailed/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/runbooks/eval-saturation/?utm_source=atom_feed" rel="related" type="text/html" title="Eval-concurrency saturation"/><link href="https://jaas.projects.metio.wtf/runbooks/evaluationtimeout/?utm_source=atom_feed" rel="related" type="text/html" title="EvaluationTimeout"/><link href="https://jaas.projects.metio.wtf/runbooks/externalvariableconflict/?utm_source=atom_feed" rel="related" type="text/html" title="ExternalVariableConflict"/><link href="https://jaas.projects.metio.wtf/runbooks/artifacttoolarge/?utm_source=atom_feed" rel="related" type="text/html" title="ArtifactTooLarge"/><link href="https://jaas.projects.metio.wtf/runbooks/crd-watch-engagement/?utm_source=atom_feed" rel="related" type="text/html" title="CRD watch engagement failing"/><id>https://jaas.projects.metio.wtf/runbooks/evaluationfailed/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-18T20:07:20+02:00</updated><content type="html"><![CDATA[<blockquote>The Jsonnet snippet failed to evaluate due to a syntax error, runtime error, or unresolved import</blockquote><h2 id="symptom">Symptom</h2>
+<p><code>READY=False</code>, <code>REASON=EvaluationFailed</code>. The Message contains the raw go-jsonnet diagnostic — file name, line, column, and the underlying error.</p>
+<h2 id="cause">Cause</h2>
+<p>The snippet failed to evaluate. Three broad categories:</p>
+<ul>
+<li><strong>Syntax error</strong> — unclosed brace, missing comma, bad indent.</li>
+<li><strong>Runtime error</strong> — <code>std.extVar('missing')</code> for an unset variable, division by zero, <code>error '...'</code> thrown explicitly.</li>
+<li><strong>Import error</strong> — <code>import 'missing.libsonnet'</code> resolves to nothing in the snippet&rsquo;s file map or library imports.</li>
+</ul>
+<h2 id="diagnosis">Diagnosis</h2>
+<p>Read the Message — it names the file and line. Reproduce locally:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl"><span class="c1"># Pull the snippet&#39;s files into a tempdir, then evaluate.</span>
+</span></span><span class="line"><span class="cl">kubectl --namespace &lt;ns&gt; get jsonnetsnippet &lt;name&gt; --output json <span class="p">|</span> jq -r <span class="s1">&#39;.spec.files[&#34;main.jsonnet&#34;]&#39;</span> &gt; /tmp/main.jsonnet
+</span></span><span class="line"><span class="cl">jsonnet /tmp/main.jsonnet
+</span></span></code></pre></div><p>For sourceRef-based snippets, fetch the tarball:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl"><span class="nv">SOURCE_URL</span><span class="o">=</span><span class="k">$(</span>kubectl --namespace &lt;ns&gt; get gitrepository &lt;name&gt; --output <span class="nv">jsonpath</span><span class="o">=</span><span class="s1">&#39;{.status.artifact.url}&#39;</span><span class="k">)</span>
+</span></span><span class="line"><span class="cl">curl -sL <span class="s2">&#34;</span><span class="nv">$SOURCE_URL</span><span class="s2">&#34;</span> <span class="p">|</span> tar -xz -C /tmp/snippet
+</span></span><span class="line"><span class="cl">jsonnet /tmp/snippet/&lt;entry-file&gt;
+</span></span></code></pre></div><h2 id="remediation">Remediation</h2>
+<p>Fix the snippet (or its libraries / source) and re-apply.</p>
+<p>The diagnostic message can include the on-disk path of the snippet. This is acceptable in-cluster; treat it as sensitive if the condition is exposed to untrusted callers.</p>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/runbooks" term="runbooks" label="runbooks"/><category scheme="https://jaas.projects.metio.wtf/tags/troubleshooting" term="troubleshooting" label="troubleshooting"/><category scheme="https://jaas.projects.metio.wtf/tags/evaluation" term="evaluation" label="evaluation"/></entry><entry><title type="html">EvaluationTimeout</title><link href="https://jaas.projects.metio.wtf/runbooks/evaluationtimeout/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/runbooks/eval-saturation/?utm_source=atom_feed" rel="related" type="text/html" title="Eval-concurrency saturation"/><link href="https://jaas.projects.metio.wtf/runbooks/evaluationfailed/?utm_source=atom_feed" rel="related" type="text/html" title="EvaluationFailed"/><link href="https://jaas.projects.metio.wtf/runbooks/externalvariableconflict/?utm_source=atom_feed" rel="related" type="text/html" title="ExternalVariableConflict"/><link href="https://jaas.projects.metio.wtf/runbooks/artifacttoolarge/?utm_source=atom_feed" rel="related" type="text/html" title="ArtifactTooLarge"/><link href="https://jaas.projects.metio.wtf/runbooks/crd-watch-engagement/?utm_source=atom_feed" rel="related" type="text/html" title="CRD watch engagement failing"/><id>https://jaas.projects.metio.wtf/runbooks/evaluationtimeout/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-16T20:48:39+02:00</updated><content type="html"><![CDATA[<blockquote>The snippet&rsquo;s evaluation exceeded the operator&rsquo;s wall-clock deadline and was abandoned</blockquote><h2 id="symptom">Symptom</h2>
+<p><code>READY=False</code>, <code>REASON=EvaluationTimeout</code>. The snippet&rsquo;s eval ran longer than the operator&rsquo;s <code>--evaluation-timeout</code>.</p>
+<h2 id="cause">Cause</h2>
+<p>Snippets are evaluated synchronously per reconcile. The deadline is wall-clock, not CPU — but go-jsonnet has no mid-evaluation cancellation, so a snippet that runs over the deadline still keeps consuming CPU on the operator pod until it returns naturally.</p>
+<p>Common triggers:</p>
+<ul>
+<li>a snippet recursing deeper than necessary (try lowering <code>--max-stack</code> to surface this as a stack-limit error instead, then optimize)</li>
+<li>a snippet that loads a huge sourceRef tarball and walks it</li>
+<li>a snippet that calls <code>std.set</code> / <code>std.uniq</code> over a very large array</li>
+</ul>
+<h2 id="diagnosis">Diagnosis</h2>
+<p>Time it locally:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl"><span class="nb">time</span> jsonnet /tmp/snippet/&lt;entry-file&gt;
+</span></span></code></pre></div><p>If it takes seconds locally, the operator&rsquo;s bound is too tight. If it takes minutes locally, the snippet itself is the problem.</p>
+<h2 id="remediation">Remediation</h2>
+<p>Two paths:</p>
+<ol>
+<li><strong>Optimize the snippet.</strong> Memoize repeated work into <code>local</code> bindings, narrow the input set, avoid <code>std.flattenDeepArrays</code> over deep trees.</li>
+<li><strong>Raise the operator&rsquo;s bound.</strong> <code>--evaluation-timeout=30s</code> (default <code>5s</code>) gives more headroom. Pair with <code>resources.cpu</code> headroom in the chart so the slow snippet doesn&rsquo;t starve other reconciles.</li>
+</ol>
+<p>For pathological inputs, consider splitting the snippet — render the slow part less often via a separate snippet others source from (see <code>examples/operator/chained-snippets.yaml</code>).</p>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/runbooks" term="runbooks" label="runbooks"/><category scheme="https://jaas.projects.metio.wtf/tags/troubleshooting" term="troubleshooting" label="troubleshooting"/><category scheme="https://jaas.projects.metio.wtf/tags/evaluation" term="evaluation" label="evaluation"/></entry><entry><title type="html">ExternalVariableConflict</title><link href="https://jaas.projects.metio.wtf/runbooks/externalvariableconflict/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/runbooks/eval-saturation/?utm_source=atom_feed" rel="related" type="text/html" title="Eval-concurrency saturation"/><link href="https://jaas.projects.metio.wtf/runbooks/evaluationfailed/?utm_source=atom_feed" rel="related" type="text/html" title="EvaluationFailed"/><link href="https://jaas.projects.metio.wtf/runbooks/evaluationtimeout/?utm_source=atom_feed" rel="related" type="text/html" title="EvaluationTimeout"/><link href="https://jaas.projects.metio.wtf/runbooks/artifacttoolarge/?utm_source=atom_feed" rel="related" type="text/html" title="ArtifactTooLarge"/><link href="https://jaas.projects.metio.wtf/runbooks/crd-watch-engagement/?utm_source=atom_feed" rel="related" type="text/html" title="CRD watch engagement failing"/><id>https://jaas.projects.metio.wtf/runbooks/externalvariableconflict/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-17T10:56:50+02:00</updated><content type="html"><![CDATA[<blockquote>The snippet declares an external variable key already claimed by the operator via &ndash;ext-var</blockquote><h2 id="symptom">Symptom</h2>
+<p><code>READY=False</code>, <code>REASON=ExternalVariableConflict</code>. The Message names the conflicting key.</p>
+<h2 id="cause">Cause</h2>
+<p>The snippet&rsquo;s <code>spec.externalVariables</code> declares a key that the operator already owns via <code>--ext-var</code> (cluster operator-level). Operator keys win by design — they&rsquo;re how the cluster admin pins cluster-scoped values like <code>cluster</code>, <code>region</code>, <code>environment</code> so a tenant snippet can&rsquo;t override them.</p>
+<h2 id="diagnosis">Diagnosis</h2>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl"><span class="c1"># Which keys does the operator own?</span>
+</span></span><span class="line"><span class="cl">kubectl --namespace &lt;jaas-ns&gt; get pod --selector app.kubernetes.io/name<span class="o">=</span>jaas --output yaml <span class="p">|</span> grep -A1 <span class="s2">&#34;\--ext-var=&#34;</span>
+</span></span></code></pre></div><p>Cross-reference with the snippet&rsquo;s <code>spec.externalVariables</code>.</p>
+<h2 id="remediation">Remediation</h2>
+<p>Rename the conflicting key in the snippet, or remove it from the snippet entirely (the operator-level value flows through automatically).</p>
+<p>If the snippet legitimately needs a different value, that&rsquo;s a structural problem — the snippet shouldn&rsquo;t ship with an opinion that overrides a cluster-wide invariant. Re-discuss with the cluster admin.</p>
+<p>The validating webhook (<code>--enable-webhook</code>) catches this at admission so <code>kubectl apply</code> rejects it before it lands. The reconciler enforcing the same rule is a fallback for when admission is bypassed.</p>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/runbooks" term="runbooks" label="runbooks"/><category scheme="https://jaas.projects.metio.wtf/tags/troubleshooting" term="troubleshooting" label="troubleshooting"/><category scheme="https://jaas.projects.metio.wtf/tags/evaluation" term="evaluation" label="evaluation"/></entry><entry><title type="html">Rendering Jsonnet</title><link href="https://jaas.projects.metio.wtf/rendering/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/runbooks/eval-saturation/?utm_source=atom_feed" rel="related" type="text/html" title="Eval-concurrency saturation"/><link href="https://jaas.projects.metio.wtf/rendering/evaluation-and-security/?utm_source=atom_feed" rel="related" type="text/html" title="Evaluation and security"/><link href="https://jaas.projects.metio.wtf/runbooks/evaluationfailed/?utm_source=atom_feed" rel="related" type="text/html" title="EvaluationFailed"/><link href="https://jaas.projects.metio.wtf/runbooks/evaluationtimeout/?utm_source=atom_feed" rel="related" type="text/html" title="EvaluationTimeout"/><link href="https://jaas.projects.metio.wtf/runbooks/externalvariableconflict/?utm_source=atom_feed" rel="related" type="text/html" title="ExternalVariableConflict"/><id>https://jaas.projects.metio.wtf/rendering/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-26T15:54:29+02:00</updated><content type="html"><![CDATA[<blockquote>How JaaS evaluates Jsonnet — the HTTP endpoint, snippets and libraries, external variables and TLAs, and the limits around evaluation.</blockquote><p>The core of JaaS: evaluate Jsonnet on demand and return JSON. These pages cover
+what you send it, how imports resolve, how you parameterize a render, and the
+limits that keep evaluation safe.</p>
+<ul>
+<li><strong><a href="/rendering/rendering-endpoint/">Rendering endpoint</a>
+</strong> — the HTTP API that
+evaluates a snippet and returns JSON.</li>
+<li><strong><a href="/rendering/snippets-and-libraries/">Snippets and libraries</a>
+</strong> — how snippets
+and their imports are organized and resolved.</li>
+<li><strong><a href="/rendering/external-variables-and-tlas/">External variables and TLAs</a>
+</strong> —
+parameterize a render with <code>extVar</code> and top-level arguments.</li>
+<li><strong><a href="/rendering/jsonnet-libraries/">Jsonnet libraries</a>
+</strong> — reusable <code>.libsonnet</code>
+libraries on the import path.</li>
+<li><strong><a href="/rendering/joi-images/">JOI images</a>
+</strong> — ship libraries as single-layer OCI
+images.</li>
+<li><strong><a href="/rendering/evaluation-and-security/">Evaluation and security</a>
+</strong> — timeouts,
+stack limits, and import confinement around untrusted snippets.</li>
+</ul>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/rendering" term="rendering" label="rendering"/><category scheme="https://jaas.projects.metio.wtf/tags/jsonnet" term="jsonnet" label="jsonnet"/><category scheme="https://jaas.projects.metio.wtf/tags/evaluation" term="evaluation" label="evaluation"/></entry></feed>

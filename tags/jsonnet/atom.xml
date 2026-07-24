@@ -1,0 +1,687 @@
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en"><generator uri="https://gohugo.io/" version="0.163.3">Hugo</generator><title type="html">Jsonnet on Jsonnet-as-a-Service</title><link href="https://jaas.projects.metio.wtf/tags/jsonnet/" rel="alternate" type="text/html" title="html"/><link href="https://jaas.projects.metio.wtf/tags/jsonnet/index.xml" rel="alternate" type="application/rss+xml" title="rss"/><link href="https://jaas.projects.metio.wtf/tags/jsonnet/atom.xml" rel="self" type="application/atom+xml" title="atom"/><updated>2026-07-24T07:17:17+00:00</updated><author><name>metio.wtf</name></author><id>https://jaas.projects.metio.wtf/tags/jsonnet/</id><entry><title type="html">JOI images</title><link href="https://jaas.projects.metio.wtf/rendering/joi-images/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/reference/configuration/?utm_source=atom_feed" rel="related" type="text/html" title="Configuration reference"/><link href="https://jaas.projects.metio.wtf/operator/creating-sources/?utm_source=atom_feed" rel="related" type="text/html" title="Creating source artifacts"/><link href="https://jaas.projects.metio.wtf/reference/helm-values/?utm_source=atom_feed" rel="related" type="text/html" title="Helm chart values"/><link href="https://jaas.projects.metio.wtf/rendering/jsonnet-libraries/?utm_source=atom_feed" rel="related" type="text/html" title="Jsonnet libraries"/><link href="https://jaas.projects.metio.wtf/api/jsonnetlibrary/?utm_source=atom_feed" rel="related" type="text/html" title="JsonnetLibrary"/><id>https://jaas.projects.metio.wtf/rendering/joi-images/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-26T15:54:29+02:00</updated><content type="html"><![CDATA[<blockquote>The catalog of prebuilt Jsonnet OCI Images (JOI) — every published library, its image reference, upstream source, and description — ready to import into snippets.</blockquote><p><a href="https://github.com/metio/jsonnet-oci-images">Jsonnet OCI Images</a>
+ (JOI) package
+popular Jsonnet libraries as single-layer OCI images, one per upstream library,
+published at <code>ghcr.io/metio/joi-&lt;org&gt;-&lt;repo&gt;</code>. Because each image is a single
+layer, the same artifact serves two roles: a container <strong>image volume</strong> mounted
+into jaas, and a Flux <strong><code>OCIRepository</code></strong> source the operator fetches — so a
+snippet imports a vendored library without bundling it.</p>
+<p>Deploy them with the <a href="/reference/helm-values/#joi-library-chart">JOI Helm chart</a>
+,
+which renders a <code>JsonnetLibrary</code> + <code>OCIRepository</code> pair for each enabled library.
+With Flux, install it via a <code>HelmRelease</code> and enable the libraries you need under
+<code>values.libraries</code>:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l">source.toolkit.fluxcd.io/v1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">OCIRepository</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">metadata</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">joi</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">jaas-system</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">spec</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">interval</span><span class="p">:</span><span class="w"> </span><span class="l">1h</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l">oci://ghcr.io/metio/helm-charts/joi</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">ref</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c"># Latest released chart; pin to a tag for production (Renovate can bump it).</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">semver</span><span class="p">:</span><span class="w"> </span><span class="s2">&#34;&gt;=0.0.0&#34;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nn">---</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l">helm.toolkit.fluxcd.io/v2</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">HelmRelease</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">metadata</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">joi</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">jaas-system</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">spec</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">interval</span><span class="p">:</span><span class="w"> </span><span class="l">1h</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">chartRef</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">OCIRepository</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">joi</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">values</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">libraries</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">k8s-libsonnet</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">grafonnet</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
+</span></span></span></code></pre></div><p>Install it in the namespace where your snippets live: a <code>JsonnetLibrary</code> is
+namespaced, and a snippet references one in its own namespace. (<code>helm upgrade --install joi oci://ghcr.io/metio/helm-charts/joi --set libraries.grafonnet.enabled=true</code> does the same from the command line.)</p>
+<p>A snippet then imports a library by its alias, choosing the version in the import
+path:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-jsonnet" data-lang="jsonnet"><span class="line"><span class="cl"><span class="k">import</span><span class="w"> </span><span class="s">&#39;github.com/jsonnet-libs/k8s-libsonnet/1.34/main.libsonnet&#39;</span><span class="w">
+</span></span></span></code></pre></div><p>The catalog below is generated from the
+<a href="https://github.com/metio/jsonnet-oci-images/blob/main/libraries.json">jsonnet-oci-images manifest</a>
+,
+so it always reflects the currently published set. Pin an image with the moving
+<code>:latest</code> tag or an immutable dated <code>:&lt;YYYY.M.D&gt;</code> snapshot.</p>
+<table>
+  <thead>
+    <tr><th>Library</th><th>Image</th><th>Upstream</th><th>Description</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>actions-runner-controller-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-actions-runner-controller-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/actions-runner-controller-libsonnet" rel="noopener noreferrer">jsonnet-libs/actions-runner-controller-libsonnet</a></td>
+      <td>actions-runner-controller jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>aiven-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-aiven-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/aiven-libsonnet" rel="noopener noreferrer">jsonnet-libs/aiven-libsonnet</a></td>
+      <td>aiven jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>amazon-vpc-resource-controller-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-amazon-vpc-resource-controller-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/amazon-vpc-resource-controller-libsonnet" rel="noopener noreferrer">jsonnet-libs/amazon-vpc-resource-controller-libsonnet</a></td>
+      <td>amazon-vpc-resource-controller jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>argo-cd-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-argo-cd-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/argo-cd-libsonnet" rel="noopener noreferrer">jsonnet-libs/argo-cd-libsonnet</a></td>
+      <td>argo-cd jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>argo-rollouts-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-argo-rollouts-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/argo-rollouts-libsonnet" rel="noopener noreferrer">jsonnet-libs/argo-rollouts-libsonnet</a></td>
+      <td>argo-rollouts jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>argo-workflows-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-argo-workflows-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/argo-workflows-libsonnet" rel="noopener noreferrer">jsonnet-libs/argo-workflows-libsonnet</a></td>
+      <td>argo-workflows jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>argocd-operator-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-argocd-operator-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/argocd-operator-libsonnet" rel="noopener noreferrer">jsonnet-libs/argocd-operator-libsonnet</a></td>
+      <td>argocd-operator jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>aws-load-balancer-controller-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-aws-load-balancer-controller-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/aws-load-balancer-controller-libsonnet" rel="noopener noreferrer">jsonnet-libs/aws-load-balancer-controller-libsonnet</a></td>
+      <td>aws-load-balancer-controller jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>aws-rds-controller-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-aws-rds-controller-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/aws-rds-controller-libsonnet" rel="noopener noreferrer">jsonnet-libs/aws-rds-controller-libsonnet</a></td>
+      <td>aws-rds-controller jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>azure-load-balancer-controller-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-azure-load-balancer-controller-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/azure-load-balancer-controller-libsonnet" rel="noopener noreferrer">jsonnet-libs/azure-load-balancer-controller-libsonnet</a></td>
+      <td>azure-load-balancer-controller jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>banzai-logging-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-banzai-logging-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/banzai-logging-libsonnet" rel="noopener noreferrer">jsonnet-libs/banzai-logging-libsonnet</a></td>
+      <td>banzai-logging jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>banzaicloud-bank-vaults-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-banzaicloud-bank-vaults-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/banzaicloud-bank-vaults-libsonnet" rel="noopener noreferrer">jsonnet-libs/banzaicloud-bank-vaults-libsonnet</a></td>
+      <td>banzaicloud-bank-vaults jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>calico-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-calico-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/calico-libsonnet" rel="noopener noreferrer">jsonnet-libs/calico-libsonnet</a></td>
+      <td>calico jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>cert-manager-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-cert-manager-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/cert-manager-libsonnet" rel="noopener noreferrer">jsonnet-libs/cert-manager-libsonnet</a></td>
+      <td>cert-manager jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>cilium-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-cilium-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/cilium-libsonnet" rel="noopener noreferrer">jsonnet-libs/cilium-libsonnet</a></td>
+      <td>cilium jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>clickhouse-operator-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-clickhouse-operator-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/clickhouse-operator-libsonnet" rel="noopener noreferrer">jsonnet-libs/clickhouse-operator-libsonnet</a></td>
+      <td>clickhouse-operator jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>cloudnative-pg-barman-cloud-plugin-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-cloudnative-pg-barman-cloud-plugin-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/cloudnative-pg-barman-cloud-plugin-libsonnet" rel="noopener noreferrer">jsonnet-libs/cloudnative-pg-barman-cloud-plugin-libsonnet</a></td>
+      <td>cloudnative-pg-barman-cloud-plugin jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>cloudnative-pg-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-cloudnative-pg-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/cloudnative-pg-libsonnet" rel="noopener noreferrer">jsonnet-libs/cloudnative-pg-libsonnet</a></td>
+      <td>cloudnative-pg jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>cluster-api-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-cluster-api-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/cluster-api-libsonnet" rel="noopener noreferrer">jsonnet-libs/cluster-api-libsonnet</a></td>
+      <td>cluster-api jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>cluster-api-operator-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-cluster-api-operator-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/cluster-api-operator-libsonnet" rel="noopener noreferrer">jsonnet-libs/cluster-api-operator-libsonnet</a></td>
+      <td>cluster-api-operator jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>cluster-api-provider-aws-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-cluster-api-provider-aws-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/cluster-api-provider-aws-libsonnet" rel="noopener noreferrer">jsonnet-libs/cluster-api-provider-aws-libsonnet</a></td>
+      <td>cluster-api-provider-aws jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>cluster-api-provider-tinkerbell-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-cluster-api-provider-tinkerbell-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/cluster-api-provider-tinkerbell-libsonnet" rel="noopener noreferrer">jsonnet-libs/cluster-api-provider-tinkerbell-libsonnet</a></td>
+      <td>cluster-api-provider-tinkerbell jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>cnrm-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-cnrm-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/cnrm-libsonnet" rel="noopener noreferrer">jsonnet-libs/cnrm-libsonnet</a></td>
+      <td>cnrm jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>composable-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-composable-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/composable-libsonnet" rel="noopener noreferrer">jsonnet-libs/composable-libsonnet</a></td>
+      <td>composable jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>consul-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-consul-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/consul-libsonnet" rel="noopener noreferrer">jsonnet-libs/consul-libsonnet</a></td>
+      <td>consul jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>contour-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-contour-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/contour-libsonnet" rel="noopener noreferrer">jsonnet-libs/contour-libsonnet</a></td>
+      <td>contour jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>crossplane-core-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-crossplane-core-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/crossplane-core-libsonnet" rel="noopener noreferrer">jsonnet-libs/crossplane-core-libsonnet</a></td>
+      <td>crossplane-core jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>crossplane-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-crossplane-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/crossplane-libsonnet" rel="noopener noreferrer">jsonnet-libs/crossplane-libsonnet</a></td>
+      <td>crossplane jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>crossplane-provider-grafana-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-crossplane-provider-grafana-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/crossplane-provider-grafana-libsonnet" rel="noopener noreferrer">jsonnet-libs/crossplane-provider-grafana-libsonnet</a></td>
+      <td>crossplane-provider-grafana jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>crossplane-provider-upjet-aws-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-crossplane-provider-upjet-aws-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/crossplane-provider-upjet-aws-libsonnet" rel="noopener noreferrer">jsonnet-libs/crossplane-provider-upjet-aws-libsonnet</a></td>
+      <td>crossplane-provider-upjet-aws jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>crossplane-provider-upjet-azure-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-crossplane-provider-upjet-azure-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/crossplane-provider-upjet-azure-libsonnet" rel="noopener noreferrer">jsonnet-libs/crossplane-provider-upjet-azure-libsonnet</a></td>
+      <td>crossplane-provider-upjet-azure jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>crossplane-provider-upjet-azuread-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-crossplane-provider-upjet-azuread-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/crossplane-provider-upjet-azuread-libsonnet" rel="noopener noreferrer">jsonnet-libs/crossplane-provider-upjet-azuread-libsonnet</a></td>
+      <td>crossplane-provider-upjet-azuread jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>crossplane-provider-upjet-gcp-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-crossplane-provider-upjet-gcp-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/crossplane-provider-upjet-gcp-libsonnet" rel="noopener noreferrer">jsonnet-libs/crossplane-provider-upjet-gcp-libsonnet</a></td>
+      <td>crossplane-provider-upjet-gcp jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>crossplane-provider-upjet-github-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-crossplane-provider-upjet-github-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/crossplane-provider-upjet-github-libsonnet" rel="noopener noreferrer">jsonnet-libs/crossplane-provider-upjet-github-libsonnet</a></td>
+      <td>crossplane-provider-upjet-github jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>dapr-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-dapr-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/dapr-libsonnet" rel="noopener noreferrer">jsonnet-libs/dapr-libsonnet</a></td>
+      <td>dapr jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>datadog-operator-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-datadog-operator-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/datadog-operator-libsonnet" rel="noopener noreferrer">jsonnet-libs/datadog-operator-libsonnet</a></td>
+      <td>datadog-operator jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>docsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-docsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/docsonnet" rel="noopener noreferrer">jsonnet-libs/docsonnet</a></td>
+      <td>Experimental Jsonnet docs generator</td>
+    </tr>
+    <tr>
+      <td><code>eck-operator-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-eck-operator-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/eck-operator-libsonnet" rel="noopener noreferrer">jsonnet-libs/eck-operator-libsonnet</a></td>
+      <td>eck-operator jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>edp-keycloak-operator-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-edp-keycloak-operator-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/edp-keycloak-operator-libsonnet" rel="noopener noreferrer">jsonnet-libs/edp-keycloak-operator-libsonnet</a></td>
+      <td>edp-keycloak-operator jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>emissary-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-emissary-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/emissary-libsonnet" rel="noopener noreferrer">jsonnet-libs/emissary-libsonnet</a></td>
+      <td>emissary jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>envoy-gateway-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-envoy-gateway-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/envoy-gateway-libsonnet" rel="noopener noreferrer">jsonnet-libs/envoy-gateway-libsonnet</a></td>
+      <td>envoy-gateway jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>etcd-operator-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-etcd-operator-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/etcd-operator-libsonnet" rel="noopener noreferrer">jsonnet-libs/etcd-operator-libsonnet</a></td>
+      <td>etcd-operator jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>external-dns-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-external-dns-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/external-dns-libsonnet" rel="noopener noreferrer">jsonnet-libs/external-dns-libsonnet</a></td>
+      <td>external-dns jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>external-secrets-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-external-secrets-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/external-secrets-libsonnet" rel="noopener noreferrer">jsonnet-libs/external-secrets-libsonnet</a></td>
+      <td>external-secrets jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>flagger-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-flagger-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/flagger-libsonnet" rel="noopener noreferrer">jsonnet-libs/flagger-libsonnet</a></td>
+      <td>flagger jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>fluxcd-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-fluxcd-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/fluxcd-libsonnet" rel="noopener noreferrer">jsonnet-libs/fluxcd-libsonnet</a></td>
+      <td>fluxcd jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>gatekeeper-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-gatekeeper-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/gatekeeper-libsonnet" rel="noopener noreferrer">jsonnet-libs/gatekeeper-libsonnet</a></td>
+      <td>gatekeeper jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>gateway-api-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-gateway-api-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/gateway-api-libsonnet" rel="noopener noreferrer">jsonnet-libs/gateway-api-libsonnet</a></td>
+      <td>gateway-api jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>google-cloud-sql-proxy-operator-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-google-cloud-sql-proxy-operator-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/google-cloud-sql-proxy-operator-libsonnet" rel="noopener noreferrer">jsonnet-libs/google-cloud-sql-proxy-operator-libsonnet</a></td>
+      <td>google-cloud-sql-proxy-operator jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>grafana-agent-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-grafana-agent-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/grafana-agent-libsonnet" rel="noopener noreferrer">jsonnet-libs/grafana-agent-libsonnet</a></td>
+      <td>grafana-agent jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>grafana-alloy-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-grafana-alloy-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/grafana-alloy-libsonnet" rel="noopener noreferrer">jsonnet-libs/grafana-alloy-libsonnet</a></td>
+      <td>grafana-alloy jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>grafana-operator-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-grafana-operator-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/grafana-operator-libsonnet" rel="noopener noreferrer">jsonnet-libs/grafana-operator-libsonnet</a></td>
+      <td>grafana-operator jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>grafonnet</code></td>
+      <td><code>ghcr.io/metio/joi-grafana-grafonnet</code></td>
+      <td><a href="https://github.com/grafana/grafonnet" rel="noopener noreferrer">grafana/grafonnet</a></td>
+      <td>Jsonnet library for generating Grafana dashboards.</td>
+    </tr>
+    <tr>
+      <td><code>harbor-operator-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-harbor-operator-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/harbor-operator-libsonnet" rel="noopener noreferrer">jsonnet-libs/harbor-operator-libsonnet</a></td>
+      <td>harbor-operator jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>hcp-terraform-operator-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-hcp-terraform-operator-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/hcp-terraform-operator-libsonnet" rel="noopener noreferrer">jsonnet-libs/hcp-terraform-operator-libsonnet</a></td>
+      <td>hcp-terraform-operator jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>istio-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-istio-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/istio-libsonnet" rel="noopener noreferrer">jsonnet-libs/istio-libsonnet</a></td>
+      <td>istio jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>k8s-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-k8s-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/k8s-libsonnet" rel="noopener noreferrer">jsonnet-libs/k8s-libsonnet</a></td>
+      <td>k8s jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>kargo-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-kargo-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/kargo-libsonnet" rel="noopener noreferrer">jsonnet-libs/kargo-libsonnet</a></td>
+      <td>kargo jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>karpenter-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-karpenter-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/karpenter-libsonnet" rel="noopener noreferrer">jsonnet-libs/karpenter-libsonnet</a></td>
+      <td>karpenter jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>keda-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-keda-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/keda-libsonnet" rel="noopener noreferrer">jsonnet-libs/keda-libsonnet</a></td>
+      <td>keda jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>knative-eventing-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-knative-eventing-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/knative-eventing-libsonnet" rel="noopener noreferrer">jsonnet-libs/knative-eventing-libsonnet</a></td>
+      <td>knative-eventing jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>knative-serving-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-knative-serving-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/knative-serving-libsonnet" rel="noopener noreferrer">jsonnet-libs/knative-serving-libsonnet</a></td>
+      <td>knative-serving jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>kro-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-kro-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/kro-libsonnet" rel="noopener noreferrer">jsonnet-libs/kro-libsonnet</a></td>
+      <td>kro jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>kube-prometheus-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-kube-prometheus-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/kube-prometheus-libsonnet" rel="noopener noreferrer">jsonnet-libs/kube-prometheus-libsonnet</a></td>
+      <td>kube-prometheus jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>kubernetes-nmstate-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-kubernetes-nmstate-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/kubernetes-nmstate-libsonnet" rel="noopener noreferrer">jsonnet-libs/kubernetes-nmstate-libsonnet</a></td>
+      <td>kubernetes-nmstate jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>kubernetes-secret-generator-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-kubernetes-secret-generator-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/kubernetes-secret-generator-libsonnet" rel="noopener noreferrer">jsonnet-libs/kubernetes-secret-generator-libsonnet</a></td>
+      <td>kubernetes-secret-generator jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>kubevela-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-kubevela-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/kubevela-libsonnet" rel="noopener noreferrer">jsonnet-libs/kubevela-libsonnet</a></td>
+      <td>kubevela jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>kueue-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-kueue-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/kueue-libsonnet" rel="noopener noreferrer">jsonnet-libs/kueue-libsonnet</a></td>
+      <td>kueue jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>kyverno-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-kyverno-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/kyverno-libsonnet" rel="noopener noreferrer">jsonnet-libs/kyverno-libsonnet</a></td>
+      <td>kyverno jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>litmus-chaos-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-litmus-chaos-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/litmus-chaos-libsonnet" rel="noopener noreferrer">jsonnet-libs/litmus-chaos-libsonnet</a></td>
+      <td>litmus-chaos jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>mariadb-operator-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-mariadb-operator-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/mariadb-operator-libsonnet" rel="noopener noreferrer">jsonnet-libs/mariadb-operator-libsonnet</a></td>
+      <td>mariadb-operator jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>metacontroller-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-metacontroller-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/metacontroller-libsonnet" rel="noopener noreferrer">jsonnet-libs/metacontroller-libsonnet</a></td>
+      <td>metacontroller jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>metallb-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-metallb-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/metallb-libsonnet" rel="noopener noreferrer">jsonnet-libs/metallb-libsonnet</a></td>
+      <td>metallb jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>milvus-operator-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-milvus-operator-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/milvus-operator-libsonnet" rel="noopener noreferrer">jsonnet-libs/milvus-operator-libsonnet</a></td>
+      <td>milvus-operator jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>minio-operator-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-minio-operator-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/minio-operator-libsonnet" rel="noopener noreferrer">jsonnet-libs/minio-operator-libsonnet</a></td>
+      <td>minio-operator jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>mysql-operator-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-mysql-operator-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/mysql-operator-libsonnet" rel="noopener noreferrer">jsonnet-libs/mysql-operator-libsonnet</a></td>
+      <td>mysql-operator jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>nats-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-nats-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/nats-libsonnet" rel="noopener noreferrer">jsonnet-libs/nats-libsonnet</a></td>
+      <td>nats jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>node-feature-discovery-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-node-feature-discovery-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/node-feature-discovery-libsonnet" rel="noopener noreferrer">jsonnet-libs/node-feature-discovery-libsonnet</a></td>
+      <td>node-feature-discovery jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>openshift-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-openshift-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/openshift-libsonnet" rel="noopener noreferrer">jsonnet-libs/openshift-libsonnet</a></td>
+      <td>openshift jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>prometheus-operator-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-prometheus-operator-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/prometheus-operator-libsonnet" rel="noopener noreferrer">jsonnet-libs/prometheus-operator-libsonnet</a></td>
+      <td>prometheus-operator jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>pyrra-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-pyrra-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/pyrra-libsonnet" rel="noopener noreferrer">jsonnet-libs/pyrra-libsonnet</a></td>
+      <td>pyrra jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>rabbitmq-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-rabbitmq-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/rabbitmq-libsonnet" rel="noopener noreferrer">jsonnet-libs/rabbitmq-libsonnet</a></td>
+      <td>rabbitmq jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>rabbitmq-messaging-topology-operator-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-rabbitmq-messaging-topology-operator-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/rabbitmq-messaging-topology-operator-libsonnet" rel="noopener noreferrer">jsonnet-libs/rabbitmq-messaging-topology-operator-libsonnet</a></td>
+      <td>rabbitmq-messaging-topology-operator jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>secrets-store-csi-driver-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-secrets-store-csi-driver-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/secrets-store-csi-driver-libsonnet" rel="noopener noreferrer">jsonnet-libs/secrets-store-csi-driver-libsonnet</a></td>
+      <td>secrets-store-csi-driver jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>securecodebox-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-securecodebox-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/securecodebox-libsonnet" rel="noopener noreferrer">jsonnet-libs/securecodebox-libsonnet</a></td>
+      <td>securecodebox jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>spicedb-operator-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-spicedb-operator-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/spicedb-operator-libsonnet" rel="noopener noreferrer">jsonnet-libs/spicedb-operator-libsonnet</a></td>
+      <td>spicedb-operator jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>strimzi-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-strimzi-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/strimzi-libsonnet" rel="noopener noreferrer">jsonnet-libs/strimzi-libsonnet</a></td>
+      <td>strimzi jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>tailscale-operator-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-tailscale-operator-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/tailscale-operator-libsonnet" rel="noopener noreferrer">jsonnet-libs/tailscale-operator-libsonnet</a></td>
+      <td>tailscale-operator jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>tektoncd-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-tektoncd-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/tektoncd-libsonnet" rel="noopener noreferrer">jsonnet-libs/tektoncd-libsonnet</a></td>
+      <td>tektoncd jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>teleport-operator-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-teleport-operator-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/teleport-operator-libsonnet" rel="noopener noreferrer">jsonnet-libs/teleport-operator-libsonnet</a></td>
+      <td>teleport-operator jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>testonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-testonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/testonnet" rel="noopener noreferrer">jsonnet-libs/testonnet</a></td>
+      <td>A unit testing framework for Jsonnet.</td>
+    </tr>
+    <tr>
+      <td><code>tinkerbell-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-tinkerbell-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/tinkerbell-libsonnet" rel="noopener noreferrer">jsonnet-libs/tinkerbell-libsonnet</a></td>
+      <td>tinkerbell jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>traefik-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-traefik-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/traefik-libsonnet" rel="noopener noreferrer">jsonnet-libs/traefik-libsonnet</a></td>
+      <td>traefik jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>triggermesh-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-triggermesh-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/triggermesh-libsonnet" rel="noopener noreferrer">jsonnet-libs/triggermesh-libsonnet</a></td>
+      <td>triggermesh jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>trust-manager-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-trust-manager-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/trust-manager-libsonnet" rel="noopener noreferrer">jsonnet-libs/trust-manager-libsonnet</a></td>
+      <td>trust-manager jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>upbound-provider-opentofu-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-upbound-provider-opentofu-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/upbound-provider-opentofu-libsonnet" rel="noopener noreferrer">jsonnet-libs/upbound-provider-opentofu-libsonnet</a></td>
+      <td>upbound-provider-opentofu jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>vault-secrets-operator-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-vault-secrets-operator-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/vault-secrets-operator-libsonnet" rel="noopener noreferrer">jsonnet-libs/vault-secrets-operator-libsonnet</a></td>
+      <td>vault-secrets-operator jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>vertical-pod-autoscaler-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-vertical-pod-autoscaler-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/vertical-pod-autoscaler-libsonnet" rel="noopener noreferrer">jsonnet-libs/vertical-pod-autoscaler-libsonnet</a></td>
+      <td>vertical-pod-autoscaler jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>victoria-metrics-operator-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-victoria-metrics-operator-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/victoria-metrics-operator-libsonnet" rel="noopener noreferrer">jsonnet-libs/victoria-metrics-operator-libsonnet</a></td>
+      <td>victoria-metrics-operator jsonnet library</td>
+    </tr>
+    <tr>
+      <td><code>xtd</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-xtd</code></td>
+      <td><a href="https://github.com/jsonnet-libs/xtd" rel="noopener noreferrer">jsonnet-libs/xtd</a></td>
+      <td>Extended Jsonnet standard library</td>
+    </tr>
+    <tr>
+      <td><code>zalando-postgres-operator-libsonnet</code></td>
+      <td><code>ghcr.io/metio/joi-jsonnet-libs-zalando-postgres-operator-libsonnet</code></td>
+      <td><a href="https://github.com/jsonnet-libs/zalando-postgres-operator-libsonnet" rel="noopener noreferrer">jsonnet-libs/zalando-postgres-operator-libsonnet</a></td>
+      <td>zalando-postgres-operator jsonnet library</td>
+    </tr>
+  </tbody>
+</table>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/jsonnet" term="jsonnet" label="jsonnet"/><category scheme="https://jaas.projects.metio.wtf/tags/libraries" term="libraries" label="libraries"/><category scheme="https://jaas.projects.metio.wtf/tags/oci" term="oci" label="oci"/><category scheme="https://jaas.projects.metio.wtf/tags/joi" term="joi" label="joi"/><category scheme="https://jaas.projects.metio.wtf/tags/reference" term="reference" label="reference"/></entry><entry><title type="html">Rendering Jsonnet</title><link href="https://jaas.projects.metio.wtf/rendering/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/runbooks/eval-saturation/?utm_source=atom_feed" rel="related" type="text/html" title="Eval-concurrency saturation"/><link href="https://jaas.projects.metio.wtf/rendering/evaluation-and-security/?utm_source=atom_feed" rel="related" type="text/html" title="Evaluation and security"/><link href="https://jaas.projects.metio.wtf/runbooks/evaluationfailed/?utm_source=atom_feed" rel="related" type="text/html" title="EvaluationFailed"/><link href="https://jaas.projects.metio.wtf/runbooks/evaluationtimeout/?utm_source=atom_feed" rel="related" type="text/html" title="EvaluationTimeout"/><link href="https://jaas.projects.metio.wtf/runbooks/externalvariableconflict/?utm_source=atom_feed" rel="related" type="text/html" title="ExternalVariableConflict"/><id>https://jaas.projects.metio.wtf/rendering/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-26T15:54:29+02:00</updated><content type="html"><![CDATA[<blockquote>How JaaS evaluates Jsonnet — the HTTP endpoint, snippets and libraries, external variables and TLAs, and the limits around evaluation.</blockquote><p>The core of JaaS: evaluate Jsonnet on demand and return JSON. These pages cover
+what you send it, how imports resolve, how you parameterize a render, and the
+limits that keep evaluation safe.</p>
+<ul>
+<li><strong><a href="/rendering/rendering-endpoint/">Rendering endpoint</a>
+</strong> — the HTTP API that
+evaluates a snippet and returns JSON.</li>
+<li><strong><a href="/rendering/snippets-and-libraries/">Snippets and libraries</a>
+</strong> — how snippets
+and their imports are organized and resolved.</li>
+<li><strong><a href="/rendering/external-variables-and-tlas/">External variables and TLAs</a>
+</strong> —
+parameterize a render with <code>extVar</code> and top-level arguments.</li>
+<li><strong><a href="/rendering/jsonnet-libraries/">Jsonnet libraries</a>
+</strong> — reusable <code>.libsonnet</code>
+libraries on the import path.</li>
+<li><strong><a href="/rendering/joi-images/">JOI images</a>
+</strong> — ship libraries as single-layer OCI
+images.</li>
+<li><strong><a href="/rendering/evaluation-and-security/">Evaluation and security</a>
+</strong> — timeouts,
+stack limits, and import confinement around untrusted snippets.</li>
+</ul>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/rendering" term="rendering" label="rendering"/><category scheme="https://jaas.projects.metio.wtf/tags/jsonnet" term="jsonnet" label="jsonnet"/><category scheme="https://jaas.projects.metio.wtf/tags/evaluation" term="evaluation" label="evaluation"/></entry></feed>

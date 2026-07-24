@@ -1,0 +1,362 @@
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en"><generator uri="https://gohugo.io/" version="0.163.3">Hugo</generator><title type="html">Rbac on Jsonnet-as-a-Service</title><link href="https://jaas.projects.metio.wtf/tags/rbac/" rel="alternate" type="text/html" title="html"/><link href="https://jaas.projects.metio.wtf/tags/rbac/index.xml" rel="alternate" type="application/rss+xml" title="rss"/><link href="https://jaas.projects.metio.wtf/tags/rbac/atom.xml" rel="self" type="application/atom+xml" title="atom"/><updated>2026-07-24T07:17:17+00:00</updated><author><name>metio.wtf</name></author><id>https://jaas.projects.metio.wtf/tags/rbac/</id><entry><title type="html">CrossNamespaceRefRejected</title><link href="https://jaas.projects.metio.wtf/runbooks/crossnamespacerefrejected/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/runbooks/librarynotfound/?utm_source=atom_feed" rel="related" type="text/html" title="LibraryNotFound"/><link href="https://jaas.projects.metio.wtf/runbooks/rbacdenied/?utm_source=atom_feed" rel="related" type="text/html" title="RBACDenied"/><link href="https://jaas.projects.metio.wtf/runbooks/serviceaccountmissing/?utm_source=atom_feed" rel="related" type="text/html" title="ServiceAccountMissing"/><link href="https://jaas.projects.metio.wtf/runbooks/operator-watch-silent/?utm_source=atom_feed" rel="related" type="text/html" title="Watch-layer silent failure"/><link href="https://jaas.projects.metio.wtf/runbooks/artifacttoolarge/?utm_source=atom_feed" rel="related" type="text/html" title="ArtifactTooLarge"/><id>https://jaas.projects.metio.wtf/runbooks/crossnamespacerefrejected/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-17T10:56:50+02:00</updated><content type="html"><![CDATA[<blockquote>The snippet references a library or Flux source in a different namespace and cross-namespace refs are disabled</blockquote><h2 id="symptom">Symptom</h2>
+<p><code>READY=False</code>, <code>REASON=CrossNamespaceRefRejected</code>. The Message names the offending reference (a library or a sourceRef).</p>
+<h2 id="cause">Cause</h2>
+<p>The operator is running with <code>--no-cross-namespace-refs=true</code> (the chart default) and the snippet references a library or Flux source in a different namespace.</p>
+<p>This is a deliberate isolation control — it mirrors Flux&rsquo;s <code>--no-cross-namespace-refs</code> and stops a tenant in namespace A from reaching libraries / sources in namespace B without an explicit relationship.</p>
+<h2 id="diagnosis">Diagnosis</h2>
+<p>Inspect the spec and identify which reference points outside the snippet&rsquo;s namespace:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace &lt;ns&gt; get jsonnetsnippet &lt;name&gt; --output yaml <span class="p">|</span> grep -E <span class="s2">&#34;namespace:|sourceRef:|libraries:&#34;</span>
+</span></span></code></pre></div><h2 id="remediation">Remediation</h2>
+<p>Three options, by isolation strength:</p>
+<ol>
+<li><strong>(recommended)</strong> Duplicate the library / source CR into the snippet&rsquo;s namespace.</li>
+<li>Promote the library to an OCI volume — mount via the chart&rsquo;s <code>additionalLibraries</code> map. Becomes part of the operator&rsquo;s filesystem, available to every snippet without a cross-namespace CR ref.</li>
+<li><strong>(loosen isolation, cluster-wide)</strong> Set <code>--no-cross-namespace-refs=false</code> on the operator. Affects every tenant in the cluster — only do this when tenants are mutually trusting.</li>
+</ol>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/runbooks" term="runbooks" label="runbooks"/><category scheme="https://jaas.projects.metio.wtf/tags/troubleshooting" term="troubleshooting" label="troubleshooting"/><category scheme="https://jaas.projects.metio.wtf/tags/rbac" term="rbac" label="rbac"/></entry><entry><title type="html">LibraryNotFound</title><link href="https://jaas.projects.metio.wtf/runbooks/librarynotfound/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/runbooks/crossnamespacerefrejected/?utm_source=atom_feed" rel="related" type="text/html" title="CrossNamespaceRefRejected"/><link href="https://jaas.projects.metio.wtf/runbooks/rbacdenied/?utm_source=atom_feed" rel="related" type="text/html" title="RBACDenied"/><link href="https://jaas.projects.metio.wtf/runbooks/serviceaccountmissing/?utm_source=atom_feed" rel="related" type="text/html" title="ServiceAccountMissing"/><link href="https://jaas.projects.metio.wtf/runbooks/operator-watch-silent/?utm_source=atom_feed" rel="related" type="text/html" title="Watch-layer silent failure"/><link href="https://jaas.projects.metio.wtf/runbooks/artifacttoolarge/?utm_source=atom_feed" rel="related" type="text/html" title="ArtifactTooLarge"/><id>https://jaas.projects.metio.wtf/runbooks/librarynotfound/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-18T20:07:20+02:00</updated><content type="html"><![CDATA[<blockquote>A JsonnetLibrary CR referenced in spec.libraries does not exist or is unreachable by the tenant ServiceAccount</blockquote><h2 id="symptom">Symptom</h2>
+<p><code>READY=False</code>, <code>REASON=LibraryNotFound</code>. The Message names the missing library.</p>
+<h2 id="cause">Cause</h2>
+<p>A <code>spec.libraries[*]</code> entry references a <code>JsonnetLibrary</code> CR that the operator cannot Get. Common reasons:</p>
+<ul>
+<li>the library CR doesn&rsquo;t exist (typo, wrong namespace, not yet applied)</li>
+<li>the tenant ServiceAccount doesn&rsquo;t have <code>get</code> on the library kind in the library&rsquo;s namespace</li>
+<li>the library is in a different namespace and <code>--no-cross-namespace-refs=true</code></li>
+</ul>
+<h2 id="diagnosis">Diagnosis</h2>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl"><span class="c1"># Confirm the library exists.</span>
+</span></span><span class="line"><span class="cl">kubectl --namespace &lt;ns&gt; get jsonnetlibrary &lt;name&gt;
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># Test the tenant&#39;s RBAC.</span>
+</span></span><span class="line"><span class="cl">kubectl --namespace &lt;library-ns&gt; auth can-i get jsonnetlibrary &lt;name&gt; <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --as<span class="o">=</span>system:serviceaccount:&lt;ns&gt;:&lt;tenant-sa&gt;
+</span></span></code></pre></div><p>If <code>can-i</code> returns <code>no</code>, RBAC is the gap.</p>
+<h2 id="remediation">Remediation</h2>
+<ul>
+<li>create the library CR if it doesn&rsquo;t exist</li>
+<li>grant <code>get</code> on <code>jsonnetlibraries.jaas.metio.wtf</code> to the tenant SA via a Role + RoleBinding</li>
+<li>if cross-namespace is intended, either move the library into the snippet&rsquo;s namespace or set <code>--no-cross-namespace-refs=false</code> cluster-wide</li>
+</ul>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/runbooks" term="runbooks" label="runbooks"/><category scheme="https://jaas.projects.metio.wtf/tags/troubleshooting" term="troubleshooting" label="troubleshooting"/><category scheme="https://jaas.projects.metio.wtf/tags/rbac" term="rbac" label="rbac"/></entry><entry><title type="html">RBACDenied</title><link href="https://jaas.projects.metio.wtf/runbooks/rbacdenied/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/runbooks/crossnamespacerefrejected/?utm_source=atom_feed" rel="related" type="text/html" title="CrossNamespaceRefRejected"/><link href="https://jaas.projects.metio.wtf/runbooks/librarynotfound/?utm_source=atom_feed" rel="related" type="text/html" title="LibraryNotFound"/><link href="https://jaas.projects.metio.wtf/runbooks/serviceaccountmissing/?utm_source=atom_feed" rel="related" type="text/html" title="ServiceAccountMissing"/><link href="https://jaas.projects.metio.wtf/runbooks/operator-watch-silent/?utm_source=atom_feed" rel="related" type="text/html" title="Watch-layer silent failure"/><link href="https://jaas.projects.metio.wtf/runbooks/artifacttoolarge/?utm_source=atom_feed" rel="related" type="text/html" title="ArtifactTooLarge"/><id>https://jaas.projects.metio.wtf/runbooks/rbacdenied/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-26T15:54:29+02:00</updated><content type="html"><![CDATA[<blockquote>The apiserver returned Forbidden on a call the reconciler made with the tenant ServiceAccount&rsquo;s impersonated identity</blockquote><h2 id="symptom">Symptom</h2>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-text" data-lang="text"><span class="line"><span class="cl">kubectl --namespace &lt;ns&gt; describe jsonnetsnippet &lt;name&gt;
+</span></span><span class="line"><span class="cl">...
+</span></span><span class="line"><span class="cl">Status:
+</span></span><span class="line"><span class="cl">  Conditions:
+</span></span><span class="line"><span class="cl">    Reason:  RBACDenied
+</span></span><span class="line"><span class="cl">    Status:  False
+</span></span><span class="line"><span class="cl">    Type:    Ready
+</span></span><span class="line"><span class="cl">    Message: RBAC denied reading the source CR — grant the tenant ServiceAccount get on the source kind ...
+</span></span></code></pre></div><p>Or for a missing CRD:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-text" data-lang="text"><span class="line"><span class="cl">    Message: source CR&#39;s kind is not registered with the apiserver — install the corresponding CRD ...
+</span></span></code></pre></div><p>The reconciler logs at warn level and stops engaging backoff for this snippet. The next reconcile happens only when the snippet&rsquo;s spec changes, a referenced library / source CR&rsquo;s status flips, or <code>spec.interval</code> ticks — so the workqueue isn&rsquo;t burning cycles on a permanently-failing call.</p>
+<h2 id="cause">Cause</h2>
+<p>The apiserver returned <code>Forbidden</code> on a call the reconciler had to make. Three call sites can surface this:</p>
+<ol>
+<li><strong>Source-CR read.</strong> The tenant ServiceAccount lacks <code>get</code> on the kind named by <code>spec.sourceRef.kind</code>. The fix is on the tenant&rsquo;s <code>Role</code> / <code>RoleBinding</code>.</li>
+<li><strong>Library-CR read.</strong> The tenant SA lacks <code>get</code> (and typically <code>list</code>) on <code>jsonnetlibraries</code> in the snippet&rsquo;s namespace.</li>
+<li><strong>ExternalArtifact write.</strong> The tenant SA lacks <code>create</code> / <code>update</code> / <code>patch</code> on <code>externalartifacts</code>. This is the publish step — the rendered bytes are computed but the operator can&rsquo;t write them back as the impersonating client.</li>
+</ol>
+<p>The <code>NoMatchError</code> variant means the apiserver doesn&rsquo;t know about the resource kind at all — typically because the corresponding CRD (usually Flux&rsquo;s source-controller) isn&rsquo;t installed in the cluster.</p>
+<h2 id="diagnosis">Diagnosis</h2>
+<p><code>kubectl describe</code> shows the operator&rsquo;s classified message. The verbatim apiserver error (<code>forbidden: ServiceAccount X cannot get resource Y in namespace Z</code>) is appended after the operator&rsquo;s classification, so you can read off:</p>
+<ul>
+<li>Which SA tried the call (<code>system:serviceaccount:&lt;namespace&gt;:&lt;sa-name&gt;</code>)</li>
+<li>Which verb it lacked (<code>cannot get</code>, <code>cannot create</code>, <code>cannot patch</code>)</li>
+<li>Which resource (<code>gitrepositories.source.toolkit.fluxcd.io</code>, <code>jsonnetlibraries.jaas.metio.wtf</code>, <code>externalartifacts.source.toolkit.fluxcd.io</code>)</li>
+</ul>
+<p>Verify the SA exists and inspect its current permissions:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace &lt;tenant-namespace&gt; get sa &lt;sa-name&gt;
+</span></span><span class="line"><span class="cl">kubectl auth can-i --as<span class="o">=</span>system:serviceaccount:&lt;tenant-namespace&gt;:&lt;sa-name&gt; <span class="se">\
+</span></span></span><span class="line"><span class="cl">    --namespace &lt;tenant-namespace&gt; <span class="se">\
+</span></span></span><span class="line"><span class="cl">    &lt;verb&gt; &lt;resource&gt;
+</span></span></code></pre></div><p>For the <code>NoMatchError</code> variant:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl"><span class="c1"># Verify the CRD is actually installed:</span>
+</span></span><span class="line"><span class="cl">kubectl get crd <span class="p">|</span> grep -E <span class="s1">&#39;source.toolkit.fluxcd.io|jaas.metio.wtf&#39;</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1"># If source-controller&#39;s CRDs are missing, install Flux:</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># https://fluxcd.io/flux/get-started/</span>
+</span></span></code></pre></div><h2 id="remediation">Remediation</h2>
+<p>Grant the missing verb to the tenant SA. The minimum verbs JaaS expects are documented in the <a href="https://jaas.projects.metio.wtf/security/tenancy-and-rbac/#the-tenant-role">Tenancy and RBAC</a>
+ guide. Typical fix:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l">rbac.authorization.k8s.io/v1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">Role</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">metadata</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">&lt;tenant-namespace&gt;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">jaas-tenant</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">rules</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span>- <span class="nt">apiGroups</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="l">source.toolkit.fluxcd.io]</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">resources</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="l">externalartifacts]</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">verbs</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="l">get, create, update, patch]</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span>- <span class="nt">apiGroups</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="l">source.toolkit.fluxcd.io]</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">resources</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="l">gitrepositories, ocirepositories, buckets, externalartifacts]</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">verbs</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="l">get]</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span>- <span class="nt">apiGroups</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="l">jaas.metio.wtf]</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">resources</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="l">jsonnetlibraries]</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">verbs</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="l">get, list]</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nn">---</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l">rbac.authorization.k8s.io/v1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">RoleBinding</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">metadata</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">&lt;tenant-namespace&gt;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">jaas-tenant</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">subjects</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span>- <span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">ServiceAccount</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">&lt;sa-name&gt;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">&lt;tenant-namespace&gt;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">roleRef</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">apiGroup</span><span class="p">:</span><span class="w"> </span><span class="l">rbac.authorization.k8s.io</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">Role</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">jaas-tenant</span><span class="w">
+</span></span></span></code></pre></div><p>After the RBAC change, force the next reconcile (the snippet&rsquo;s last spec edit doesn&rsquo;t auto-retrigger because the failure was non-transient):</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace &lt;ns&gt; annotate jsonnetsnippet &lt;name&gt; jaas.metio.wtf/reconcile-at<span class="o">=</span><span class="k">$(</span>date -u +%FT%TZ<span class="k">)</span> --overwrite
+</span></span></code></pre></div><p>For the missing-CRD case, installing the CRD fires the operator&rsquo;s <code>crdWatcher</code>, which engages the watch automatically — no manual nudge needed.</p>
+<h2 id="why-this-is-non-transient">Why this is non-transient</h2>
+<p><code>Forbidden</code> doesn&rsquo;t recover by retry. The cluster operator (or whoever owns the tenant&rsquo;s RBAC) has to grant the verb. Retrying every 16 minutes would pile up wasted API calls and obscure the workqueue&rsquo;s signal. The non-transient classification lets the workqueue depth metric remain meaningful — anything on it is genuinely live work.</p>
+<p><code>NoMatchError</code> is the same shape: until the CRD is installed, the kind doesn&rsquo;t exist. Retry can&rsquo;t conjure it.</p>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/runbooks" term="runbooks" label="runbooks"/><category scheme="https://jaas.projects.metio.wtf/tags/troubleshooting" term="troubleshooting" label="troubleshooting"/><category scheme="https://jaas.projects.metio.wtf/tags/rbac" term="rbac" label="rbac"/></entry><entry><title type="html">Security &amp; multi-tenancy</title><link href="https://jaas.projects.metio.wtf/security/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/runbooks/crossnamespacerefrejected/?utm_source=atom_feed" rel="related" type="text/html" title="CrossNamespaceRefRejected"/><link href="https://jaas.projects.metio.wtf/rendering/evaluation-and-security/?utm_source=atom_feed" rel="related" type="text/html" title="Evaluation and security"/><link href="https://jaas.projects.metio.wtf/runbooks/librarynotfound/?utm_source=atom_feed" rel="related" type="text/html" title="LibraryNotFound"/><link href="https://jaas.projects.metio.wtf/security/network-policy/?utm_source=atom_feed" rel="related" type="text/html" title="Network policy"/><link href="https://jaas.projects.metio.wtf/running/production/?utm_source=atom_feed" rel="related" type="text/html" title="Production"/><id>https://jaas.projects.metio.wtf/security/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-26T15:54:29+02:00</updated><content type="html"><![CDATA[<blockquote>Run JaaS safely — tenant impersonation and RBAC, admission validation, network policy, and service mesh.</blockquote><p>How to run JaaS without granting it broad cluster power and how to constrain what
+it can reach. In operator mode, snippets resolve under a tenant ServiceAccount, so
+a snippet can do exactly what its RBAC allows and no more.</p>
+<ul>
+<li><strong><a href="/security/tenancy-and-rbac/">Tenancy and RBAC</a>
+</strong> — tenant impersonation and
+the permissions the operator needs.</li>
+<li><strong><a href="/security/admission-webhook/">Admission webhook</a>
+</strong> — validate resources at
+admission time.</li>
+<li><strong><a href="/security/network-policy/">Network policy</a>
+</strong> — lock JaaS&rsquo;s traffic down to
+what it needs.</li>
+<li><strong><a href="/security/service-mesh/">Service mesh</a>
+</strong> — run JaaS inside a mesh.</li>
+</ul>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/security" term="security" label="security"/><category scheme="https://jaas.projects.metio.wtf/tags/multi-tenancy" term="multi-tenancy" label="multi-tenancy"/><category scheme="https://jaas.projects.metio.wtf/tags/rbac" term="rbac" label="rbac"/></entry><entry><title type="html">ServiceAccountMissing</title><link href="https://jaas.projects.metio.wtf/runbooks/serviceaccountmissing/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/runbooks/crossnamespacerefrejected/?utm_source=atom_feed" rel="related" type="text/html" title="CrossNamespaceRefRejected"/><link href="https://jaas.projects.metio.wtf/runbooks/librarynotfound/?utm_source=atom_feed" rel="related" type="text/html" title="LibraryNotFound"/><link href="https://jaas.projects.metio.wtf/runbooks/rbacdenied/?utm_source=atom_feed" rel="related" type="text/html" title="RBACDenied"/><link href="https://jaas.projects.metio.wtf/runbooks/operator-watch-silent/?utm_source=atom_feed" rel="related" type="text/html" title="Watch-layer silent failure"/><link href="https://jaas.projects.metio.wtf/runbooks/artifacttoolarge/?utm_source=atom_feed" rel="related" type="text/html" title="ArtifactTooLarge"/><id>https://jaas.projects.metio.wtf/runbooks/serviceaccountmissing/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-18T20:07:20+02:00</updated><content type="html"><![CDATA[<blockquote>The snippet specifies no ServiceAccount and the operator has no &ndash;default-service-account configured</blockquote><h2 id="symptom">Symptom</h2>
+<p><code>READY=False</code>, <code>REASON=ServiceAccountMissing</code>.</p>
+<h2 id="cause">Cause</h2>
+<p>The snippet omitted <code>spec.serviceAccountName</code> AND the operator was started without <code>--default-service-account</code>. The operator refuses to reconcile a snippet with no effective ServiceAccount because every reconcile mints a tenant token from that SA — without one, there&rsquo;s nothing to impersonate.</p>
+<h2 id="diagnosis">Diagnosis</h2>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace &lt;ns&gt; get jsonnetsnippet &lt;name&gt; --output <span class="nv">jsonpath</span><span class="o">=</span><span class="s1">&#39;{.spec.serviceAccountName}&#39;</span>
+</span></span></code></pre></div><p>Empty? Either the snippet must set it, or the cluster operator must configure a default.</p>
+<h2 id="remediation">Remediation</h2>
+<p>Pick one:</p>
+<ol>
+<li><strong>Snippet-side (preferred for multi-tenant setups):</strong> set <code>spec.serviceAccountName: &lt;existing-sa&gt;</code> on every snippet. Each tenant uses its own SA → least-privilege impersonation.</li>
+<li><strong>Cluster-side (single-tenant clusters):</strong> start the operator with <code>--default-service-account=&lt;sa-name&gt;</code>. Every snippet without an explicit SA impersonates this one. The default SA must exist in <strong>every snippet&rsquo;s namespace</strong> — the operator looks it up per-reconcile.</li>
+</ol>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/runbooks" term="runbooks" label="runbooks"/><category scheme="https://jaas.projects.metio.wtf/tags/troubleshooting" term="troubleshooting" label="troubleshooting"/><category scheme="https://jaas.projects.metio.wtf/tags/rbac" term="rbac" label="rbac"/></entry><entry><title type="html">Tenancy and RBAC</title><link href="https://jaas.projects.metio.wtf/security/tenancy-and-rbac/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/security/admission-webhook/?utm_source=atom_feed" rel="related" type="text/html" title="Admission webhook"/><link href="https://jaas.projects.metio.wtf/observability/alerting/?utm_source=atom_feed" rel="related" type="text/html" title="Alerting"/><link href="https://jaas.projects.metio.wtf/operator/creating-sources/?utm_source=atom_feed" rel="related" type="text/html" title="Creating source artifacts"/><link href="https://jaas.projects.metio.wtf/runbooks/crossnamespacerefrejected/?utm_source=atom_feed" rel="related" type="text/html" title="CrossNamespaceRefRejected"/><link href="https://jaas.projects.metio.wtf/observability/dashboard/?utm_source=atom_feed" rel="related" type="text/html" title="Dashboard"/><id>https://jaas.projects.metio.wtf/security/tenancy-and-rbac/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-26T15:54:29+02:00</updated><content type="html"><![CDATA[<blockquote>Per-snippet ServiceAccount impersonation, the minimal operator ClusterRole, the tenant Role callers must grant, and the watch-scope flags.</blockquote><p>In <a href="/operator/operator-mode/">operator mode</a>
+ the JaaS operator never acts with its
+own broad privileges when touching tenant resources. Every reconcile of a
+<code>JsonnetSnippet</code> runs against the RBAC of a tenant ServiceAccount, so a snippet
+can only reach what its own ServiceAccount is allowed to reach.</p>
+<h2 id="per-snippet-impersonation">Per-snippet impersonation</h2>
+<p>Each <code>JsonnetSnippet</code> carries a <code>spec.serviceAccountName</code>. On every reconcile the
+operator mints a short-lived Bearer token for that ServiceAccount through the
+Kubernetes TokenRequest API (<code>serviceaccounts/token: create</code>) and performs all
+tenant-side API calls — reading <code>JsonnetLibrary</code> objects, fetching Flux source
+artifacts, and writing the published <code>ExternalArtifact</code> — as that ServiceAccount.
+The operator does not use the <code>impersonate</code> verb; it uses a real token, so the
+apiserver evaluates the tenant&rsquo;s own RBAC.</p>
+<p>When a snippet omits <code>spec.serviceAccountName</code>, the operator falls back to the
+ServiceAccount named in <code>--default-service-account</code>. If that flag is also empty,
+such a snippet is rejected at reconcile time rather than silently running with
+elevated rights. Set <code>--default-service-account</code> to a low-privilege account if
+you want snippets without an explicit ServiceAccount to reconcile at all.</p>
+<h2 id="the-operators-own-clusterrole">The operator&rsquo;s own ClusterRole</h2>
+<p>Because every tenant-side call is the tenant&rsquo;s, the operator&rsquo;s own ClusterRole
+stays minimal:</p>
+<ul>
+<li><code>serviceaccounts/token: create</code> — to mint the Bearer tokens above.</li>
+<li><code>get</code>/<code>list</code>/<code>watch</code> on <code>customresourcedefinitions.apiextensions.k8s.io</code> — the
+CRD watcher subscribes to the cluster&rsquo;s CRD stream so that Flux source-kind
+watches engage automatically when a previously-absent CRD becomes established,
+without a process restart.</li>
+<li>Watch verbs on the JaaS CRDs (<code>JsonnetSnippet</code>, <code>JsonnetLibrary</code>) and on the
+Flux source kinds it chains from (<code>GitRepository</code>, <code>OCIRepository</code>, <code>Bucket</code>,
+<code>ExternalArtifact</code>).</li>
+</ul>
+<p>The operator does not need <code>create</code>/<code>update</code>/<code>patch</code> on <code>ExternalArtifact</code> in its
+own ClusterRole — that write is done as the tenant, so the verb lives on the
+tenant Role below.</p>
+<h2 id="the-tenant-role">The tenant Role</h2>
+<p>The ServiceAccount each snippet runs as needs explicit verbs, or the first
+reconcile fails with <code>Forbidden</code> and the failure points at the wrong cause. Grant
+this Role in the tenant&rsquo;s namespace:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l">rbac.authorization.k8s.io/v1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">Role</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">metadata</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">&lt;tenant-namespace&gt;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">jaas-tenant</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">rules</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="c"># Required: the operator writes the snippet&#39;s ExternalArtifact as</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="c"># the tenant ServiceAccount. Without these the publish step is denied.</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span>- <span class="nt">apiGroups</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="l">source.toolkit.fluxcd.io]</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">resources</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="l">externalartifacts]</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">verbs</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="l">get, create, update, patch]</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="c"># Required only when the snippet uses spec.libraries (JsonnetLibrary refs).</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span>- <span class="nt">apiGroups</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="l">jaas.metio.wtf]</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">resources</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="l">jsonnetlibraries]</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">verbs</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="l">get, list]</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="c"># Required only when the snippet uses spec.sourceRef. Grant only</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="c"># the source kinds your tenants actually reference.</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span>- <span class="nt">apiGroups</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="l">source.toolkit.fluxcd.io]</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">resources</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="l">gitrepositories, ocirepositories, buckets, externalartifacts]</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">verbs</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="l">get]</span><span class="w">
+</span></span></span></code></pre></div><p>Notes on each rule:</p>
+<ul>
+<li>The <code>externalartifacts</code> write verbs (<code>create</code>, <code>update</code>, <code>patch</code>) are
+mandatory. The operator writes the published artifact CR through the
+impersonating client on purpose, so one tenant Role governs both source-side
+reads and artifact-side writes.</li>
+<li>The <code>jsonnetlibraries</code> rule is needed only when a snippet references libraries
+through <code>spec.libraries</code>. See <a href="/operator/snippet-sources/">snippet sources</a>
+ for how
+libraries reach a snippet.</li>
+<li>The source-kind <code>get</code> rule is needed only when a snippet has a <code>spec.sourceRef</code>.
+Grant only the kinds your tenants reference. The <code>externalartifacts</code> entry here
+covers chained snippets — snippet B reading the <code>ExternalArtifact</code> snippet A
+publishes.</li>
+</ul>
+<h2 id="binding-per-namespace">Binding per namespace</h2>
+<p>For namespace-scoped multitenancy, bind the Role to each tenant ServiceAccount in
+its own namespace with a <code>RoleBinding</code>:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l">rbac.authorization.k8s.io/v1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">RoleBinding</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">metadata</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">&lt;tenant-namespace&gt;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">jaas-tenant</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">roleRef</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">apiGroup</span><span class="p">:</span><span class="w"> </span><span class="l">rbac.authorization.k8s.io</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">Role</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">jaas-tenant</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">subjects</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span>- <span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">ServiceAccount</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">&lt;tenant-service-account&gt;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">&lt;tenant-namespace&gt;</span><span class="w">
+</span></span></span></code></pre></div><p>Each tenant namespace gets its own <code>Role</code> + <code>RoleBinding</code>, so a snippet&rsquo;s blast
+radius is its own namespace&rsquo;s grants.</p>
+<h2 id="single-tenant-clusters">Single-tenant clusters</h2>
+<p>When a cluster runs only your own workloads and snippets do not need isolating from
+each other, a Role per namespace is more than you need. The operator still
+impersonates a ServiceAccount — it never applies with its own identity — so the
+simplest setup is one shared account:</p>
+<ol>
+<li>
+<p>Create a single ServiceAccount and grant it the rights your snippets need. On a
+single-tenant cluster that can be broad: a <code>ClusterRoleBinding</code> to the built-in
+<code>cluster-admin</code> ClusterRole lets any snippet read any source and publish into
+any namespace.</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l">v1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">ServiceAccount</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">metadata</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">jaas-snippets</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">jaas-system</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nn">---</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l">rbac.authorization.k8s.io/v1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">ClusterRoleBinding</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">metadata</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">jaas-snippets-admin</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">roleRef</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">apiGroup</span><span class="p">:</span><span class="w"> </span><span class="l">rbac.authorization.k8s.io</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">ClusterRole</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">cluster-admin</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">subjects</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span>- <span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">ServiceAccount</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">jaas-snippets</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">jaas-system</span><span class="w">
+</span></span></span></code></pre></div></li>
+<li>
+<p>Point the operator&rsquo;s <code>--default-service-account</code> at it (set through the chart&rsquo;s
+operator values), and leave <code>spec.serviceAccountName</code> off your snippets. Every
+snippet then reconciles as that one account.</p>
+</li>
+</ol>
+<p>This trades isolation for simplicity — every snippet has the same rights, so use it
+only where you trust every snippet author. To move to multitenancy later, give
+individual snippets their own <code>spec.serviceAccountName</code> scoped to a tenant Role as
+above; anything still relying on the default keeps working.</p>
+<h2 id="restricting-cross-namespace-references">Restricting cross-namespace references</h2>
+<p><code>--no-cross-namespace-refs</code> defaults to <code>true</code>: a <code>JsonnetSnippet</code> or
+<code>JsonnetLibrary</code> whose <code>sourceRef</code> targets a different namespace is rejected. Keep
+this on for multitenancy — it stops one tenant from pointing a snippet at another
+tenant&rsquo;s source. Set it to <code>false</code> only when you operate every namespace yourself
+and deliberately want cross-namespace chaining.</p>
+<h2 id="narrowing-the-watch">Narrowing the watch</h2>
+<p>Two flags scope which CRs the operator reconciles:</p>
+<ul>
+<li><code>--label-selector</code> narrows the watch to CRs whose labels match the selector.
+Empty (the default) selects every CR in the watched scope. Use it to run an
+operator over only a labelled subset of snippets.</li>
+<li><code>--watch-namespaces</code> (or the <code>JAAS_WATCH_NAMESPACES</code> environment variable) takes
+a comma-separated namespace list and restricts the manager&rsquo;s cache to those
+namespaces. Empty (the default) is cluster-wide. The Helm chart&rsquo;s
+<code>operator.watchNamespaces</code> mirrors this: when set, it threads the value into the
+deployment&rsquo;s <code>--watch-namespaces</code> argument and pivots the rendered RBAC to one
+<code>RoleBinding</code> per listed namespace instead of a cluster-wide
+<code>ClusterRoleBinding</code>. Cluster-scoped resources (CRDs, the optional
+<code>ValidatingWebhookConfiguration</code>) stay bound through a <code>ClusterRoleBinding</code>,
+since they are inherently cluster-scoped.</li>
+</ul>
+<p>The full flag list, with defaults, is on the
+<a href="/reference/configuration/">configuration page</a>
+.</p>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/operator" term="operator" label="operator"/><category scheme="https://jaas.projects.metio.wtf/tags/rbac" term="rbac" label="rbac"/><category scheme="https://jaas.projects.metio.wtf/tags/multitenancy" term="multitenancy" label="multitenancy"/></entry><entry><title type="html">Watch-layer silent failure</title><link href="https://jaas.projects.metio.wtf/runbooks/operator-watch-silent/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/runbooks/crossnamespacerefrejected/?utm_source=atom_feed" rel="related" type="text/html" title="CrossNamespaceRefRejected"/><link href="https://jaas.projects.metio.wtf/runbooks/librarynotfound/?utm_source=atom_feed" rel="related" type="text/html" title="LibraryNotFound"/><link href="https://jaas.projects.metio.wtf/runbooks/rbacdenied/?utm_source=atom_feed" rel="related" type="text/html" title="RBACDenied"/><link href="https://jaas.projects.metio.wtf/runbooks/serviceaccountmissing/?utm_source=atom_feed" rel="related" type="text/html" title="ServiceAccountMissing"/><link href="https://jaas.projects.metio.wtf/runbooks/artifacttoolarge/?utm_source=atom_feed" rel="related" type="text/html" title="ArtifactTooLarge"/><id>https://jaas.projects.metio.wtf/runbooks/operator-watch-silent/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-18T20:07:20+02:00</updated><content type="html"><![CDATA[<blockquote>The operator&rsquo;s own ClusterRole is missing a verb on a watched kind, so controller-runtime&rsquo;s informer retries silently and no snippet status reflects the problem</blockquote><p>The one RBAC-denial path the reconciler cannot surface itself: when the <strong>operator&rsquo;s own</strong> ClusterRole is missing a verb on a watched resource kind, controller-runtime&rsquo;s informer fails to start its watch, logs warnings, and retries silently. The reconciler never sees the failure, and no snippet&rsquo;s status condition reflects it. This is not tied to a per-snippet <code>Reason</code>.</p>
+<p>If a per-snippet runbook (<a href="/runbooks/rbacdenied/">rbacdenied</a>
+, <a href="/runbooks/sourcefetchfailed/">sourcefetchfailed</a>
+, <a href="/runbooks/sourcenotready/">sourcenotready</a>
+) doesn&rsquo;t match the symptoms, this is where to look next.</p>
+<h2 id="symptom">Symptom</h2>
+<ul>
+<li>Snippets that worked yesterday stop receiving watch-driven re-renders. They still reconcile on edits or <code>spec.interval</code> ticks, but not on upstream source changes.</li>
+<li><code>kubectl describe jsonnetsnippet</code> shows healthy or stale state — never <code>Reason=RBACDenied</code> or any other failure.</li>
+<li>Operator pod is <code>Ready=True</code>, all probes pass.</li>
+<li>A <code>Flux GitRepository</code> (or <code>OCIRepository</code> / <code>Bucket</code> / <code>ExternalArtifact</code> / <code>JsonnetLibrary</code>) advances its <code>status.artifact</code> but no JaaS reconcile fires.</li>
+</ul>
+<h2 id="why-no-status-condition-surfaces-this">Why no status condition surfaces this</h2>
+<p>controller-runtime&rsquo;s informer is what watches resource kinds at the apiserver. If the operator SA lacks <code>list</code>/<code>watch</code> on a kind:</p>
+<ol>
+<li>The informer&rsquo;s initial LIST returns <code>Forbidden</code>.</li>
+<li>controller-runtime logs <code>Failed to watch *v1.X: forbidden: ...</code> at error level.</li>
+<li>The informer retries with exponential backoff — forever.</li>
+<li>The reconciler&rsquo;s reconcile loop never gets events from that kind.</li>
+<li>The reconciler itself is unaware that the watch is non-functional. The &ldquo;no events arriving&rdquo; condition is indistinguishable from &ldquo;no actual changes upstream.&rdquo;</li>
+</ol>
+<p>This is the one diagnostic surface the operator can&rsquo;t unify with its other RBAC-denial paths (Fetcher / library Get / Publisher write — all per-reconcile and surfaced via <code>Reason=RBACDenied</code>; see <a href="/runbooks/rbacdenied/">rbacdenied</a>
+).</p>
+<h2 id="diagnosis">Diagnosis</h2>
+<p>The smoking gun is in the operator&rsquo;s logs:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace &lt;jaas-ns&gt; logs deploy/jaas --tail<span class="o">=</span><span class="m">2000</span> <span class="se">\
+</span></span></span><span class="line"><span class="cl">  <span class="p">|</span> grep -E <span class="s1">&#39;Failed to watch|&#34;reflector.go&#34;&#39;</span> <span class="se">\
+</span></span></span><span class="line"><span class="cl">  <span class="p">|</span> head -30
+</span></span></code></pre></div><p>Expected output if the watch layer is healthy: nothing.</p>
+<p>If broken, you&rsquo;ll see lines like:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-text" data-lang="text"><span class="line"><span class="cl">E0610 12:34:56.789  reflector.go:227 &#34;Failed to watch&#34; err=&#34;failed to list *v1.GitRepository: ... forbidden: ServiceAccount \&#34;jaas\&#34; cannot list resource \&#34;gitrepositories\&#34; in API group \&#34;source.toolkit.fluxcd.io\&#34; at the cluster scope&#34; type=&#34;*v1.GitRepository&#34;
+</span></span></code></pre></div><p>The error names the SA, verb, resource, and API group — that&rsquo;s the exact gap to close.</p>
+<p>Check what the operator SA can actually do:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl auth can-i list gitrepositories.source.toolkit.fluxcd.io <span class="se">\
+</span></span></span><span class="line"><span class="cl">    --as<span class="o">=</span>system:serviceaccount:&lt;jaas-ns&gt;:jaas
+</span></span></code></pre></div><p>Compare against the chart-rendered ClusterRole:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl get clusterrole &lt;release&gt;-operator --output yaml <span class="p">|</span> grep -A2 source.toolkit.fluxcd.io
+</span></span></code></pre></div><h2 id="remediation">Remediation</h2>
+<p>The operator&rsquo;s ClusterRole verbs are defined in the chart&rsquo;s <code>templates/clusterrole-operator.yaml</code> (in the metio/helm-charts repo, under <code>charts/jaas/</code>). Three causes warrant separate fixes:</p>
+<h3 id="1-chart-upgraded-with-rbaccreate-false">1. Chart upgraded with <code>rbac.create: false</code></h3>
+<p>Someone disabled chart-rendered RBAC (<code>operator.rbac.create: false</code>) and the external RBAC source missed a verb. Either re-enable chart-rendered RBAC, or update whatever owns the ClusterRole to grant the missing verbs.</p>
+<h3 id="2-manual-chart-edit-removed-verbs">2. Manual chart edit removed verbs</h3>
+<p>A <code>kubectl edit clusterrole &lt;release&gt;-operator</code> or a hand-rolled overlay removed verbs the chart originally rendered. Restore via <code>helm upgrade --install</code> (idempotent for an installed chart).</p>
+<h3 id="3-new-source-kind-added-but-charts-drift-gate-didnt-catch-it">3. New source kind added but chart&rsquo;s drift gate didn&rsquo;t catch it</h3>
+<p>The drift-gate test in the chart&rsquo;s <code>tests/clusterrole-operator_test.yaml</code> (metio/helm-charts, under <code>charts/jaas/</code>) — the &ldquo;ClusterRole drift gate&rdquo; case — is supposed to fail at PR time if <code>operator.FluxSourceKinds</code> adds a kind without a matching ClusterRole entry. If you reach this runbook page because of a new kind, <strong>it means the test passed but production RBAC is still missing it</strong> — investigate why (test bypassed, chart drift, etc.). Add the verb manually as a hotfix, then file a bug against the drift gate.</p>
+<p>After granting the verb, restart the operator pod so a fresh informer picks up the new ServiceAccount-token permissions:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace &lt;jaas-ns&gt; rollout restart deploy/jaas
+</span></span></code></pre></div><p>Watch-driven re-renders resume within seconds.</p>
+<h2 id="why-no-automatic-detection">Why no automatic detection</h2>
+<p>The operator does not pre-flight a test <code>LIST</code> per kind at boot and refuse to start on Forbidden:</p>
+<ul>
+<li>It would block startup on transient apiserver flakes during deploys.</li>
+<li>The <code>crdWatcher</code> already handles the missing-CRD case gracefully — it engages a watch dynamically when the CRD becomes <code>Established=True</code>. Adding &ldquo;and also fail on Forbidden&rdquo; complicates that contract.</li>
+<li>A misconfigured cluster surfaces the issue via the operator logs and the <code>kubectl auth can-i</code> workflow above, the standard Kubernetes troubleshooting path.</li>
+</ul>
+<h2 id="related-runbooks">Related runbooks</h2>
+<ul>
+<li><a href="/runbooks/rbacdenied/">rbacdenied</a>
+ — per-reconcile RBAC denials the reconciler CAN surface (tenant SA can&rsquo;t read a source CR / library, can&rsquo;t write ExternalArtifact). If a snippet&rsquo;s status says <code>Reason=RBACDenied</code>, start there instead.</li>
+<li><a href="/runbooks/storage-recovery/">storage-recovery</a>
+ — a different failure surface (storage backend rather than apiserver), same graceful-degradation shape diagnosed via logs and metrics.</li>
+</ul>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/runbooks" term="runbooks" label="runbooks"/><category scheme="https://jaas.projects.metio.wtf/tags/troubleshooting" term="troubleshooting" label="troubleshooting"/><category scheme="https://jaas.projects.metio.wtf/tags/rbac" term="rbac" label="rbac"/></entry></feed>

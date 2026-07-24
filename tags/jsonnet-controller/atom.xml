@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en"><generator uri="https://gohugo.io/" version="0.163.3">Hugo</generator><title type="html">Jsonnet-Controller on Jsonnet-as-a-Service</title><link href="https://jaas.projects.metio.wtf/tags/jsonnet-controller/" rel="alternate" type="text/html" title="html"/><link href="https://jaas.projects.metio.wtf/tags/jsonnet-controller/index.xml" rel="alternate" type="application/rss+xml" title="rss"/><link href="https://jaas.projects.metio.wtf/tags/jsonnet-controller/atom.xml" rel="self" type="application/atom+xml" title="atom"/><updated>2026-07-24T07:17:17+00:00</updated><author><name>metio.wtf</name></author><id>https://jaas.projects.metio.wtf/tags/jsonnet-controller/</id><entry><title type="html">JaaS vs jsonnet-controller</title><link href="https://jaas.projects.metio.wtf/comparisons/jsonnet-controller/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/comparisons/grafana-operator/?utm_source=atom_feed" rel="related" type="text/html" title="JaaS and grafana-operator"/><link href="https://jaas.projects.metio.wtf/comparisons/tanka/?utm_source=atom_feed" rel="related" type="text/html" title="JaaS vs Tanka"/><link href="https://jaas.projects.metio.wtf/comparisons/jsonnet-cli/?utm_source=atom_feed" rel="related" type="text/html" title="JaaS vs the jsonnet CLI"/><link href="https://jaas.projects.metio.wtf/comparisons/flux-operator/?utm_source=atom_feed" rel="related" type="text/html" title="vs Flux Operator ResourceSet"/><id>https://jaas.projects.metio.wtf/comparisons/jsonnet-controller/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-26T15:54:29+02:00</updated><content type="html"><![CDATA[<blockquote>How JaaS separates rendering from deployment, where jsonnet-controller builds and applies Jsonnet in one controller.</blockquote><p><a href="https://github.com/pelotech/jsonnet-controller">pelotech/jsonnet-controller</a>
+ is
+a Flux-style controller that builds Jsonnet inside the controller and applies the
+result to the cluster, with a configuration model compatible with
+<a href="https://github.com/kubecfg/kubecfg">kubecfg</a>
+. JaaS and jsonnet-controller both
+turn Jsonnet into Kubernetes objects under Flux, but they draw the boundary
+between rendering and deployment in different places.</p>
+<h2 id="coupled-build-and-apply-vs-a-rendering-service">Coupled build-and-apply vs a rendering service</h2>
+<p>jsonnet-controller couples the two halves: one controller reads a Jsonnet
+source, evaluates it, and applies the resulting objects to the cluster. The
+rendered output lives inside the controller&rsquo;s reconcile loop; the unit of
+configuration is &ldquo;build this Jsonnet and apply it here.&rdquo;</p>
+<p>JaaS separates them. The JaaS operator renders a <code>JsonnetSnippet</code> and publishes
+the result as a content-addressed Flux <code>ExternalArtifact</code> — a tarball any
+source-controller-speaking consumer can fetch. JaaS does not apply anything. A
+separate consumer (a Flux <code>Kustomization</code>, a <code>HelmRelease</code>, or a
+<a href="https://stageset.projects.metio.wtf/">stageset-controller</a>
+ <code>StageSet</code>) reads the
+artifact and applies it. The rendered bytes are a first-class, addressable object
+that more than one consumer can reference, pin to a revision, or roll back to.</p>
+<p>That same rendering is also reachable over HTTP, so callers that are not Flux
+consumers — a CI step, another service — can request a render from the same
+engine that produces the in-cluster artifacts. See
+<a href="/operator/operator-mode/">operator mode</a>
+ for how a snippet becomes an artifact.</p>
+<h2 id="where-jsonnet-controller-fits">Where jsonnet-controller fits</h2>
+<p>jsonnet-controller is the more direct choice when its model matches your needs:</p>
+<ul>
+<li><strong>kubecfg compatibility.</strong> If you already organise Jsonnet the kubecfg way —
+its import conventions, its top-level structure — jsonnet-controller consumes
+that directly without restructuring.</li>
+<li><strong>One object per build-and-apply.</strong> When you want a single Flux-style
+resource that both renders a source and applies it, with no intermediate
+artifact to manage, jsonnet-controller keeps the pipeline to one moving part.</li>
+</ul>
+<p>JaaS is the better fit when you want the rendered output to be an addressable,
+revisioned artifact that several consumers can share, when you want the same
+renderer available over HTTP to non-Flux callers, or when you want rendering and
+deployment owned by separate, independently-evolving controllers.</p>
+<h2 id="the-deployment-side-comparison">The deployment-side comparison</h2>
+<p>The comparison above is from the rendering angle — rendering as a service that
+produces an artifact, versus build-and-apply in one controller. For the
+deployment-side comparison against jsonnet-controller — ordered and gated apply,
+health gating between stages, rollback — see stageset-controller&rsquo;s own page:
+<a href="https://stageset.projects.metio.wtf/comparisons/jsonnet-controller/">stageset-controller vs jsonnet-controller</a>
+.</p>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/comparison" term="comparison" label="comparison"/><category scheme="https://jaas.projects.metio.wtf/tags/jsonnet-controller" term="jsonnet-controller" label="jsonnet-controller"/></entry></feed>

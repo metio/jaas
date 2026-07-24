@@ -1,0 +1,193 @@
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en"><generator uri="https://gohugo.io/" version="0.163.3">Hugo</generator><title type="html">Kubernetes on Jsonnet-as-a-Service</title><link href="https://jaas.projects.metio.wtf/tags/kubernetes/" rel="alternate" type="text/html" title="html"/><link href="https://jaas.projects.metio.wtf/tags/kubernetes/index.xml" rel="alternate" type="application/rss+xml" title="rss"/><link href="https://jaas.projects.metio.wtf/tags/kubernetes/atom.xml" rel="self" type="application/atom+xml" title="atom"/><updated>2026-07-24T07:17:17+00:00</updated><author><name>metio.wtf</name></author><id>https://jaas.projects.metio.wtf/tags/kubernetes/</id><entry><title type="html">Kubernetes</title><link href="https://jaas.projects.metio.wtf/get-started/kubernetes/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/reference/helm-values/?utm_source=atom_feed" rel="related" type="text/html" title="Helm chart values"/><link href="https://jaas.projects.metio.wtf/get-started/quickstart/?utm_source=atom_feed" rel="related" type="text/html" title="Quickstart"/><link href="https://jaas.projects.metio.wtf/reference/upgrading/?utm_source=atom_feed" rel="related" type="text/html" title="Upgrading"/><link href="https://jaas.projects.metio.wtf/security/admission-webhook/?utm_source=atom_feed" rel="related" type="text/html" title="Admission webhook"/><link href="https://jaas.projects.metio.wtf/observability/alerting/?utm_source=atom_feed" rel="related" type="text/html" title="Alerting"/><id>https://jaas.projects.metio.wtf/get-started/kubernetes/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-26T15:54:29+02:00</updated><content type="html"><![CDATA[<blockquote>Install JaaS on Kubernetes with the Helm chart in either of its two modes — OCI volume mounting or Flux CR-based.</blockquote><p>JaaS ships as a container image at <code>ghcr.io/metio/jaas:latest</code> and as a Helm
+chart at <code>oci://ghcr.io/metio/helm-charts/jaas</code>, also listed on
+<a href="https://artifacthub.io/packages/helm/jaas/jaas">ArtifactHub</a>
+. Pre-built
+binaries for Linux, macOS, and Windows are attached to each GitHub release for
+operators who prefer to run the binary directly.</p>
+<h2 id="prerequisites">Prerequisites</h2>
+<ul>
+<li>A <a href="https://kubernetes.io/">Kubernetes</a>
+ cluster, <strong>v1.28 or later</strong>, with
+<code>kubectl</code> configured against it.</li>
+<li><a href="https://helm.sh/">Helm</a>
+ <strong>v3.14 or later</strong> — OCI chart support is required to
+pull the chart from <code>ghcr.io</code>.</li>
+</ul>
+<p>The Flux CR-based mode (below) additionally needs:</p>
+<ul>
+<li><a href="https://fluxcd.io/">Flux</a>
+ <strong>v2.7.0 or later</strong> in the cluster — the
+<code>ExternalArtifact</code> CRD that JaaS publishes lands in v2.7.0.</li>
+<li><a href="https://cert-manager.io/">cert-manager</a>
+ — <strong>only</strong> if you set the admission
+webhook to <code>cert-manager</code> mode. The chart defaults to <code>self-signed</code>, which
+provisions and rotates the webhook&rsquo;s TLS in-process and needs no cert-manager;
+see <a href="/running/production/#admission-webhook-tls">Production</a>
+ for the
+trade-off.</li>
+</ul>
+<p>The OCI volume-mounting mode needs neither Flux nor cert-manager.</p>
+<h2 id="install-and-update">Install and update</h2>
+<p><code>helm upgrade --install</code> is idempotent: the same command installs the chart the
+first time and applies your changes on every subsequent run, so it&rsquo;s the only
+deploy command you need. To update later, re-run it with an updated <code>--values</code>
+file or <code>--set</code> flags.</p>
+<p>The chart runs JaaS in one of two mutually exclusive modes in a single release.
+Pick the one that matches your use case; you <strong>cannot</strong> combine them in one
+release — the chart&rsquo;s pre-install preflight rejects the combination.</p>
+<h3 id="mode-1--oci-volume-mounting-http-renderer">Mode 1 — OCI volume mounting (HTTP renderer)</h3>
+<p>JaaS evaluates Jsonnet snippets on demand and returns JSON over HTTP. Snippets and
+libraries are mounted into the pod from OCI artifacts as image volumes (the
+<code>snippets</code> and <code>additionalLibraries</code> chart values), read straight from a registry.
+There are no CRDs, no leader election, and no persistent storage — the pod is
+stateless.</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">helm upgrade --install jaas oci://ghcr.io/metio/helm-charts/jaas <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --namespace jaas-system --create-namespace <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --values my-values.yaml <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --wait
+</span></span></code></pre></div><p>A minimal <code>my-values.yaml</code> — <code>snippets</code> and <code>additionalLibraries</code> are maps of
+<code>name: image-reference</code>:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="c"># Snippets to render — a map of name: image. The name becomes the URL path, so</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c"># this snippet is served at GET /jsonnet/dashboards.</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">snippets</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">dashboards</span><span class="p">:</span><span class="w"> </span><span class="l">ghcr.io/my-org/my-dashboards:latest</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c"># Well-known libraries have a built-in toggle — enable grafonnet with one flag</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c"># (the chart already knows its JOI image). docsonnet and xtd work the same way.</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">libraries</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">grafonnet</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c"># additionalLibraries mounts any OTHER library image — a JOI library without a</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c"># built-in toggle, or your own private bundle. The map KEY is the directory the</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c"># image mounts under and that the renderer adds to its import search path</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c"># (`--library-path /srv/libraries/&lt;key&gt;`); it must be unique. The entry below</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="c"># mounts ghcr.io/acme/jsonnet-acme-lib at /srv/libraries/acme.</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">additionalLibraries</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">acme</span><span class="p">:</span><span class="w"> </span><span class="l">ghcr.io/acme/jsonnet-acme-lib:latest</span><span class="w">
+</span></span></span></code></pre></div><p>The chart mounts each image read-only and wires the renderer for you. The
+<code>dashboards</code> snippet is then reachable at <code>GET /jsonnet/dashboards</code>. A library is
+imported by the path it resolves to under its search directory — for a
+jb-vendored image like grafonnet, the full vendor path baked into it:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-jsonnet" data-lang="jsonnet"><span class="line"><span class="cl"><span class="k">import</span><span class="w"> </span><span class="s">&#39;github.com/grafana/grafonnet/gen/grafonnet-latest/main.libsonnet&#39;</span><span class="w">
+</span></span></span></code></pre></div><p>The Jsonnet HTTP server listens on port <code>8080</code> (configurable via <code>ports.http</code>).</p>
+<h3 id="mode-2--flux-cr-based-operator">Mode 2 — Flux CR-based (operator)</h3>
+<p>JaaS watches <code>JsonnetSnippet</code> and <code>JsonnetLibrary</code> CRs, evaluates snippets, and
+publishes the results as <code>ExternalArtifact</code> resources. Downstream Flux consumers
+(kustomize-controller, helm-controller, stageset-controller) fetch the rendered
+JSON from the artifact server.</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">helm upgrade --install jaas oci://ghcr.io/metio/helm-charts/jaas <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --namespace jaas-system --create-namespace <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --set operator.enabled<span class="o">=</span><span class="nb">true</span> <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --set operator.storage.persistence.enabled<span class="o">=</span><span class="nb">true</span> <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --wait
+</span></span></code></pre></div><p>A minimal values snippet for the operator shape:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">operator</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">storage</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c"># local backend with a PVC — enough for a single-replica install. For</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c"># multi-replica HA, switch to backend: s3 (see /running/production/).</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">backend</span><span class="p">:</span><span class="w"> </span><span class="l">local</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">persistence</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">size</span><span class="p">:</span><span class="w"> </span><span class="l">10Gi</span><span class="w">
+</span></span></span></code></pre></div><p>The operator publishes artifacts at the URL configured via
+<code>operator.storage.baseURL</code>. Left empty, it defaults to the in-cluster Service
+DNS name (<code>http://jaas-storage.&lt;namespace&gt;.svc.cluster.local:&lt;port&gt;</code>), which is
+correct when downstream Flux consumers fetch artifacts from inside the cluster.
+Set it explicitly only when consumers dereference the artifacts through an
+Ingress or external hostname.</p>
+<h3 id="install-with-flux-gitops">Install with Flux (GitOps)</h3>
+<p>To manage JaaS from a Flux GitOps repository instead of <code>helm</code> on the command
+line, point an <code>OCIRepository</code> at the chart and install it with a <code>HelmRelease</code>.
+The <code>values:</code> block takes exactly the same keys as the <code>--values</code> file above —
+this example is the operator shape with local storage:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l">source.toolkit.fluxcd.io/v1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">OCIRepository</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">metadata</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">jaas</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">jaas-system</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">spec</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">interval</span><span class="p">:</span><span class="w"> </span><span class="l">1h</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l">oci://ghcr.io/metio/helm-charts/jaas</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">ref</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c"># Latest released chart. Pin to a specific tag for production; Renovate can</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c"># keep the pin current.</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">semver</span><span class="p">:</span><span class="w"> </span><span class="s2">&#34;&gt;=0.0.0&#34;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nn">---</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l">helm.toolkit.fluxcd.io/v2</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">HelmRelease</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">metadata</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">jaas</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l">jaas-system</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">spec</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">interval</span><span class="p">:</span><span class="w"> </span><span class="l">1h</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">chartRef</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l">OCIRepository</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l">jaas</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">values</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">operator</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nt">storage</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">backend</span><span class="p">:</span><span class="w"> </span><span class="l">local</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="nt">persistence</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">          </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">          </span><span class="nt">size</span><span class="p">:</span><span class="w"> </span><span class="l">10Gi</span><span class="w">
+</span></span></span></code></pre></div><p>Both resources live in <code>jaas-system</code>, so the namespace must exist first: create
+it with <code>kubectl create namespace jaas-system</code>, or include a <code>Namespace</code> manifest
+alongside them. The source- and helm-controllers reconcile an <code>OCIRepository</code> and
+<code>HelmRelease</code> directly, so no wrapping <code>Kustomization</code> is required — apply the two
+with <code>kubectl apply -f</code>, or commit them to whatever Git/OCI source your Flux setup
+already syncs. For the HTTP-renderer shape, drop the <code>operator</code> block and set
+<code>snippets</code> / <code>libraries</code> under <code>values:</code> instead. <code>HelmRelease</code> gives you
+upgrades, rollbacks, and drift correction; pull the chart version forward by
+bumping the <code>OCIRepository</code> <code>ref</code>.</p>
+<h3 id="manage-the-crds">Manage the CRDs</h3>
+<p>The chart ships its CRDs (<code>JsonnetSnippet</code>, <code>JsonnetLibrary</code>) inside the regular
+templates — not Helm&rsquo;s special <code>crds/</code> directory — so a <code>helm upgrade --install</code>
+applies schema changes like any other resource, governed by <code>crds.create</code>
+(default <code>true</code>). The CRDs carry <code>helm.sh/resource-policy: keep</code>, so a
+<code>helm uninstall</code> leaves them — and your existing resources — in place; remove them
+by hand only if you really mean to.</p>
+<p>Check <a href="/reference/upgrading/">Upgrading</a>
+
+before upgrading across a release that changes an immutable field such as a
+Deployment&rsquo;s <code>spec.selector.matchLabels</code> — those require a manual
+<code>kubectl --namespace jaas-system delete deploy jaas</code> first.</p>
+<p>If you manage CRDs out of band, the raw definitions are published in the
+repository under <code>config/crd/bases/</code> and can be applied with
+<code>kubectl apply --server-side -f</code>.</p>
+<h2 id="customize">Customize</h2>
+<p>Every setting the chart exposes — the two modes above, storage backend, leader
+election, the admission webhook, NetworkPolicy, service mesh, metrics, and the
+rest — is a Helm value. Two references cover them:</p>
+<ul>
+<li><a href="/reference/helm-values/">Helm chart values</a>
+ — the full values reference,
+generated from the chart&rsquo;s own schema.</li>
+<li><a href="/reference/configuration/">Configuration reference</a>
+ — every binary flag and
+the chart value that drives it.</li>
+</ul>
+<p>For production sizing — S3 storage, multi-replica HA, observability, and webhook
+hardening — see the <a href="/running/production/">Production guide</a>
+.</p>
+<h2 id="verify">Verify</h2>
+<p>For the operator shape, confirm the Deployment is available and the CRDs are
+registered:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace jaas-system rollout status deploy/jaas
+</span></span><span class="line"><span class="cl">kubectl get crd jsonnetsnippets.jaas.metio.wtf jsonnetlibraries.jaas.metio.wtf
+</span></span></code></pre></div><p>For the HTTP renderer, confirm the pod is ready and the endpoint answers:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">kubectl --namespace jaas-system get pods --selector app.kubernetes.io/name<span class="o">=</span>jaas
+</span></span><span class="line"><span class="cl">kubectl --namespace jaas-system port-forward svc/jaas 8080:8080 <span class="p">&amp;</span>
+</span></span><span class="line"><span class="cl">curl http://localhost:8080/jsonnet/my-dashboard
+</span></span></code></pre></div><h2 id="next-steps">Next steps</h2>
+<ul>
+<li><a href="/get-started/quickstart/">Quickstart tutorial</a>
+ — five steps from a Helm install
+to a published artifact.</li>
+<li><a href="/running/production/">Production hardening</a>
+ — storage, observability, the
+admission webhook, and multi-replica HA.</li>
+</ul>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/installation" term="installation" label="installation"/><category scheme="https://jaas.projects.metio.wtf/tags/helm" term="helm" label="helm"/><category scheme="https://jaas.projects.metio.wtf/tags/kubernetes" term="kubernetes" label="kubernetes"/><category scheme="https://jaas.projects.metio.wtf/tags/operator" term="operator" label="operator"/></entry></feed>

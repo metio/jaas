@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Getting-Started on Jsonnet-as-a-Service</title><link>https://jaas.projects.metio.wtf/tags/getting-started/</link><description>Recent content in Getting-Started on Jsonnet-as-a-Service</description><generator>Hugo</generator><language>en</language><atom:link href="https://jaas.projects.metio.wtf/tags/getting-started/index.xml" rel="self" type="application/rss+xml"/><item><title>Get started</title><link>https://jaas.projects.metio.wtf/get-started/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/get-started/</guid><description>&lt;p&gt;Two ways to start: render Jsonnet locally with no cluster at all, or install the
+JaaS service on Kubernetes and call its HTTP endpoint.&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;&lt;a href="https://jaas.projects.metio.wtf/get-started/quickstart/"&gt;Quickstart&lt;/a&gt;
+&lt;/strong&gt; — install JaaS and render your first
+snippet over HTTP.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;a href="https://jaas.projects.metio.wtf/get-started/kubernetes/"&gt;Install on Kubernetes&lt;/a&gt;
+&lt;/strong&gt; — prerequisites and the
+Helm install in full.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;a href="https://jaas.projects.metio.wtf/get-started/local-rendering/"&gt;Local rendering&lt;/a&gt;
+&lt;/strong&gt; — evaluate Jsonnet on your
+own machine, no cluster required.&lt;/li&gt;
+&lt;/ul&gt;</description></item></channel></rss>

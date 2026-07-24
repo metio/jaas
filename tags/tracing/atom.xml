@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en"><generator uri="https://gohugo.io/" version="0.163.3">Hugo</generator><title type="html">Tracing on Jsonnet-as-a-Service</title><link href="https://jaas.projects.metio.wtf/tags/tracing/" rel="alternate" type="text/html" title="html"/><link href="https://jaas.projects.metio.wtf/tags/tracing/index.xml" rel="alternate" type="application/rss+xml" title="rss"/><link href="https://jaas.projects.metio.wtf/tags/tracing/atom.xml" rel="self" type="application/atom+xml" title="atom"/><updated>2026-07-24T07:17:17+00:00</updated><author><name>metio.wtf</name></author><id>https://jaas.projects.metio.wtf/tags/tracing/</id><entry><title type="html">Observability</title><link href="https://jaas.projects.metio.wtf/observability/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/observability/slos/?utm_source=atom_feed" rel="related" type="text/html" title="Service level objectives"/><link href="https://jaas.projects.metio.wtf/observability/alerting/?utm_source=atom_feed" rel="related" type="text/html" title="Alerting"/><link href="https://jaas.projects.metio.wtf/observability/logging/?utm_source=atom_feed" rel="related" type="text/html" title="Logging"/><link href="https://jaas.projects.metio.wtf/observability/metrics/?utm_source=atom_feed" rel="related" type="text/html" title="Metrics"/><link href="https://jaas.projects.metio.wtf/observability/tracing/?utm_source=atom_feed" rel="related" type="text/html" title="Tracing"/><id>https://jaas.projects.metio.wtf/observability/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-18T20:07:20+02:00</updated><content type="html"><![CDATA[<blockquote>How to watch JaaS in production — structured logs, OTLP traces, Prometheus metrics, and the shipped alert catalog with Kubernetes Events and Flux notification routing.</blockquote><p>JaaS gives you four ways to see what it is doing in a cluster. Structured logs
+tell you what happened on a single request or reconcile; traces follow one
+operation across its spans; metrics aggregate behaviour into time series for
+dashboards and alerts; and alerts plus Kubernetes Events turn a sustained
+problem into a page or a notification.</p>
+<p>Each pillar has its own page covering both the binary&rsquo;s flags and the Helm chart
+keys that drive them:</p>
+<ul>
+<li><a href="/observability/logging/">Logging</a>
+ — the <code>log/slog</code> logger, <code>--log-level</code> and
+<code>--log-format</code>, and reading JSON logs with <code>kubectl logs</code> and <code>jq</code>.</li>
+<li><a href="/observability/tracing/">Tracing</a>
+ — OTLP gRPC export to an OpenTelemetry collector,
+sampling, and viewing spans.</li>
+<li><a href="/observability/metrics/">Metrics</a>
+ — the Prometheus endpoint, the custom <code>jaas_*</code>
+metric family, scraping with a <code>ServiceMonitor</code>, and querying with PromQL.</li>
+<li><a href="/observability/alerting/">Alerting</a>
+ — the opt-in <code>PrometheusRule</code> alert catalog with
+its runbook links, plus Kubernetes Events routed through Flux&rsquo;s
+notification-controller.</li>
+</ul>
+<p>Logging applies to every mode JaaS runs in. Tracing, metrics, and alerting are
+operator-mode concerns and take effect once <code>--enable-flux-integration</code> is set
+(<code>operator.enabled</code> in the chart).</p>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/operator" term="operator" label="operator"/><category scheme="https://jaas.projects.metio.wtf/tags/logging" term="logging" label="logging"/><category scheme="https://jaas.projects.metio.wtf/tags/tracing" term="tracing" label="tracing"/><category scheme="https://jaas.projects.metio.wtf/tags/metrics" term="metrics" label="metrics"/><category scheme="https://jaas.projects.metio.wtf/tags/alerts" term="alerts" label="alerts"/></entry><entry><title type="html">Tracing</title><link href="https://jaas.projects.metio.wtf/observability/tracing/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/observability/alerting/?utm_source=atom_feed" rel="related" type="text/html" title="Alerting"/><link href="https://jaas.projects.metio.wtf/observability/logging/?utm_source=atom_feed" rel="related" type="text/html" title="Logging"/><link href="https://jaas.projects.metio.wtf/observability/metrics/?utm_source=atom_feed" rel="related" type="text/html" title="Metrics"/><link href="https://jaas.projects.metio.wtf/security/admission-webhook/?utm_source=atom_feed" rel="related" type="text/html" title="Admission webhook"/><link href="https://jaas.projects.metio.wtf/operator/creating-sources/?utm_source=atom_feed" rel="related" type="text/html" title="Creating source artifacts"/><id>https://jaas.projects.metio.wtf/observability/tracing/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-26T15:54:29+02:00</updated><content type="html"><![CDATA[<blockquote>The JaaS operator exports OpenTelemetry traces over OTLP gRPC. Pointing it at a collector, sampling, viewing spans, and the Helm chart keys that drive it.</blockquote><p>The JaaS operator exports OpenTelemetry traces over OTLP gRPC. With an endpoint
+configured, each reconcile and the work it fans out into — source fetch, library
+resolution, evaluation, publish — becomes a span you can follow in a tracing
+backend. When no endpoint is set, the OpenTelemetry SDK runs in no-op mode and
+emits nothing, so tracing carries no cost until you opt in.</p>
+<h2 id="the-binary">The binary</h2>
+<p>Three flags configure the exporter:</p>
+<ul>
+<li><code>--tracing-endpoint</code> — the OTLP gRPC collector <code>host:port</code>, e.g.
+<code>otel-collector.observability.svc:4317</code>. Empty (the default) disables tracing
+entirely.</li>
+<li><code>--tracing-insecure</code> — skip TLS when dialing the collector. Default <code>false</code>.
+Use only for in-cluster collectors that do not terminate TLS themselves.</li>
+<li><code>--tracing-sample-ratio</code> — TraceID-ratio sampling between <code>0.0</code> and <code>1.0</code>.
+Default <code>1.0</code> samples every trace.</li>
+</ul>
+<p>The full flag list with defaults is on the
+<a href="/reference/configuration/">configuration page</a>
+.</p>
+<h3 id="viewing-spans">Viewing spans</h3>
+<p>Point <code>--tracing-endpoint</code> at any OTLP-gRPC-speaking collector — the
+OpenTelemetry Collector, Jaeger, Tempo, or a vendor agent — and view the spans
+in whatever backend that collector feeds. A reconcile span carries the snippet&rsquo;s
+namespace and name plus the spec generation it acted on
+(<code>jaas.generation</code>), so you can search for one snippet and see the latency
+breakdown across its fetch, eval, and publish phases. That is the fastest way to
+tell a slow upstream source fetch apart from a slow evaluation when a snippet&rsquo;s
+reconcile latency climbs.</p>
+<p>When a phase fails — source resolution, library resolution, evaluation, or
+publish — its span records the error and is marked with an error status, so the
+failed span shows up as <code>status=error</code> and is directly queryable in the tracing
+backend. Searching for error spans surfaces the exact phase a failing reconcile
+broke in without reading through the full trace.</p>
+<p>On a busy operator, drop <code>--tracing-sample-ratio</code> below <code>1.0</code> to keep only a
+fraction of traces — <code>0.1</code> samples one in ten. Leave it at <code>1.0</code> while
+diagnosing a specific problem so no trace is dropped.</p>
+<h2 id="the-helm-chart">The Helm chart</h2>
+<p>Tracing lives under <code>operator.tracing</code>. It only takes effect in operator mode
+(<code>operator.enabled: true</code>):</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-yaml" data-lang="yaml"><span class="line"><span class="cl"><span class="nt">operator</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nt">tracing</span><span class="p">:</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">endpoint</span><span class="p">:</span><span class="w"> </span><span class="l">otel-collector.observability.svc:4317</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">insecure</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nt">sampleRatio</span><span class="p">:</span><span class="w"> </span><span class="m">1.0</span><span class="w">
+</span></span></span></code></pre></div><p>The keys map directly onto the flags: <code>endpoint</code> → <code>--tracing-endpoint</code>,
+<code>insecure</code> → <code>--tracing-insecure</code>, <code>sampleRatio</code> → <code>--tracing-sample-ratio</code>.
+Leaving <code>endpoint</code> empty (the default) keeps the SDK in no-op mode.</p>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/operator" term="operator" label="operator"/><category scheme="https://jaas.projects.metio.wtf/tags/tracing" term="tracing" label="tracing"/><category scheme="https://jaas.projects.metio.wtf/tags/observability" term="observability" label="observability"/></entry></feed>

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Renderer on Jsonnet-as-a-Service</title><link>https://jaas.projects.metio.wtf/tags/renderer/</link><description>Recent content in Renderer on Jsonnet-as-a-Service</description><generator>Hugo</generator><language>en</language><atom:link href="https://jaas.projects.metio.wtf/tags/renderer/index.xml" rel="self" type="application/rss+xml"/><item><title>Local rendering</title><link>https://jaas.projects.metio.wtf/get-started/local-rendering/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/get-started/local-rendering/</guid><description>&lt;p&gt;JaaS runs as a cluster-free Jsonnet renderer: point it at a directory of
+snippets and a directory of libraries, then &lt;code&gt;GET&lt;/code&gt; a snippet name to receive the
+evaluated JSON. No Kubernetes, no operator mode, no Flux. The evaluation core is
+the same one the operator uses, so a snippet that renders correctly here renders
+identically in-cluster.&lt;/p&gt;
+&lt;p&gt;This tutorial runs against this repository&amp;rsquo;s &lt;code&gt;examples/&lt;/code&gt; layout, so clone the
+repo first:&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-shell" data-lang="shell"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;git clone https://github.com/metio/jaas
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nb"&gt;cd&lt;/span&gt; jaas
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;h2 id="step-1--get-the-binary-or-container-image"&gt;Step 1 — Get the binary or container image&lt;/h2&gt;
+&lt;p&gt;Pre-built binaries are attached to each
+&lt;a href="https://github.com/metio/jaas/releases"&gt;GitHub release&lt;/a&gt;
+. Download the archive
+for your platform, unpack it, and the &lt;code&gt;jaas&lt;/code&gt; binary is inside.&lt;/p&gt;</description></item></channel></rss>

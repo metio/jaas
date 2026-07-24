@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en"><generator uri="https://gohugo.io/" version="0.163.3">Hugo</generator><title type="html">Tlas on Jsonnet-as-a-Service</title><link href="https://jaas.projects.metio.wtf/tags/tlas/" rel="alternate" type="text/html" title="html"/><link href="https://jaas.projects.metio.wtf/tags/tlas/index.xml" rel="alternate" type="application/rss+xml" title="rss"/><link href="https://jaas.projects.metio.wtf/tags/tlas/atom.xml" rel="self" type="application/atom+xml" title="atom"/><updated>2026-07-24T07:17:17+00:00</updated><author><name>metio.wtf</name></author><id>https://jaas.projects.metio.wtf/tags/tlas/</id><entry><title type="html">External variables and TLAs</title><link href="https://jaas.projects.metio.wtf/rendering/external-variables-and-tlas/?utm_source=atom_feed" rel="alternate" type="text/html"/><id>https://jaas.projects.metio.wtf/rendering/external-variables-and-tlas/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-06-26T15:54:29+02:00</updated><content type="html"><![CDATA[<blockquote>Passing values into a render through external variables and top-level arguments.</blockquote><p>JaaS feeds two kinds of input into an evaluation: external variables, set by the
+process owner at startup, and top-level arguments, supplied per request through
+the URL query string.</p>
+<h2 id="external-variables">External variables</h2>
+<p>External variables come from two sources. The environment mechanism reads every
+variable prefixed with <code>JAAS_EXT_VAR_</code> — the suffix is the variable name:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl"><span class="nv">JAAS_EXT_VAR_name</span><span class="o">=</span>Alice <span class="se">\
+</span></span></span><span class="line"><span class="cl"><span class="nv">JAAS_EXT_VAR_key</span><span class="o">=</span>secret <span class="se">\
+</span></span></span><span class="line"><span class="cl">  ./jaas --snippet-directory examples/snippets/dashboards
+</span></span></code></pre></div><p>The <code>--ext-var KEY=VALUE</code> flag does the same and is repeatable. On a key
+conflict, the flag takes precedence over the environment value:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">./jaas <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --snippet-directory examples/snippets/dashboards <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --ext-var <span class="nv">name</span><span class="o">=</span>Alice <span class="se">\
+</span></span></span><span class="line"><span class="cl">  --ext-var <span class="nv">key</span><span class="o">=</span>secret
+</span></span></code></pre></div><p>A snippet reads a variable with <code>std.extVar</code>:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-jsonnet" data-lang="jsonnet"><span class="line"><span class="cl"><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="nv">person1</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nv">name</span><span class="p">:</span><span class="w"> </span><span class="nb">std.extVar</span><span class="p">(</span><span class="s">&#39;name&#39;</span><span class="p">),</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nv">external</span><span class="p">:</span><span class="w"> </span><span class="nb">std.extVar</span><span class="p">(</span><span class="s">&#39;key&#39;</span><span class="p">),</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="p">},</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><p>Fetching <code>example1</code> with those variables set produces:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">curl http://127.0.0.1:8080/jsonnet/example1
+</span></span></code></pre></div><div class="highlight"><pre tabindex="0" class="chroma"><code class="language-json" data-lang="json"><span class="line"><span class="cl"><span class="p">{</span>
+</span></span><span class="line"><span class="cl">  <span class="nt">&#34;person1&#34;</span><span class="p">:</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&#34;external&#34;</span><span class="p">:</span> <span class="s2">&#34;secret&#34;</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&#34;name&#34;</span><span class="p">:</span> <span class="s2">&#34;Alice&#34;</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&#34;welcome&#34;</span><span class="p">:</span> <span class="s2">&#34;Hello Alice!&#34;</span>
+</span></span><span class="line"><span class="cl">  <span class="p">}</span>
+</span></span><span class="line"><span class="cl"><span class="p">}</span>
+</span></span></code></pre></div><p>External variables are fixed at startup. Callers cannot set them per request —
+that is what top-level arguments are for.</p>
+<h2 id="top-level-arguments">Top-level arguments</h2>
+<p>A snippet that evaluates to a function receives top-level arguments (TLAs) from
+the URL query string. The <code>tla-example</code> snippet is such a function:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-jsonnet" data-lang="jsonnet"><span class="line"><span class="cl"><span class="k">function</span><span class="p">(</span><span class="nv">something</span><span class="o">=</span><span class="s">&#34;value&#34;</span><span class="p">,</span><span class="w"> </span><span class="nv">other</span><span class="o">=</span><span class="s">&#34;more&#34;</span><span class="p">,</span><span class="w"> </span><span class="nv">required</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nv">person1</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nv">welcome</span><span class="p">:</span><span class="w"> </span><span class="s">&#39;Hello &#39;</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="nv">something</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="s">&#39;!&#39;</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nv">key</span><span class="p">:</span><span class="w"> </span><span class="nv">other</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">      </span><span class="nv">required</span><span class="p">:</span><span class="w"> </span><span class="nb">std.parseJson</span><span class="p">(</span><span class="nv">required</span><span class="p">),</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">},</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><p>Each query parameter sets a TLA. A single value becomes a string:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">curl <span class="s1">&#39;http://127.0.0.1:8080/jsonnet/tla-example?something=Ada&amp;required=42&#39;</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># {&#34;person1&#34;:{&#34;key&#34;:&#34;more&#34;,&#34;required&#34;:42,&#34;welcome&#34;:&#34;Hello Ada!&#34;},...}</span>
+</span></span></code></pre></div><p>A repeated parameter becomes a list. The <code>multi-tla</code> snippet joins whatever it
+receives:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-jsonnet" data-lang="jsonnet"><span class="line"><span class="cl"><span class="k">function</span><span class="p">(</span><span class="nv">tags</span><span class="o">=</span><span class="p">[</span><span class="s">&#34;default&#34;</span><span class="p">])</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nv">count</span><span class="p">:</span><span class="w"> </span><span class="nb">std.length</span><span class="p">(</span><span class="nv">tags</span><span class="p">),</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nv">list</span><span class="p">:</span><span class="w"> </span><span class="nv">tags</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="nv">joined</span><span class="p">:</span><span class="w"> </span><span class="nb">std.join</span><span class="p">(</span><span class="s">&#34;, &#34;</span><span class="p">,</span><span class="w"> </span><span class="nv">tags</span><span class="p">),</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">curl <span class="s1">&#39;http://127.0.0.1:8080/jsonnet/multi-tla?tags=blue&amp;tags=green&#39;</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># {&#34;count&#34;:2,&#34;joined&#34;:&#34;blue, green&#34;,&#34;list&#34;:[&#34;blue&#34;,&#34;green&#34;]}</span>
+</span></span></code></pre></div><p>A bare parameter with no value sets the TLA to an empty string:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">curl <span class="s1">&#39;http://127.0.0.1:8080/jsonnet/tla-example?something&amp;required=0&#39;</span>
+</span></span></code></pre></div><p>For the request and response shape these examples ride on, see the
+<a href="/rendering/rendering-endpoint/">rendering endpoint</a>
+.</p>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/extvars" term="extvars" label="extvars"/><category scheme="https://jaas.projects.metio.wtf/tags/tlas" term="tlas" label="tlas"/><category scheme="https://jaas.projects.metio.wtf/tags/query" term="query" label="query"/></entry></feed>
