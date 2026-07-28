@@ -14,7 +14,7 @@ jobs:
     # detect job auto-enables envtest and arch-go from this repo's files. Named
     # "Golang" so its checks read "Golang / test", "Golang / lint", …
     name: Golang
-    uses: metio/ci/.github/workflows/golang.yml@a221440cbc128a3736a2f950c8c8497d441384ed # 2026.7.26085035
+    uses: metio/ci/.github/workflows/golang.yml@7b2e803d80b49a8cc03fd38bfde7466f2fd7a366 # 2026.7.28213002
   reuse:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -151,7 +151,7 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           fetch-depth: 0
-      - uses: metio/ci/dco@a221440cbc128a3736a2f950c8c8497d441384ed # main
+      - uses: metio/ci/dco@7b2e803d80b49a8cc03fd38bfde7466f2fd7a366 # main
   policy:
     # metio org workflow conventions (conftest/Rego from metio/ci): SHA-pinned
     # uses refs, top-level permissions, timeout-minutes on every job, no
@@ -160,7 +160,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-      - uses: metio/ci/policy-check@a221440cbc128a3736a2f950c8c8497d441384ed # 2026.7.26085035
+      - uses: metio/ci/policy-check@7b2e803d80b49a8cc03fd38bfde7466f2fd7a366 # 2026.7.28213002
   verify:
     # Single required check covering every job above: mark only this one
     # required in branch protection and new jobs are covered automatically.
