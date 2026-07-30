@@ -417,7 +417,13 @@ func (r *SnippetReconciler) classifyWithdrawFailure(snip *jaasv1.JsonnetSnippet,
 	wrapped := fmt.Errorf("%s: %w", wrapPrefix, err)
 	forceDrop, elapsed := r.withdrawTimedOut(snip)
 	dropReason := timeoutReason
-	if !forceDrop && isPermanentAPIError(err) {
+	// An Unauthorized here is one the tenant client already answered with an
+	// eviction and a re-mint, so the ServiceAccount the ExternalArtifact would
+	// have to be deleted as is gone — usually because its namespace is
+	// terminating, which is taking the ExternalArtifact with it anyway. On the
+	// deletion path that is as final as a Forbidden, and holding the finalizer
+	// for it pins the whole namespace behind an object that is already doomed.
+	if !forceDrop && (isPermanentAPIError(err) || apierrors.IsUnauthorized(err)) {
 		forceDrop = true
 		elapsed = r.now().Sub(snip.DeletionTimestamp.Time)
 		dropReason = permanentReason
@@ -467,8 +473,7 @@ func (r *SnippetReconciler) forgetPerSnippetCaches(ctx context.Context, logger *
 		return
 	}
 	if last {
-		r.TokenCache.Forget(snip.Namespace, sa)
-		r.ClientCache.Forget(snip.Namespace + "/" + sa)
+		r.forgetTenant(snip.Namespace, sa)
 	}
 }
 
@@ -2183,6 +2188,12 @@ func (r *SnippetReconciler) isLastSnippetUsingSA(ctx context.Context, ns, sa, ex
 // the token it was built with: while the token is unchanged, every reconcile
 // reuses the same client and skips client.New's RESTMapper + transport
 // construction. A new token replaces the cached entry.
+//
+// The result is wrapped in retryUnauthorizedClient: the token is bound to the
+// ServiceAccount's UID while the caches are keyed by its name, so a recreated
+// ServiceAccount leaves a cached credential the apiserver refuses. The wrapper
+// turns each such 401 into an eviction plus one retry instead of an hour of
+// failing calls.
 func (r *SnippetReconciler) tenantClient(ctx context.Context, snip *jaasv1.JsonnetSnippet) (client.Client, error) {
 	if r.RestConfig == nil || r.TokenCache == nil {
 		return r.Client, nil
@@ -2191,11 +2202,27 @@ func (r *SnippetReconciler) tenantClient(ctx context.Context, snip *jaasv1.Jsonn
 	if sa == "" {
 		return r.Client, nil
 	}
-	token, err := r.TokenCache.Token(ctx, snip.Namespace, sa)
+	ns := snip.Namespace
+	c, err := r.buildTenantClient(ctx, ns, sa)
 	if err != nil {
 		return nil, err
 	}
-	cacheKey := snip.Namespace + "/" + sa
+	return newRetryUnauthorizedClient(c, ns, sa, func(ctx context.Context) (client.Client, error) {
+		r.forgetTenant(ns, sa)
+		return r.buildTenantClient(ctx, ns, sa)
+	}), nil
+}
+
+// buildTenantClient is tenantClient without the 401-retry wrapper: it returns
+// the cached client for ns/sa, or builds one around a freshly minted token. The
+// wrapper's refresh calls back into it, so keeping the two apart is what stops
+// a refreshed client from being wrapped a second time on every eviction.
+func (r *SnippetReconciler) buildTenantClient(ctx context.Context, ns, sa string) (client.Client, error) {
+	token, err := r.TokenCache.Token(ctx, ns, sa)
+	if err != nil {
+		return nil, err
+	}
+	cacheKey := tenantCacheKey(ns, sa)
 	cached, epoch, ok := r.ClientCache.Get(cacheKey, token)
 	if ok {
 		return cached, nil
@@ -2207,6 +2234,20 @@ func (r *SnippetReconciler) tenantClient(ctx context.Context, snip *jaasv1.Jsonn
 	}
 	r.ClientCache.Put(cacheKey, token, epoch, c)
 	return c, nil
+}
+
+// tenantCacheKey is the ClientCache key for a tenant connection. Every producer
+// and consumer of it goes through here, so an eviction can never miss the entry
+// it means to drop.
+func tenantCacheKey(ns, sa string) string { return ns + "/" + sa }
+
+// forgetTenant drops the cached credential for ns/sa and the client built
+// around it, in lock-step: a token evicted on its own would leave the client
+// cache holding a connection nothing asks for again, and a client evicted on
+// its own would be rebuilt around the same dead token.
+func (r *SnippetReconciler) forgetTenant(ns, sa string) {
+	r.TokenCache.Forget(ns, sa)
+	r.ClientCache.Forget(tenantCacheKey(ns, sa))
 }
 
 // buildTenantRestConfig assembles the rest.Config for a tenant-scoped

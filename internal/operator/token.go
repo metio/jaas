@@ -207,8 +207,10 @@ func (c *tokenCache) refreshMarginFor(expires time.Time) time.Duration {
 	return margin
 }
 
-// Forget evicts the cached token for namespace/serviceAccount. Called when
-// a snippet is deleted so a re-created snippet with the same SA mints a
+// Forget evicts the cached token for namespace/serviceAccount. Reached through
+// SnippetReconciler.forgetTenant on the two occasions a cached credential stops
+// being worth keeping: the apiserver rejecting it with a 401, and the last
+// snippet using that SA being deleted. Either way the next Token call mints a
 // fresh token rather than reusing a stale entry. nil-safe.
 func (c *tokenCache) Forget(namespace, serviceAccount string) {
 	if c == nil {

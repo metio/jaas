@@ -81,10 +81,10 @@ func (c *tenantClientCache) Put(key, token string, epochAtGet int64, cl client.C
 	c.entries[key] = tenantClientEntry{token: token, client: cl}
 }
 
-// Forget evicts the cached client for key and bumps gen. Called from
-// the finalizer path in lock-step with tokenCache.Forget so a re-created
-// snippet against the same SA mints a fresh token AND rebuilds the client
-// around it. nil-safe.
+// Forget evicts the cached client for key and bumps gen. Reached through
+// SnippetReconciler.forgetTenant, always in lock-step with tokenCache.Forget,
+// so a tenant whose credential was rejected or whose last snippet is gone mints
+// a fresh token AND rebuilds the client around it. nil-safe.
 func (c *tenantClientCache) Forget(key string) {
 	if c == nil {
 		return

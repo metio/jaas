@@ -12,10 +12,25 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/rest"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	jaasv1 "github.com/metio/jaas/api/v1"
 )
+
+// underlying returns the connection tenantClient's 401-retry wrapper delegates
+// to — the thing tenantClientCache actually memoizes. The wrapper is built per
+// call and deliberately not cached: it holds a handful of words, while the
+// entry behind it holds a RESTMapper and a transport. Identity assertions about
+// the cache therefore have to look through it.
+func underlying(t *testing.T, c client.Client) client.Client {
+	t.Helper()
+	wrapped, ok := c.(*retryUnauthorizedClient)
+	if !ok {
+		t.Fatalf("tenantClient returned %T, want it wrapped for 401 retry", c)
+	}
+	return wrapped.inner()
+}
 
 func TestTenantClientCache_NilReceiverIsSafe(t *testing.T) {
 	var c *tenantClientCache
@@ -66,7 +81,7 @@ func TestTenantClientCache_HitReturnsSameClient(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second call: %v", err)
 	}
-	if first != second {
+	if underlying(t, first) != underlying(t, second) {
 		t.Errorf("expected the second call to return the cached client; got a different pointer")
 	}
 }
@@ -104,7 +119,7 @@ func TestTenantClientCache_TokenChangeReplacesEntry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second call: %v", err)
 	}
-	if first == second {
+	if underlying(t, first) == underlying(t, second) {
 		t.Errorf("expected token rotation to rebuild the client; got the same pointer")
 	}
 	if stub.calls != 2 {
@@ -135,7 +150,7 @@ func TestTenantClientCache_ForgetEvicts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second call: %v", err)
 	}
-	if first == second {
+	if underlying(t, first) == underlying(t, second) {
 		t.Errorf("Forget should have evicted the cached client; got the same pointer back")
 	}
 }
