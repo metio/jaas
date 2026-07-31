@@ -423,13 +423,15 @@ func (r *SnippetReconciler) classifyWithdrawFailure(snip *jaasv1.JsonnetSnippet,
 	// terminating, which is taking the ExternalArtifact with it anyway. On the
 	// deletion path that is as final as a Forbidden, and holding the finalizer
 	// for it pins the whole namespace behind an object that is already doomed.
+	unrecoverable := false
 	if !forceDrop && (isPermanentAPIError(err) || apierrors.IsUnauthorized(err)) {
 		forceDrop = true
+		unrecoverable = true
 		elapsed = r.now().Sub(snip.DeletionTimestamp.Time)
 		dropReason = permanentReason
 	}
 	if forceDrop {
-		return &forceDropInfo{elapsed: elapsed, dropReason: dropReason, lastErr: wrapped}, nil
+		return &forceDropInfo{elapsed: elapsed, dropReason: dropReason, lastErr: wrapped, unrecoverable: unrecoverable}, nil
 	}
 	return nil, wrapped
 }
@@ -444,6 +446,12 @@ type forceDropInfo struct {
 	dropReason     string
 	lastErr        error
 	storageCleaned bool
+	// unrecoverable records that the classifier decided, not the clock. The two
+	// read very differently to an operator — one means the bound elapsed, the
+	// other that the bound was never going to help — and the dropReason strings
+	// cannot be sniffed for it (the timeout branches are spelled
+	// "tenant_client_timeout" and "withdraw_timed_out").
+	unrecoverable bool
 }
 
 // forgetPerSnippetCaches evicts every cache entry keyed by this snippet
@@ -512,17 +520,27 @@ func (r *SnippetReconciler) withdrawTimedOut(snip *jaasv1.JsonnetSnippet) (bool,
 // logs.
 func (r *SnippetReconciler) forceDropFinalizer(ctx context.Context, logger *slog.Logger, snip *jaasv1.JsonnetSnippet, forced *forceDropInfo) {
 	prefix := snip.Namespace + "/" + snip.Name
+	// Say which decision dropped the finalizer. A classifier drop fires well
+	// inside MaxWithdrawWait, so wording every drop as "after MaxWithdrawWait"
+	// reads as the bound having elapsed — and invites the conclusion that the
+	// whole window was spent retrying something that could never succeed. The
+	// elapsed value is time since deletionTimestamp under either decision.
+	because, headline := "of failing Withdraw", "Force-dropping finalizer after MaxWithdrawWait"
+	if forced.unrecoverable {
+		because = "of a Withdraw failure no retry can clear"
+		headline = "Force-dropping finalizer on an unrecoverable Withdraw failure"
+	}
 	var msg string
 	if forced.storageCleaned {
-		msg = fmt.Sprintf("WithdrawForced after %s of failing Withdraw — finalizer dropped; the stored tarballs were deleted, only the ExternalArtifact could not be removed as the tenant (it is garbage-collected with its namespace, or remove it by hand). Last error: %v", forced.elapsed.Round(time.Second), forced.lastErr)
+		msg = fmt.Sprintf("WithdrawForced after %s %s — finalizer dropped; the stored tarballs were deleted, only the ExternalArtifact could not be removed as the tenant (it is garbage-collected with its namespace, or remove it by hand). Last error: %v", forced.elapsed.Round(time.Second), because, forced.lastErr)
 	} else {
 		orphans := prefix + "/<rev>.tar.gz"
 		if revs := knownRevisionPaths(prefix, snip.Status.History); revs != "" {
 			orphans = revs
 		}
-		msg = fmt.Sprintf("WithdrawForced after %s of failing Withdraw — finalizer dropped; storage may carry orphaned tarballs under %s/ that an operator must remove by hand (known revisions: %s). Last error: %v", forced.elapsed.Round(time.Second), prefix, orphans, forced.lastErr)
+		msg = fmt.Sprintf("WithdrawForced after %s %s — finalizer dropped; storage may carry orphaned tarballs under %s/ that an operator must remove by hand (known revisions: %s). Last error: %v", forced.elapsed.Round(time.Second), because, prefix, orphans, forced.lastErr)
 	}
-	logger.WarnContext(ctx, "Force-dropping finalizer after MaxWithdrawWait",
+	logger.WarnContext(ctx, headline,
 		slog.Duration("elapsed", forced.elapsed),
 		slog.String("reason", forced.dropReason),
 		slog.Bool("storageCleaned", forced.storageCleaned),

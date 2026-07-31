@@ -17,6 +17,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -236,6 +237,51 @@ func TestClassifyWithdrawFailure_ForceDropsOnUnauthorized(t *testing.T) {
 	}
 	if info.dropReason != "permanent" {
 		t.Errorf("dropReason = %q, want %q", info.dropReason, "permanent")
+	}
+}
+
+// A classifier drop fires well inside MaxWithdrawWait, so the event must not
+// claim the bound elapsed. Reading "after 21m of failing Withdraw" on a snippet
+// whose bound is an hour reads as the whole window having been spent retrying
+// something that could never succeed — which is not what happened.
+func TestForceDropFinalizer_UnrecoverableDropDoesNotClaimTheBoundElapsed(t *testing.T) {
+	c := clientWithStatus(t, sampleSnippet())
+	r := newReconciler(t, c)
+	rec := events.NewFakeRecorder(8)
+	r.EventRecorder = rec
+
+	r.forceDropFinalizer(context.Background(), discardLogger(), sampleSnippet(), &forceDropInfo{
+		elapsed:       21 * time.Minute,
+		dropReason:    "withdraw_permanent",
+		unrecoverable: true,
+		lastErr:       errors.New("namespace is terminating"),
+	})
+
+	msg := strings.Join(drainEvents(rec), "\n")
+	if strings.Contains(msg, "of failing Withdraw") {
+		t.Errorf("unrecoverable drop worded as a timeout: %q", msg)
+	}
+	if !strings.Contains(msg, "no retry can clear") {
+		t.Errorf("message does not say the retry was pointless: %q", msg)
+	}
+}
+
+// The timeout branch keeps its original wording: there the bound genuinely did
+// elapse.
+func TestForceDropFinalizer_TimeoutDropKeepsItsWording(t *testing.T) {
+	c := clientWithStatus(t, sampleSnippet())
+	r := newReconciler(t, c)
+	rec := events.NewFakeRecorder(8)
+	r.EventRecorder = rec
+
+	r.forceDropFinalizer(context.Background(), discardLogger(), sampleSnippet(), &forceDropInfo{
+		elapsed:    time.Hour,
+		dropReason: "withdraw_timed_out",
+		lastErr:    errors.New("backend unreachable"),
+	})
+
+	if msg := strings.Join(drainEvents(rec), "\n"); !strings.Contains(msg, "of failing Withdraw") {
+		t.Errorf("timeout drop lost its wording: %q", msg)
 	}
 }
 
