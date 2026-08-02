@@ -9,3 +9,7 @@
 # library images satisfy.
 FROM scratch
 COPY *.jsonnet /
+# The image carries data and runs nothing, but a scratch image inherits no user
+# at all — so anything that does exec it would run as root. USER is metadata, not
+# a filesystem layer, so the single-layer contract above is unaffected.
+USER 65532:65532

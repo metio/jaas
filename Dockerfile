@@ -44,4 +44,8 @@ COPY --from=build /app/jaas /usr/bin/
 # The generated CRDs ride along so downstream tooling (the Helm chart's
 # vendoring step) can extract them straight from the released image.
 COPY --from=build /crds /crds
+# The uid distroless's :nonroot tag defaults to, stated rather than inherited: a
+# base image change must not be able to hand the operator root, and a numeric uid
+# is what a pod's runAsNonRoot can check without resolving /etc/passwd.
+USER 65532:65532
 ENTRYPOINT ["/usr/bin/jaas"]
