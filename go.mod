@@ -5,7 +5,7 @@ module github.com/metio/jaas
 
 go 1.26.0
 
-toolchain go1.26.5
+toolchain go1.26.6
 
 require (
 	github.com/fluxcd/pkg/apis/meta v1.31.0
