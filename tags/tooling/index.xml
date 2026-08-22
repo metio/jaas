@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Tooling on Jsonnet-as-a-Service</title><link>https://jaas.projects.metio.wtf/tags/tooling/</link><description>Recent content in Tooling on Jsonnet-as-a-Service</description><generator>Hugo</generator><language>en</language><atom:link href="https://jaas.projects.metio.wtf/tags/tooling/index.xml" rel="self" type="application/rss+xml"/><item><title>Integrations &amp; tooling</title><link>https://jaas.projects.metio.wtf/integrations/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/integrations/</guid><description>&lt;p&gt;How JaaS fits with the rest of your delivery stack, plus the tooling that drives
+it from the terminal and from AI assistants.&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;&lt;a href="https://jaas.projects.metio.wtf/integrations/flux-operator/"&gt;Flux Operator integration&lt;/a&gt;
+&lt;/strong&gt; — compose JaaS
+with the Flux Operator&amp;rsquo;s &lt;code&gt;ResourceSet&lt;/code&gt;.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;a href="https://jaas.projects.metio.wtf/integrations/claude-code/"&gt;Claude Code skill&lt;/a&gt;
+&lt;/strong&gt; — a skill that helps an
+assistant author snippets and libraries.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;a href="https://jaas.projects.metio.wtf/integrations/mcp-server/"&gt;MCP server&lt;/a&gt;
+&lt;/strong&gt; — an MCP server for agent-driven
+rendering and operator introspection.&lt;/li&gt;
+&lt;/ul&gt;</description></item></channel></rss>

@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Configuration on Jsonnet-as-a-Service</title><link>https://jaas.projects.metio.wtf/tags/configuration/</link><description>Recent content in Configuration on Jsonnet-as-a-Service</description><generator>Hugo</generator><language>en</language><atom:link href="https://jaas.projects.metio.wtf/tags/configuration/index.xml" rel="self" type="application/rss+xml"/><item><title>Configuration reference</title><link>https://jaas.projects.metio.wtf/reference/configuration/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/reference/configuration/</guid><description>&lt;p&gt;Every JaaS flag below carries its default and a one-line description. Run
+&lt;code&gt;jaas --help&lt;/code&gt; to see the same list at runtime. The tables are generated from the
+binary&amp;rsquo;s own flag definitions, so they never drift from the runtime contract.&lt;/p&gt;
+&lt;p&gt;The Helm chart exposes most flags under &lt;code&gt;arguments.*&lt;/code&gt;; operator-specific flags
+are under &lt;code&gt;operator.*&lt;/code&gt;. The full set of chart values is in the
+&lt;a href="https://jaas.projects.metio.wtf/reference/helm-values/"&gt;Helm chart values&lt;/a&gt;
+ reference.&lt;/p&gt;
+&lt;h2 id="jsonnet-server"&gt;Jsonnet server&lt;/h2&gt;
+&lt;p&gt;The Jsonnet server evaluates snippets and returns JSON. It binds on
+&lt;code&gt;--listen-address:--port&lt;/code&gt; by default.&lt;/p&gt;</description></item><item><title>Reference</title><link>https://jaas.projects.metio.wtf/reference/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/reference/</guid><description>&lt;p&gt;Look-up material for exact values and release mechanics, generated from the binary
+and chart so it tracks the current contract.&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;&lt;a href="https://jaas.projects.metio.wtf/reference/configuration/"&gt;Configuration reference&lt;/a&gt;
+&lt;/strong&gt; — every flag with its
+default.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;a href="https://jaas.projects.metio.wtf/reference/helm-values/"&gt;Helm chart values&lt;/a&gt;
+&lt;/strong&gt; — every chart value with its
+default.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;a href="https://jaas.projects.metio.wtf/reference/verifying-releases/"&gt;Verifying releases&lt;/a&gt;
+&lt;/strong&gt; — check the signed image
+and binaries before you run them.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;a href="https://jaas.projects.metio.wtf/reference/upgrading/"&gt;Upgrading&lt;/a&gt;
+&lt;/strong&gt; — the actions required when moving between
+releases.&lt;/li&gt;
+&lt;/ul&gt;</description></item></channel></rss>

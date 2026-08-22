@@ -1,0 +1,115 @@
+# Jsonnet-as-a-Service
+
+> evaluate Jsonnet snippets on demand and return JSON
+
+Project home: https://jaas.projects.metio.wtf/ — full text for LLMs: https://jaas.projects.metio.wtf/llms-full.txt
+
+## Get started
+
+- [Kubernetes](https://jaas.projects.metio.wtf/get-started/kubernetes/): Install JaaS on Kubernetes with the Helm chart in either of its two modes — OCI volume mounting or Flux CR-based.
+- [Local rendering](https://jaas.projects.metio.wtf/get-started/local-rendering/): Run JaaS as a cluster-free Jsonnet renderer over HTTP, with snippet directories, library paths, TLAs, and external variables.
+- [Quickstart](https://jaas.projects.metio.wtf/get-started/quickstart/): Install the JaaS operator and publish your first ExternalArtifact from an inline-files JsonnetSnippet.
+
+## Guides
+
+- [Deploying manifests with StageSet](https://jaas.projects.metio.wtf/guides/deploying-manifests/): Render Kubernetes manifests in Jsonnet, publish them as an ExternalArtifact, and hand them to stageset-controller for a gated rollout.
+- [Grafana dashboards](https://jaas.projects.metio.wtf/guides/grafana-dashboards/): Author a Grafana dashboard in Jsonnet with grafonnet, render it through the JaaS operator, and publish the dashboard JSON as an ExternalArtifact.
+
+## Rendering Jsonnet
+
+- [Evaluation and security](https://jaas.projects.metio.wtf/rendering/evaluation-and-security/): Timeout, stack, and concurrency caps on evaluation, and the security model to lock down before exposing the service.
+- [External variables and TLAs](https://jaas.projects.metio.wtf/rendering/external-variables-and-tlas/): Passing values into a render through external variables and top-level arguments.
+- [JOI images](https://jaas.projects.metio.wtf/rendering/joi-images/): The catalog of prebuilt Jsonnet OCI Images (JOI) — every published library, its image reference, upstream source, and description — ready to import into snippets.
+- [Jsonnet libraries](https://jaas.projects.metio.wtf/rendering/jsonnet-libraries/): Reusable .libsonnet files for snippets via the JsonnetLibrary CRD and OCI-mounted shared libraries, and how imports resolve.
+- [Rendering endpoint](https://jaas.projects.metio.wtf/rendering/rendering-endpoint/): The GET /jsonnet/{snippet} request, snippet resolution, the management probes, and the stable error contract.
+- [Snippets and libraries](https://jaas.projects.metio.wtf/rendering/snippets-and-libraries/): Declaring snippets and libraries on disk for the HTTP renderer, and how imports resolve.
+
+## Operator mode
+
+- [Creating source artifacts](https://jaas.projects.metio.wtf/operator/creating-sources/): Step-by-step recipes to prepare GitRepository, OCIRepository, and Bucket sources for a JsonnetSnippet — including the single-layer rule for OCI.
+- [Operator mode](https://jaas.projects.metio.wtf/operator/operator-mode/): Boot JaaS as a Kubernetes operator that evaluates JsonnetSnippet CRs and publishes the results as Flux ExternalArtifacts.
+- [Snippet sources](https://jaas.projects.metio.wtf/operator/snippet-sources/): Where a JsonnetSnippet's Jsonnet comes from — inline files, a Flux source, a multi-snippet tree, and chained snippet output.
+- [Storage and high availability](https://jaas.projects.metio.wtf/operator/storage-and-ha/): The local and S3 artifact backends, leader election, multi-replica HA, revision retention, and the orphan-tmp sweep.
+
+## Security & multi-tenancy
+
+- [Admission webhook](https://jaas.projects.metio.wtf/security/admission-webhook/): The opt-in validating webhook for JsonnetSnippet, what it rejects, the failure-policy trade-off, and the two TLS provisioning modes.
+- [Network policy](https://jaas.projects.metio.wtf/security/network-policy/): The opt-in NetworkPolicy the chart ships — pod-scoped allowlists vs. a namespace-wide default-deny, choosing a policy engine, the ingress and egress traffic JaaS needs, and how to tighten each port.
+- [Service mesh](https://jaas.projects.metio.wtf/security/service-mesh/): The opt-in service-mesh authorization the chart ships — Istio or Linkerd identity-based authorization and mTLS layered over networkPolicy, per-port allowed mesh identities, the non-mesh carve-outs for the apiserver and kubelet, and native passthrough.
+- [Tenancy and RBAC](https://jaas.projects.metio.wtf/security/tenancy-and-rbac/): Per-snippet ServiceAccount impersonation, the minimal operator ClusterRole, the tenant Role callers must grant, and the watch-scope flags.
+
+## Integrations & tooling
+
+- [Claude Code skill](https://jaas.projects.metio.wtf/integrations/claude-code/): Install the JaaS Claude Code skill so Claude authors and operates JsonnetSnippet and JsonnetLibrary resources with accurate, current field knowledge.
+- [Flux Operator (ResourceSet) integration](https://jaas.projects.metio.wtf/integrations/flux-operator/): Template one JsonnetSnippet per input with a Flux Operator ResourceSet so JaaS renders per-cluster or per-tenant content from a single definition.
+- [MCP server](https://jaas.projects.metio.wtf/integrations/mcp-server/): Run the JaaS Model Context Protocol server so an agent renders Jsonnet locally over stdio and reads operator status in-cluster over HTTP.
+
+## Run in production
+
+- [Backup and disaster recovery](https://jaas.projects.metio.wtf/running/disaster-recovery/): Back up the right thing and rebuild a JaaS install after cluster or storage loss — the artifact store is a regeneratable cache, your GitOps repository is the source of truth.
+- [Operations](https://jaas.projects.metio.wtf/running/operations/): Day-two operational tasks for a running JaaS install — graceful shutdown, leader election, storage GC, and upgrades.
+- [Production](https://jaas.projects.metio.wtf/running/production/): A decision-oriented checklist for hardening a JaaS operator install before serving production traffic.
+- [Scale and capacity](https://jaas.projects.metio.wtf/running/scale-and-capacity/): Size and tune a JaaS install for your workload — replica CPU and memory, the leader-election HA model, the throughput knobs, and the saturation signals that tell you when you've run out of headroom.
+
+## Observability
+
+- [Alerting](https://jaas.projects.metio.wtf/observability/alerting/): The opt-in PrometheusRule alert catalog with tunable thresholds and runbook links, plus Kubernetes Events routed through Flux's notification-controller.
+- [Dashboard](https://jaas.projects.metio.wtf/observability/dashboard/): JaaS publishes a maintained Grafana dashboard for its operator as a single-layer OCI image — render it through a JsonnetSnippet and hand it to the grafana-operator.
+- [Logging](https://jaas.projects.metio.wtf/observability/logging/): JaaS logs through log/slog with configurable level and format; in operator mode controller-runtime's own logs share the same handler. Reading JSON logs with kubectl and jq, and the Helm chart keys that drive it.
+- [Metrics](https://jaas.projects.metio.wtf/observability/metrics/): The controller-runtime Prometheus endpoint, the custom jaas_ metric family, scraping with a ServiceMonitor or a plain scrape config, querying with PromQL, and the Helm chart keys that drive it.
+- [Service level objectives](https://jaas.projects.metio.wtf/observability/slos/): The JaaS operator's SLOs — reconcile availability and reconcile latency — with their SLIs, targets, error budget, the dashboard that shows them, and how to tune them.
+- [Tracing](https://jaas.projects.metio.wtf/observability/tracing/): The JaaS operator exports OpenTelemetry traces over OTLP gRPC. Pointing it at a collector, sampling, viewing spans, and the Helm chart keys that drive it.
+
+## API reference
+
+- [ExternalArtifact output contract](https://jaas.projects.metio.wtf/api/externalartifact/): The shape JaaS writes to the Flux ExternalArtifact CR and the contract downstream consumers depend on.
+- [JsonnetLibrary](https://jaas.projects.metio.wtf/api/jsonnetlibrary/): Field-by-field reference for the JsonnetLibrary custom resource at apiVersion jaas.metio.wtf/v1.
+- [JsonnetSnippet](https://jaas.projects.metio.wtf/api/jsonnetsnippet/): Field-by-field reference for the JsonnetSnippet custom resource at apiVersion jaas.metio.wtf/v1.
+
+## Reference
+
+- [Configuration reference](https://jaas.projects.metio.wtf/reference/configuration/): Complete reference for every JaaS command-line flag, organized by subsystem, with defaults and chart value equivalents.
+- [Helm chart values](https://jaas.projects.metio.wtf/reference/helm-values/): Complete reference for every value the jaas and joi Helm charts expose, generated from each chart's values.yaml.
+- [Upgrading](https://jaas.projects.metio.wtf/reference/upgrading/): Actions required when upgrading JaaS between releases — a release with no section here needs no migration.
+- [Verifying releases](https://jaas.projects.metio.wtf/reference/verifying-releases/): Verify the jaas container image and release archives with cosign keyless signatures before deploying.
+
+## Comparisons
+
+- [JaaS and grafana-operator](https://jaas.projects.metio.wtf/comparisons/grafana-operator/): How JaaS renders Grafana dashboard JSON from Jsonnet while grafana-operator reconciles it into Grafana.
+- [JaaS vs jsonnet-controller](https://jaas.projects.metio.wtf/comparisons/jsonnet-controller/): How JaaS separates rendering from deployment, where jsonnet-controller builds and applies Jsonnet in one controller.
+- [JaaS vs Tanka](https://jaas.projects.metio.wtf/comparisons/tanka/): How JaaS replaces a client-side `tk apply` workflow with server-side rendering and a Flux pull loop.
+- [JaaS vs the jsonnet CLI](https://jaas.projects.metio.wtf/comparisons/jsonnet-cli/): What the JaaS service adds over running the jsonnet and jb command-line tools yourself.
+- [vs Flux Operator ResourceSet](https://jaas.projects.metio.wtf/comparisons/flux-operator/): JaaS renders Jsonnet into an ExternalArtifact; the Flux Operator's ResourceSet fans out instances from inputs — complementary tools that compose.
+
+## Runbooks
+
+- [ArtifactTooLarge](https://jaas.projects.metio.wtf/runbooks/artifacttoolarge/): The snippet's rendered output exceeds the operator's per-artifact byte cap
+- [CRD watch engagement failing](https://jaas.projects.metio.wtf/runbooks/crd-watch-engagement/): A runtime watch on a Flux source CRD failed to engage, so snippets referencing that kind no longer re-render on upstream changes
+- [CrossNamespaceRefRejected](https://jaas.projects.metio.wtf/runbooks/crossnamespacerefrejected/): The snippet references a library or Flux source in a different namespace and cross-namespace refs are disabled
+- [DependencyCycle](https://jaas.projects.metio.wtf/runbooks/dependencycycle/): The snippet's sourceRef or library chain loops back to itself, which would cause infinite re-render
+- [Eval-concurrency saturation](https://jaas.projects.metio.wtf/runbooks/eval-saturation/): The global concurrent-eval cap is full and the operator is shedding new evaluations, typically because a runaway snippet is holding slots past its deadline
+- [EvaluationFailed](https://jaas.projects.metio.wtf/runbooks/evaluationfailed/): The Jsonnet snippet failed to evaluate due to a syntax error, runtime error, or unresolved import
+- [EvaluationTimeout](https://jaas.projects.metio.wtf/runbooks/evaluationtimeout/): The snippet's evaluation exceeded the operator's wall-clock deadline and was abandoned
+- [ExternalVariableConflict](https://jaas.projects.metio.wtf/runbooks/externalvariableconflict/): The snippet declares an external variable key already claimed by the operator via --ext-var
+- [High reconcile latency](https://jaas.projects.metio.wtf/runbooks/reconcile-latency/): Individual reconcile calls are taking longer than the configured p99 threshold, indicating slow source fetches, heavy evaluation, or a sluggish storage backend
+- [InvalidSpec](https://jaas.projects.metio.wtf/runbooks/invalidspec/): The snippet's spec contains a field combination the reconciler cannot process, such as a missing entryFile or conflicting source fields
+- [LibraryNotFound](https://jaas.projects.metio.wtf/runbooks/librarynotfound/): A JsonnetLibrary CR referenced in spec.libraries does not exist or is unreachable by the tenant ServiceAccount
+- [Operator pod not ready](https://jaas.projects.metio.wtf/runbooks/operator-pod-down/): At least one jaas pod has been Ready=False for the configured alert window, so new snippets are not being reconciled
+- [Pending](https://jaas.projects.metio.wtf/runbooks/pending/): The snippet has been observed by the operator but its first reconcile pass has not yet completed
+- [RBACDenied](https://jaas.projects.metio.wtf/runbooks/rbacdenied/): The apiserver returned Forbidden on a call the reconciler made with the tenant ServiceAccount's impersonated identity
+- [Self-signed webhook cert renewal failing](https://jaas.projects.metio.wtf/runbooks/webhook-cert-renewal/): The Renewer goroutine cannot rotate the webhook TLS material; if uncorrected the cert will expire and every JsonnetSnippet admission will fail
+- [ServiceAccountMissing](https://jaas.projects.metio.wtf/runbooks/serviceaccountmissing/): The snippet specifies no ServiceAccount and the operator has no --default-service-account configured
+- [SourceFetchFailed](https://jaas.projects.metio.wtf/runbooks/sourcefetchfailed/): The operator resolved the source CR but the artifact download failed due to an HTTP error, digest mismatch, or oversized tarball
+- [SourceNotReady](https://jaas.projects.metio.wtf/runbooks/sourcenotready/): The referenced Flux source CR exists but has not yet reported Ready=True or has no published artifact
+- [SourceRefNotYetSupported](https://jaas.projects.metio.wtf/runbooks/sourcerefnotyetsupported/): The snippet uses spec.sourceRef but the running binary was built without a Fetcher wired in
+- [Storage backend recovery](https://jaas.projects.metio.wtf/runbooks/storage-recovery/): The artifact store is degraded (PVC lost, S3 endpoint down, or storage HTTP server unreachable) and downstream Flux consumers can no longer fetch tarballs
+- [Suspended](https://jaas.projects.metio.wtf/runbooks/suspended/): Reconciliation is intentionally paused because spec.suspend is true; the last published artifact remains intact
+- [Synced](https://jaas.projects.metio.wtf/runbooks/synced/): The snippet reconciled end-to-end and its ExternalArtifact is current; no action is required
+- [Watch-layer silent failure](https://jaas.projects.metio.wtf/runbooks/operator-watch-silent/): The operator's own ClusterRole is missing a verb on a watched kind, so controller-runtime's informer retries silently and no snippet status reflects the problem
+- [Workqueue saturation](https://jaas.projects.metio.wtf/runbooks/workqueue-saturation/): The reconciler's workqueue depth exceeds the threshold because the operator is dequeuing reconciles slower than the apiserver enqueues them
+
+## Contributing
+
+- [Building and Testing](https://jaas.projects.metio.wtf/contributing/building/): Build JaaS and run its full test suite through the flake's development shell.
+- [CI and Releases](https://jaas.projects.metio.wtf/contributing/ci-and-release/): The verify.yml PR gate, the static-analysis tool set, and the calendar-based hand-rolled release pipeline.
+

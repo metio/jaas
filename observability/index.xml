@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Observability on Jsonnet-as-a-Service</title><link>https://jaas.projects.metio.wtf/observability/</link><description>Recent content in Observability on Jsonnet-as-a-Service</description><generator>Hugo</generator><language>en</language><atom:link href="https://jaas.projects.metio.wtf/observability/index.xml" rel="self" type="application/rss+xml"/><item><title>Alerting</title><link>https://jaas.projects.metio.wtf/observability/alerting/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/observability/alerting/</guid><description>&lt;p&gt;JaaS turns a sustained problem into a notification two ways: a Prometheus
+&lt;code&gt;PrometheusRule&lt;/code&gt; that pages on its &lt;a href="https://jaas.projects.metio.wtf/observability/metrics/"&gt;metrics&lt;/a&gt;
+, and Kubernetes
+Events that Flux&amp;rsquo;s notification-controller can route to chat or e-mail.&lt;/p&gt;
+&lt;h2 id="the-binary"&gt;The binary&lt;/h2&gt;
+&lt;p&gt;The operator emits a standard Kubernetes &lt;code&gt;Event&lt;/code&gt; on every Ready-condition
+transition — &lt;code&gt;Normal&lt;/code&gt; for &lt;code&gt;Synced&lt;/code&gt;, &lt;code&gt;Warning&lt;/code&gt; for every other reason. The reason
+string fills both the event &lt;code&gt;reason&lt;/code&gt; and &lt;code&gt;action&lt;/code&gt;. These Events need no flag to
+enable; they are written whenever the operator reconciles.&lt;/p&gt;</description></item><item><title>Dashboard</title><link>https://jaas.projects.metio.wtf/observability/dashboard/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/observability/dashboard/</guid><description>&lt;p&gt;JaaS publishes a maintained Grafana dashboard for its own operator as a
+single-layer OCI image at &lt;code&gt;ghcr.io/metio/jaas-dashboard&lt;/code&gt;. Render it through JaaS the
+same way you&amp;rsquo;d render any snippet — no manual JSON to copy around.&lt;/p&gt;
+&lt;p&gt;The dashboard opens with an &lt;a href="https://jaas.projects.metio.wtf/observability/slos/"&gt;SLO&lt;/a&gt;
+ band — reconcile
+availability against its objective, error budget remaining, reconcile-latency p95
+against its objective, and an availability-versus-objective trend — over a band of
+operator internals that explain any movement: reconciles by reason, evaluation
+throughput and backpressure, rendered output size, storage sweeps, and the
+controller-runtime workqueue. The series are the &lt;a href="https://jaas.projects.metio.wtf/observability/metrics/"&gt;metrics&lt;/a&gt;
+
+the operator exports.&lt;/p&gt;</description></item><item><title>Logging</title><link>https://jaas.projects.metio.wtf/observability/logging/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/observability/logging/</guid><description>&lt;p&gt;JaaS logs through Go&amp;rsquo;s &lt;code&gt;log/slog&lt;/code&gt;. Every request, reconcile, and lifecycle event
+is a structured record you can filter and parse rather than scrape with a regex.
+In operator mode, controller-runtime&amp;rsquo;s own output — leader election, cache sync,
+manager startup — flows through the &lt;strong&gt;same&lt;/strong&gt; slog handler via the logr bridge
+(&lt;code&gt;ctrl.SetLogger(logr.FromSlogHandler(...))&lt;/code&gt;), so the manager&amp;rsquo;s logs share the
+configured level and format instead of emitting controller-runtime&amp;rsquo;s default zap
+output.&lt;/p&gt;
+&lt;h2 id="the-binary"&gt;The binary&lt;/h2&gt;
+&lt;p&gt;Two flags control logging. They apply in every mode JaaS runs in:&lt;/p&gt;</description></item><item><title>Metrics</title><link>https://jaas.projects.metio.wtf/observability/metrics/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/observability/metrics/</guid><description>&lt;p&gt;The JaaS operator exposes a Prometheus metrics endpoint covering controller-runtime&amp;rsquo;s
+standard families plus a custom &lt;code&gt;jaas_*&lt;/code&gt; family the reconciler registers. Scrape
+it for dashboards and feed it into the shipped &lt;a href="https://jaas.projects.metio.wtf/observability/alerting/"&gt;alerts&lt;/a&gt;
+.&lt;/p&gt;
+&lt;h2 id="the-binary"&gt;The binary&lt;/h2&gt;
+&lt;p&gt;controller-runtime&amp;rsquo;s Prometheus endpoint binds &lt;code&gt;--metrics-bind-address&lt;/code&gt; (default
+&lt;code&gt;:8083&lt;/code&gt;), serving the standard text exposition format at &lt;code&gt;/metrics&lt;/code&gt;. Setting it
+to &lt;code&gt;0&lt;/code&gt; disables the endpoint. The default deliberately avoids controller-runtime&amp;rsquo;s
+built-in &lt;code&gt;:8080&lt;/code&gt;, which would collide with the Jsonnet HTTP port.&lt;/p&gt;
+&lt;p&gt;The full flag list with defaults is on the
+&lt;a href="https://jaas.projects.metio.wtf/reference/configuration/"&gt;configuration page&lt;/a&gt;
+.&lt;/p&gt;</description></item><item><title>Service level objectives</title><link>https://jaas.projects.metio.wtf/observability/slos/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/observability/slos/</guid><description>&lt;p&gt;The JaaS operator tracks two service-level objectives. Each is an objective on a
+service-level indicator (SLI) computed from the &lt;a href="https://jaas.projects.metio.wtf/observability/metrics/"&gt;metrics&lt;/a&gt;
+,
+measured over a rolling window. The published dashboard renders them, and the Helm
+chart can alert on them.&lt;/p&gt;
+&lt;h2 id="slo-1--reconcile-availability"&gt;SLO 1 — reconcile availability&lt;/h2&gt;
+&lt;p&gt;&lt;strong&gt;Objective:&lt;/strong&gt; ≥ &lt;strong&gt;99%&lt;/strong&gt; of syncing reconciles reach &lt;code&gt;Ready=True&lt;/code&gt;, over a &lt;strong&gt;28-day&lt;/strong&gt;
+window.&lt;/p&gt;
+&lt;p&gt;The SLI counts only reconciles that were actually trying to sync — the intentional
+&lt;code&gt;Pending&lt;/code&gt; and &lt;code&gt;Suspended&lt;/code&gt; states are excluded from both halves:&lt;/p&gt;</description></item><item><title>Tracing</title><link>https://jaas.projects.metio.wtf/observability/tracing/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/observability/tracing/</guid><description>&lt;p&gt;The JaaS operator exports OpenTelemetry traces over OTLP gRPC. With an endpoint
+configured, each reconcile and the work it fans out into — source fetch, library
+resolution, evaluation, publish — becomes a span you can follow in a tracing
+backend. When no endpoint is set, the OpenTelemetry SDK runs in no-op mode and
+emits nothing, so tracing carries no cost until you opt in.&lt;/p&gt;
+&lt;h2 id="the-binary"&gt;The binary&lt;/h2&gt;
+&lt;p&gt;Three flags configure the exporter:&lt;/p&gt;</description></item></channel></rss>

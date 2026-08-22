@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Chaining on Jsonnet-as-a-Service</title><link>https://jaas.projects.metio.wtf/tags/chaining/</link><description>Recent content in Chaining on Jsonnet-as-a-Service</description><generator>Hugo</generator><language>en</language><atom:link href="https://jaas.projects.metio.wtf/tags/chaining/index.xml" rel="self" type="application/rss+xml"/><item><title>Snippet sources</title><link>https://jaas.projects.metio.wtf/operator/snippet-sources/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/operator/snippet-sources/</guid><description>&lt;p&gt;A &lt;code&gt;JsonnetSnippet&lt;/code&gt; declares exactly one source for its Jsonnet bytes: either
+inline &lt;code&gt;spec.files&lt;/code&gt; or a &lt;code&gt;spec.sourceRef&lt;/code&gt; pointing at a Flux source. Admission
+rejects a snippet that sets both or neither. The operator resolves the source
+into an in-memory file tree, evaluates &lt;code&gt;spec.entryFile&lt;/code&gt; within it, and publishes
+the result.&lt;/p&gt;
+&lt;h2 id="inline-files"&gt;Inline files&lt;/h2&gt;
+&lt;p&gt;&lt;code&gt;spec.files&lt;/code&gt; is a map of filename to Jsonnet source. The operator evaluates the
+entry file (&lt;code&gt;spec.entryFile&lt;/code&gt;, default &lt;code&gt;main.jsonnet&lt;/code&gt;) against the rest of the
+map. This is the simplest source — the snippet is self-contained, with no
+external dependency to fetch:&lt;/p&gt;</description></item></channel></rss>

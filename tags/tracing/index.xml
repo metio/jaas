@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Tracing on Jsonnet-as-a-Service</title><link>https://jaas.projects.metio.wtf/tags/tracing/</link><description>Recent content in Tracing on Jsonnet-as-a-Service</description><generator>Hugo</generator><language>en</language><atom:link href="https://jaas.projects.metio.wtf/tags/tracing/index.xml" rel="self" type="application/rss+xml"/><item><title>Observability</title><link>https://jaas.projects.metio.wtf/observability/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/observability/</guid><description>&lt;p&gt;JaaS gives you four ways to see what it is doing in a cluster. Structured logs
+tell you what happened on a single request or reconcile; traces follow one
+operation across its spans; metrics aggregate behaviour into time series for
+dashboards and alerts; and alerts plus Kubernetes Events turn a sustained
+problem into a page or a notification.&lt;/p&gt;
+&lt;p&gt;Each pillar has its own page covering both the binary&amp;rsquo;s flags and the Helm chart
+keys that drive them:&lt;/p&gt;</description></item><item><title>Tracing</title><link>https://jaas.projects.metio.wtf/observability/tracing/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/observability/tracing/</guid><description>&lt;p&gt;The JaaS operator exports OpenTelemetry traces over OTLP gRPC. With an endpoint
+configured, each reconcile and the work it fans out into — source fetch, library
+resolution, evaluation, publish — becomes a span you can follow in a tracing
+backend. When no endpoint is set, the OpenTelemetry SDK runs in no-op mode and
+emits nothing, so tracing carries no cost until you opt in.&lt;/p&gt;
+&lt;h2 id="the-binary"&gt;The binary&lt;/h2&gt;
+&lt;p&gt;Three flags configure the exporter:&lt;/p&gt;</description></item></channel></rss>
