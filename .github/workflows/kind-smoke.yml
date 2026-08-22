@@ -48,7 +48,7 @@ jobs:
       kind_latest: ${{ steps.versions.outputs.kind_latest }}
       relevant: ${{ steps.scope.outputs.relevant }}
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
       - id: scope
@@ -149,7 +149,7 @@ jobs:
         flux_version: ${{ fromJSON(needs.discover.outputs.flux_versions) }}
     steps:
       - name: Clone Git Repository
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Build container image (dev / HEAD)
         run: docker build --build-arg VERSION=smoke --build-arg COMMIT=${{ github.sha }} -t jaas:smoke .
       - name: Create kind cluster (k8s ${{ matrix.k8s_version }})
@@ -220,7 +220,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Clone Git Repository
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Build container image (dev / HEAD)
         run: docker build --build-arg VERSION=smoke --build-arg COMMIT=${{ github.sha }} -t jaas:smoke .
       - name: Create kind cluster
@@ -275,7 +275,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Clone Git Repository
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Build container image (dev / HEAD)
         run: docker build --build-arg VERSION=smoke --build-arg COMMIT=${{ github.sha }} -t jaas:smoke .
       - name: Create kind cluster
@@ -327,7 +327,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Clone Git Repository
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Build container image (dev / HEAD)
         run: docker build --build-arg VERSION=smoke --build-arg COMMIT=${{ github.sha }} -t jaas:smoke .
       - name: Create kind cluster
@@ -383,7 +383,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Clone Git Repository
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Build container image (dev / HEAD)
         run: docker build --build-arg VERSION=smoke --build-arg COMMIT=${{ github.sha }} -t jaas:smoke .
       - name: Create kind cluster
@@ -443,7 +443,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Clone Git Repository
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Build container image (dev / HEAD)
         run: docker build --build-arg VERSION=smoke --build-arg COMMIT=${{ github.sha }} -t jaas:smoke .
       - name: Create kind cluster
@@ -510,7 +510,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Clone Git Repository
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Build container image (dev / HEAD)
         run: docker build --build-arg VERSION=smoke --build-arg COMMIT=${{ github.sha }} -t jaas:smoke .
       - name: Create kind cluster
@@ -578,7 +578,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Clone Git Repository
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - id: gate
         name: Gate on k8s >= 1.33 (ImageVolume beta-on + containerd 2.x)
         run: |
@@ -646,7 +646,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Clone Git Repository
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Build container image (dev / HEAD)
         run: docker build --build-arg VERSION=smoke --build-arg COMMIT=${{ github.sha }} -t jaas:smoke .
       - name: Create kind cluster
@@ -698,7 +698,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Clone Git Repository
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Build container image (dev / HEAD)
         run: docker build --build-arg VERSION=smoke --build-arg COMMIT=${{ github.sha }} -t jaas:smoke .
       - name: Create kind cluster
@@ -784,7 +784,7 @@ jobs:
             enforce: "0"
     steps:
       - name: Clone Git Repository
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Build container image (dev / HEAD)
         run: docker build --build-arg VERSION=smoke --build-arg COMMIT=${{ github.sha }} -t jaas:smoke .
       - name: Create kind cluster (no default CNI)
@@ -859,7 +859,7 @@ jobs:
             principal: mesh-reader.mesh-clients.serviceaccount.identity.linkerd.cluster.local
     steps:
       - name: Clone Git Repository
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Build container image (dev / HEAD)
         run: docker build --build-arg VERSION=smoke --build-arg COMMIT=${{ github.sha }} -t jaas:smoke .
       - name: Create kind cluster
