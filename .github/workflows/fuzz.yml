@@ -23,7 +23,7 @@ jobs:
     outputs:
       matrix: ${{ steps.list.outputs.matrix }}
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - id: list
         run: |
           matrix=$(grep -rE '^func Fuzz' --include='*_test.go' internal \
@@ -47,7 +47,7 @@ jobs:
     env:
       FUZZTIME: ${{ github.event.inputs.fuzztime || '5m' }}
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: metio/nix-devshell@1976169d4c51b321be318ade369ccf689849f9f0 # 2026.7.6091757
       # KUBEBUILDER_ASSETS is set by the devShell (assembled from nixpkgs), so an
       # envtest-backed fuzz target's TestMain finds a kube-apiserver with no
