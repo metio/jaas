@@ -9,7 +9,7 @@
 # lockstep with dev/Containerfile so prod and dev builds agree — cgr.dev
 # throttles anonymous pulls, making its large Go builder layer very slow to
 # fetch in CI.
-FROM --platform=$BUILDPLATFORM docker.io/library/golang:1.27.0@sha256:65b6f280bf050ec5af12716857e8ea8439d694dbba8f31ceeb7630670071f2bb AS build
+FROM --platform=$BUILDPLATFORM docker.io/library/golang:1.27.0@sha256:4013ae0f9e7994f8535c58c811f8f863fbed38b72e0d51e6592156f758d66146 AS build
 # Recent golang base images default GOTOOLCHAIN=local, which blocks auto-download
 # of a higher toolchain directive in go.mod. `auto` lets go.mod pin a newer
 # toolchain than this base image without a Dockerfile change.
