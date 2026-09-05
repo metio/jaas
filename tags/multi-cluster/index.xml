@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Multi-Cluster on Jsonnet-as-a-Service</title><link>https://jaas.projects.metio.wtf/tags/multi-cluster/</link><description>Recent content in Multi-Cluster on Jsonnet-as-a-Service</description><generator>Hugo</generator><language>en</language><atom:link href="https://jaas.projects.metio.wtf/tags/multi-cluster/index.xml" rel="self" type="application/rss+xml"/><item><title>Flux Operator (ResourceSet) integration</title><link>https://jaas.projects.metio.wtf/integrations/flux-operator/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/integrations/flux-operator/</guid><description>&lt;p&gt;Render the same Jsonnet for many clusters or tenants without writing a snippet by
+hand for each one: let a &lt;a href="https://fluxoperator.dev/"&gt;Flux Operator&lt;/a&gt;
+ &lt;code&gt;ResourceSet&lt;/code&gt;
+template a &lt;code&gt;JsonnetSnippet&lt;/code&gt; per input, and JaaS renders each instance into its own
+&lt;code&gt;ExternalArtifact&lt;/code&gt;. The &lt;code&gt;ResourceSet&lt;/code&gt; supplies the per-instance values through Go
+template substitution; JaaS does the evaluation. There is no &lt;code&gt;ResourceSet&lt;/code&gt; field
+in the JaaS API — you use the two together: the &lt;code&gt;ResourceSet&lt;/code&gt; templates ordinary
+&lt;code&gt;JsonnetSnippet&lt;/code&gt; CRs, which JaaS reconciles like any other. This needs the Flux
+Operator installed alongside JaaS in the operator mode described under
+&lt;a href="https://jaas.projects.metio.wtf/operator/operator-mode/"&gt;operator mode&lt;/a&gt;
+.&lt;/p&gt;</description></item></channel></rss>

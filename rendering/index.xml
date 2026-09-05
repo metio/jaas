@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Rendering Jsonnet on Jsonnet-as-a-Service</title><link>https://jaas.projects.metio.wtf/rendering/</link><description>Recent content in Rendering Jsonnet on Jsonnet-as-a-Service</description><generator>Hugo</generator><language>en</language><atom:link href="https://jaas.projects.metio.wtf/rendering/index.xml" rel="self" type="application/rss+xml"/><item><title>Evaluation and security</title><link>https://jaas.projects.metio.wtf/rendering/evaluation-and-security/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/rendering/evaluation-and-security/</guid><description>&lt;p&gt;JaaS runs Jsonnet on the server and returns the result over HTTP. Three caps
+bound each evaluation, and a small security model governs what a snippet and its
+callers can reach. Review and tune both sections before exposing the service to
+a wider audience.&lt;/p&gt;
+&lt;h2 id="evaluation-caps"&gt;Evaluation caps&lt;/h2&gt;
+&lt;table&gt;
+	&lt;thead&gt;
+			&lt;tr&gt;
+					&lt;th&gt;Flag&lt;/th&gt;
+					&lt;th&gt;Default&lt;/th&gt;
+					&lt;th&gt;Effect&lt;/th&gt;
+			&lt;/tr&gt;
+	&lt;/thead&gt;
+	&lt;tbody&gt;
+			&lt;tr&gt;
+					&lt;td&gt;&lt;code&gt;--evaluation-timeout&lt;/code&gt;&lt;/td&gt;
+					&lt;td&gt;&lt;code&gt;5s&lt;/code&gt;&lt;/td&gt;
+					&lt;td&gt;Wall-clock budget per evaluation. Exceeding it returns &lt;code&gt;504 evaluation_timeout&lt;/code&gt;. &lt;code&gt;0&lt;/code&gt; disables the timeout.&lt;/td&gt;
+			&lt;/tr&gt;
+			&lt;tr&gt;
+					&lt;td&gt;&lt;code&gt;--max-stack&lt;/code&gt;&lt;/td&gt;
+					&lt;td&gt;&lt;code&gt;500&lt;/code&gt;&lt;/td&gt;
+					&lt;td&gt;Maximum Jsonnet call-stack depth. &lt;code&gt;0&lt;/code&gt; uses go-jsonnet&amp;rsquo;s own default.&lt;/td&gt;
+			&lt;/tr&gt;
+			&lt;tr&gt;
+					&lt;td&gt;&lt;code&gt;--max-concurrent-evals&lt;/code&gt;&lt;/td&gt;
+					&lt;td&gt;&lt;code&gt;max(GOMAXPROCS*4, 16)&lt;/code&gt;&lt;/td&gt;
+					&lt;td&gt;In-flight evaluations allowed at once. Excess requests return &lt;code&gt;503 evaluation_unavailable&lt;/code&gt;. &lt;code&gt;0&lt;/code&gt; disables the cap.&lt;/td&gt;
+			&lt;/tr&gt;
+	&lt;/tbody&gt;
+&lt;/table&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-shell" data-lang="shell"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;./jaas &lt;span class="se"&gt;\
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; --snippet-directory examples/snippets/dashboards &lt;span class="se"&gt;\
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; --evaluation-timeout 2s &lt;span class="se"&gt;\
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; --max-stack &lt;span class="m"&gt;1000&lt;/span&gt; &lt;span class="se"&gt;\
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; --max-concurrent-evals &lt;span class="m"&gt;32&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;The default for &lt;code&gt;--max-concurrent-evals&lt;/code&gt; bounds worst-case goroutine pile-up
+under a runaway snippet. Each in-flight evaluation pins roughly one CPU for its
+working set, so raising the cap far above the available parallelism queues work
+without adding throughput.&lt;/p&gt;</description></item><item><title>External variables and TLAs</title><link>https://jaas.projects.metio.wtf/rendering/external-variables-and-tlas/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/rendering/external-variables-and-tlas/</guid><description>&lt;p&gt;JaaS feeds two kinds of input into an evaluation: external variables, set by the
+process owner at startup, and top-level arguments, supplied per request through
+the URL query string.&lt;/p&gt;
+&lt;h2 id="external-variables"&gt;External variables&lt;/h2&gt;
+&lt;p&gt;External variables come from two sources. The environment mechanism reads every
+variable prefixed with &lt;code&gt;JAAS_EXT_VAR_&lt;/code&gt; — the suffix is the variable name:&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-shell" data-lang="shell"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nv"&gt;JAAS_EXT_VAR_name&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;Alice &lt;span class="se"&gt;\
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nv"&gt;JAAS_EXT_VAR_key&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;secret &lt;span class="se"&gt;\
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; ./jaas --snippet-directory examples/snippets/dashboards
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;The &lt;code&gt;--ext-var KEY=VALUE&lt;/code&gt; flag does the same and is repeatable. On a key
+conflict, the flag takes precedence over the environment value:&lt;/p&gt;</description></item><item><title>JOI images</title><link>https://jaas.projects.metio.wtf/rendering/joi-images/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/rendering/joi-images/</guid><description>&lt;p&gt;&lt;a href="https://github.com/metio/jsonnet-oci-images"&gt;Jsonnet OCI Images&lt;/a&gt;
+ (JOI) package
+popular Jsonnet libraries as single-layer OCI images, one per upstream library,
+published at &lt;code&gt;ghcr.io/metio/joi-&amp;lt;org&amp;gt;-&amp;lt;repo&amp;gt;&lt;/code&gt;. Because each image is a single
+layer, the same artifact serves two roles: a container &lt;strong&gt;image volume&lt;/strong&gt; mounted
+into jaas, and a Flux &lt;strong&gt;&lt;code&gt;OCIRepository&lt;/code&gt;&lt;/strong&gt; source the operator fetches — so a
+snippet imports a vendored library without bundling it.&lt;/p&gt;
+&lt;p&gt;Deploy them with the &lt;a href="https://jaas.projects.metio.wtf/reference/helm-values/#joi-library-chart"&gt;JOI Helm chart&lt;/a&gt;
+,
+which renders a &lt;code&gt;JsonnetLibrary&lt;/code&gt; + &lt;code&gt;OCIRepository&lt;/code&gt; pair for each enabled library.
+With Flux, install it via a &lt;code&gt;HelmRelease&lt;/code&gt; and enable the libraries you need under
+&lt;code&gt;values.libraries&lt;/code&gt;:&lt;/p&gt;</description></item><item><title>Jsonnet libraries</title><link>https://jaas.projects.metio.wtf/rendering/jsonnet-libraries/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/rendering/jsonnet-libraries/</guid><description>&lt;p&gt;Snippets import reusable Jsonnet from two places: namespaced &lt;code&gt;JsonnetLibrary&lt;/code&gt;
+custom resources and OCI-mounted shared libraries the operator carries on disk.
+Both feed the same import-alias namespace, so a snippet&amp;rsquo;s &lt;code&gt;import&lt;/code&gt; statements
+look identical regardless of where the library comes from.&lt;/p&gt;
+&lt;h2 id="the-jsonnetlibrary-crd"&gt;The JsonnetLibrary CRD&lt;/h2&gt;
+&lt;p&gt;A &lt;code&gt;JsonnetLibrary&lt;/code&gt; is a namespaced bundle of &lt;code&gt;.libsonnet&lt;/code&gt; files. Like a snippet,
+it declares exactly one source — inline &lt;code&gt;spec.files&lt;/code&gt; or a &lt;code&gt;spec.sourceRef&lt;/code&gt; to a
+Flux source (&lt;code&gt;GitRepository&lt;/code&gt;, &lt;code&gt;OCIRepository&lt;/code&gt;, &lt;code&gt;Bucket&lt;/code&gt;, &lt;code&gt;ExternalArtifact&lt;/code&gt;).
+The library carries no registration name of its own; the import alias is chosen
+on the snippet side.&lt;/p&gt;</description></item><item><title>Rendering endpoint</title><link>https://jaas.projects.metio.wtf/rendering/rendering-endpoint/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/rendering/rendering-endpoint/</guid><description>&lt;p&gt;Send a &lt;code&gt;GET&lt;/code&gt; to the rendering endpoint with a snippet name and JaaS returns the
+evaluated Jsonnet as JSON:&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-shell" data-lang="shell"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;curl http://127.0.0.1:8080/jsonnet/example1
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;The Jsonnet server binds &lt;code&gt;127.0.0.1:8080&lt;/code&gt; by default (&lt;code&gt;--listen-address&lt;/code&gt;,
+&lt;code&gt;--port&lt;/code&gt;). The URL shape is &lt;code&gt;GET /&amp;lt;jsonnet-endpoint-path&amp;gt;/{snippet...}&lt;/code&gt;, where
+&lt;code&gt;{snippet...}&lt;/code&gt; is a trailing path segment that may contain slashes. A successful
+response carries &lt;code&gt;Content-Type: application/json&lt;/code&gt; and the rendered document.&lt;/p&gt;
+&lt;h2 id="the-endpoint-path"&gt;The endpoint path&lt;/h2&gt;
+&lt;p&gt;The leading path segment defaults to &lt;code&gt;jsonnet&lt;/code&gt; and is set with
+&lt;code&gt;--jsonnet-endpoint-path&lt;/code&gt;. Running with &lt;code&gt;--jsonnet-endpoint-path render&lt;/code&gt; moves the
+endpoint to &lt;code&gt;GET /render/{snippet...}&lt;/code&gt;:&lt;/p&gt;</description></item><item><title>Snippets and libraries</title><link>https://jaas.projects.metio.wtf/rendering/snippets-and-libraries/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/rendering/snippets-and-libraries/</guid><description>&lt;p&gt;In renderer mode you declare snippets and libraries on disk through command-line
+flags. A snippet becomes reachable at the
+&lt;a href="https://jaas.projects.metio.wtf/rendering/rendering-endpoint/"&gt;rendering endpoint&lt;/a&gt;
+; a library is importable by any
+snippet.&lt;/p&gt;
+&lt;h2 id="directory-snippets"&gt;Directory snippets&lt;/h2&gt;
+&lt;p&gt;Point &lt;code&gt;--snippet-directory&lt;/code&gt; at a directory whose subdirectories each hold a
+&lt;code&gt;main.jsonnet&lt;/code&gt;. Each subdirectory name becomes a snippet name:&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-shell" data-lang="shell"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;./jaas --snippet-directory examples/snippets/dashboards
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;curl http://127.0.0.1:8080/jsonnet/example1
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;Given this layout, &lt;code&gt;example1&lt;/code&gt; resolves to
+&lt;code&gt;examples/snippets/dashboards/example1/main.jsonnet&lt;/code&gt;:&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-text" data-lang="text"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;examples/snippets/dashboards
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;├── example1
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;│ └── main.jsonnet
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;├── tla-example
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;│ └── main.jsonnet
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;└── multi-tla
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; └── main.jsonnet
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;h2 id="file-snippets"&gt;File snippets&lt;/h2&gt;
+&lt;p&gt;Point &lt;code&gt;--snippet&lt;/code&gt; at an individual Jsonnet file. The file path becomes the
+snippet name:&lt;/p&gt;</description></item></channel></rss>

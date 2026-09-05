@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Network-Policy on Jsonnet-as-a-Service</title><link>https://jaas.projects.metio.wtf/tags/network-policy/</link><description>Recent content in Network-Policy on Jsonnet-as-a-Service</description><generator>Hugo</generator><language>en</language><atom:link href="https://jaas.projects.metio.wtf/tags/network-policy/index.xml" rel="self" type="application/rss+xml"/><item><title>Network policy</title><link>https://jaas.projects.metio.wtf/security/network-policy/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/security/network-policy/</guid><description>&lt;p&gt;The Helm chart ships an opt-in &lt;code&gt;NetworkPolicy&lt;/code&gt; for the JaaS pod. It is off by
+default and renders only when &lt;code&gt;networkPolicy.enabled&lt;/code&gt; is &lt;code&gt;true&lt;/code&gt;. Two independent
+layers are on offer: pod-scoped allowlists that lock down only JaaS&amp;rsquo;s own pods
+(the safe default), and an additional namespace-wide default-deny for a zero-trust
+namespace. The ingress and egress tables below describe exactly what traffic JaaS
+depends on — in both renderer mode and &lt;a href="https://jaas.projects.metio.wtf/operator/operator-mode/"&gt;operator mode&lt;/a&gt;
+ — so
+everything else can be denied.&lt;/p&gt;</description></item></channel></rss>

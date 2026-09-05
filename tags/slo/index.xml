@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Slo on Jsonnet-as-a-Service</title><link>https://jaas.projects.metio.wtf/tags/slo/</link><description>Recent content in Slo on Jsonnet-as-a-Service</description><generator>Hugo</generator><language>en</language><atom:link href="https://jaas.projects.metio.wtf/tags/slo/index.xml" rel="self" type="application/rss+xml"/><item><title>Dashboard</title><link>https://jaas.projects.metio.wtf/observability/dashboard/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/observability/dashboard/</guid><description>&lt;p&gt;JaaS publishes a maintained Grafana dashboard for its own operator as a
+single-layer OCI image at &lt;code&gt;ghcr.io/metio/jaas-dashboard&lt;/code&gt;. Render it through JaaS the
+same way you&amp;rsquo;d render any snippet — no manual JSON to copy around.&lt;/p&gt;
+&lt;p&gt;The dashboard opens with an &lt;a href="https://jaas.projects.metio.wtf/observability/slos/"&gt;SLO&lt;/a&gt;
+ band — reconcile
+availability against its objective, error budget remaining, reconcile-latency p95
+against its objective, and an availability-versus-objective trend — over a band of
+operator internals that explain any movement: reconciles by reason, evaluation
+throughput and backpressure, rendered output size, storage sweeps, and the
+controller-runtime workqueue. The series are the &lt;a href="https://jaas.projects.metio.wtf/observability/metrics/"&gt;metrics&lt;/a&gt;
+
+the operator exports.&lt;/p&gt;</description></item><item><title>Service level objectives</title><link>https://jaas.projects.metio.wtf/observability/slos/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/observability/slos/</guid><description>&lt;p&gt;The JaaS operator tracks two service-level objectives. Each is an objective on a
+service-level indicator (SLI) computed from the &lt;a href="https://jaas.projects.metio.wtf/observability/metrics/"&gt;metrics&lt;/a&gt;
+,
+measured over a rolling window. The published dashboard renders them, and the Helm
+chart can alert on them.&lt;/p&gt;
+&lt;h2 id="slo-1--reconcile-availability"&gt;SLO 1 — reconcile availability&lt;/h2&gt;
+&lt;p&gt;&lt;strong&gt;Objective:&lt;/strong&gt; ≥ &lt;strong&gt;99%&lt;/strong&gt; of syncing reconciles reach &lt;code&gt;Ready=True&lt;/code&gt;, over a &lt;strong&gt;28-day&lt;/strong&gt;
+window.&lt;/p&gt;
+&lt;p&gt;The SLI counts only reconciles that were actually trying to sync — the intentional
+&lt;code&gt;Pending&lt;/code&gt; and &lt;code&gt;Suspended&lt;/code&gt; states are excluded from both halves:&lt;/p&gt;</description></item></channel></rss>

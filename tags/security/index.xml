@@ -1,0 +1,118 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Security on Jsonnet-as-a-Service</title><link>https://jaas.projects.metio.wtf/tags/security/</link><description>Recent content in Security on Jsonnet-as-a-Service</description><generator>Hugo</generator><language>en</language><atom:link href="https://jaas.projects.metio.wtf/tags/security/index.xml" rel="self" type="application/rss+xml"/><item><title>Evaluation and security</title><link>https://jaas.projects.metio.wtf/rendering/evaluation-and-security/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/rendering/evaluation-and-security/</guid><description>&lt;p&gt;JaaS runs Jsonnet on the server and returns the result over HTTP. Three caps
+bound each evaluation, and a small security model governs what a snippet and its
+callers can reach. Review and tune both sections before exposing the service to
+a wider audience.&lt;/p&gt;
+&lt;h2 id="evaluation-caps"&gt;Evaluation caps&lt;/h2&gt;
+&lt;table&gt;
+	&lt;thead&gt;
+			&lt;tr&gt;
+					&lt;th&gt;Flag&lt;/th&gt;
+					&lt;th&gt;Default&lt;/th&gt;
+					&lt;th&gt;Effect&lt;/th&gt;
+			&lt;/tr&gt;
+	&lt;/thead&gt;
+	&lt;tbody&gt;
+			&lt;tr&gt;
+					&lt;td&gt;&lt;code&gt;--evaluation-timeout&lt;/code&gt;&lt;/td&gt;
+					&lt;td&gt;&lt;code&gt;5s&lt;/code&gt;&lt;/td&gt;
+					&lt;td&gt;Wall-clock budget per evaluation. Exceeding it returns &lt;code&gt;504 evaluation_timeout&lt;/code&gt;. &lt;code&gt;0&lt;/code&gt; disables the timeout.&lt;/td&gt;
+			&lt;/tr&gt;
+			&lt;tr&gt;
+					&lt;td&gt;&lt;code&gt;--max-stack&lt;/code&gt;&lt;/td&gt;
+					&lt;td&gt;&lt;code&gt;500&lt;/code&gt;&lt;/td&gt;
+					&lt;td&gt;Maximum Jsonnet call-stack depth. &lt;code&gt;0&lt;/code&gt; uses go-jsonnet&amp;rsquo;s own default.&lt;/td&gt;
+			&lt;/tr&gt;
+			&lt;tr&gt;
+					&lt;td&gt;&lt;code&gt;--max-concurrent-evals&lt;/code&gt;&lt;/td&gt;
+					&lt;td&gt;&lt;code&gt;max(GOMAXPROCS*4, 16)&lt;/code&gt;&lt;/td&gt;
+					&lt;td&gt;In-flight evaluations allowed at once. Excess requests return &lt;code&gt;503 evaluation_unavailable&lt;/code&gt;. &lt;code&gt;0&lt;/code&gt; disables the cap.&lt;/td&gt;
+			&lt;/tr&gt;
+	&lt;/tbody&gt;
+&lt;/table&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-shell" data-lang="shell"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;./jaas &lt;span class="se"&gt;\
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; --snippet-directory examples/snippets/dashboards &lt;span class="se"&gt;\
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; --evaluation-timeout 2s &lt;span class="se"&gt;\
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; --max-stack &lt;span class="m"&gt;1000&lt;/span&gt; &lt;span class="se"&gt;\
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; --max-concurrent-evals &lt;span class="m"&gt;32&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;The default for &lt;code&gt;--max-concurrent-evals&lt;/code&gt; bounds worst-case goroutine pile-up
+under a runaway snippet. Each in-flight evaluation pins roughly one CPU for its
+working set, so raising the cap far above the available parallelism queues work
+without adding throughput.&lt;/p&gt;</description></item><item><title>Network policy</title><link>https://jaas.projects.metio.wtf/security/network-policy/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/security/network-policy/</guid><description>&lt;p&gt;The Helm chart ships an opt-in &lt;code&gt;NetworkPolicy&lt;/code&gt; for the JaaS pod. It is off by
+default and renders only when &lt;code&gt;networkPolicy.enabled&lt;/code&gt; is &lt;code&gt;true&lt;/code&gt;. Two independent
+layers are on offer: pod-scoped allowlists that lock down only JaaS&amp;rsquo;s own pods
+(the safe default), and an additional namespace-wide default-deny for a zero-trust
+namespace. The ingress and egress tables below describe exactly what traffic JaaS
+depends on — in both renderer mode and &lt;a href="https://jaas.projects.metio.wtf/operator/operator-mode/"&gt;operator mode&lt;/a&gt;
+ — so
+everything else can be denied.&lt;/p&gt;</description></item><item><title>Production</title><link>https://jaas.projects.metio.wtf/running/production/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/running/production/</guid><description>&lt;p&gt;The chart&amp;rsquo;s defaults are safe for an initial install but not optimised for
+sustained production workloads. Work through these decisions before exposing JaaS
+to real traffic. Each links to the detailed guide.&lt;/p&gt;
+&lt;h2 id="1-pick-a-storage-backend"&gt;1. Pick a storage backend&lt;/h2&gt;
+&lt;p&gt;The single largest decision. Artifacts must survive pod restarts and, for HA,
+be readable by every replica simultaneously.&lt;/p&gt;
+&lt;table&gt;
+	&lt;thead&gt;
+			&lt;tr&gt;
+					&lt;th&gt;Backend&lt;/th&gt;
+					&lt;th&gt;Persistence&lt;/th&gt;
+					&lt;th&gt;Multi-replica HA&lt;/th&gt;
+			&lt;/tr&gt;
+	&lt;/thead&gt;
+	&lt;tbody&gt;
+			&lt;tr&gt;
+					&lt;td&gt;&lt;code&gt;local&lt;/code&gt; + emptyDir (chart default)&lt;/td&gt;
+					&lt;td&gt;No&lt;/td&gt;
+					&lt;td&gt;No&lt;/td&gt;
+			&lt;/tr&gt;
+			&lt;tr&gt;
+					&lt;td&gt;&lt;code&gt;local&lt;/code&gt; + RWO PVC&lt;/td&gt;
+					&lt;td&gt;Yes&lt;/td&gt;
+					&lt;td&gt;No — single replica only&lt;/td&gt;
+			&lt;/tr&gt;
+			&lt;tr&gt;
+					&lt;td&gt;&lt;code&gt;local&lt;/code&gt; + RWX PVC&lt;/td&gt;
+					&lt;td&gt;Yes&lt;/td&gt;
+					&lt;td&gt;Yes — requires RWX storage class&lt;/td&gt;
+			&lt;/tr&gt;
+			&lt;tr&gt;
+					&lt;td&gt;&lt;code&gt;s3&lt;/code&gt;&lt;/td&gt;
+					&lt;td&gt;Yes&lt;/td&gt;
+					&lt;td&gt;Yes — leader writes, all replicas read&lt;/td&gt;
+			&lt;/tr&gt;
+	&lt;/tbody&gt;
+&lt;/table&gt;
+&lt;p&gt;For cloud installs, &lt;code&gt;s3&lt;/code&gt; (AWS S3, MinIO, Ceph RGW, GCS S3-compat API) is the
+recommended backend. Pair it with leader election (on by default) so only the
+lease-holder writes. For on-prem, a PVC with the access mode your storage class
+supports is the practical path.&lt;/p&gt;</description></item><item><title>Security &amp; multi-tenancy</title><link>https://jaas.projects.metio.wtf/security/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/security/</guid><description>&lt;p&gt;How to run JaaS without granting it broad cluster power and how to constrain what
+it can reach. In operator mode, snippets resolve under a tenant ServiceAccount, so
+a snippet can do exactly what its RBAC allows and no more.&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;&lt;a href="https://jaas.projects.metio.wtf/security/tenancy-and-rbac/"&gt;Tenancy and RBAC&lt;/a&gt;
+&lt;/strong&gt; — tenant impersonation and
+the permissions the operator needs.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;a href="https://jaas.projects.metio.wtf/security/admission-webhook/"&gt;Admission webhook&lt;/a&gt;
+&lt;/strong&gt; — validate resources at
+admission time.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;a href="https://jaas.projects.metio.wtf/security/network-policy/"&gt;Network policy&lt;/a&gt;
+&lt;/strong&gt; — lock JaaS&amp;rsquo;s traffic down to
+what it needs.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;a href="https://jaas.projects.metio.wtf/security/service-mesh/"&gt;Service mesh&lt;/a&gt;
+&lt;/strong&gt; — run JaaS inside a mesh.&lt;/li&gt;
+&lt;/ul&gt;</description></item><item><title>Service mesh</title><link>https://jaas.projects.metio.wtf/security/service-mesh/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/security/service-mesh/</guid><description>&lt;p&gt;The Helm chart ships an opt-in service-mesh authorization layer for the JaaS pod.
+It is off by default and renders only when &lt;code&gt;serviceMesh.enabled&lt;/code&gt; is &lt;code&gt;true&lt;/code&gt;. Where
+the &lt;a href="https://jaas.projects.metio.wtf/security/network-policy/"&gt;network policy&lt;/a&gt;
+ operates at L3/L4 — which pods and IP
+ranges may reach which ports — the service mesh operates at L7 with &lt;strong&gt;identity-based
+authorization&lt;/strong&gt; and &lt;strong&gt;mTLS&lt;/strong&gt;: it asks &lt;em&gt;which mesh identity&lt;/em&gt; is calling, proven by a
+cryptographic workload certificate, not merely which IP the packet came from.&lt;/p&gt;</description></item><item><title>Verifying releases</title><link>https://jaas.projects.metio.wtf/reference/verifying-releases/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/reference/verifying-releases/</guid><description>&lt;p&gt;Every jaas release is signed with &lt;a href="https://github.com/sigstore/cosign"&gt;cosign&lt;/a&gt;
+
+keyless. There is no GPG key to import — identity is proven by the release
+workflow&amp;rsquo;s OIDC certificate from Sigstore&amp;rsquo;s Fulcio CA, recorded in the public
+Rekor transparency log. Verify before you deploy.&lt;/p&gt;
+&lt;p&gt;You need &lt;code&gt;cosign&lt;/code&gt; (any v2/v4 release) on your PATH. Replace &lt;code&gt;&amp;lt;version&amp;gt;&lt;/code&gt; with the
+calendar-version tag you are installing (for example &lt;code&gt;2026.6.15&lt;/code&gt;).&lt;/p&gt;
+&lt;h2 id="verify-the-container-image"&gt;Verify the container image&lt;/h2&gt;
+&lt;p&gt;Both the image and the build attestations are signed against the workflow&amp;rsquo;s
+Fulcio identity. The certificate-identity is the release workflow path; the OIDC
+issuer is GitHub Actions:&lt;/p&gt;</description></item></channel></rss>

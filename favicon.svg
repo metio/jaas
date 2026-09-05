@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Jsonnet-as-a-Service">
+  <rect width="64" height="64" rx="14" fill="#268bd2"/>
+  <g fill="none" stroke="#fdf6e3" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M27 16c-5 0-5 4-5 8 0 4-2 6-5 8 3 2 5 4 5 8 0 4 0 8 5 8"/>
+    <path d="M37 16c5 0 5 4 5 8 0 4 2 6 5 8-3 2-5 4-5 8 0 4 0 8-5 8"/>
+  </g>
+  <g fill="none" stroke="#b58900" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M31 23h6"/>
+    <path d="M36 23v11c0 3-2.3 5-5.3 4.6-2.3-.3-3.6-1.9-3.6-4.1"/>
+  </g>
+</svg>

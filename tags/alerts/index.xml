@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Alerts on Jsonnet-as-a-Service</title><link>https://jaas.projects.metio.wtf/tags/alerts/</link><description>Recent content in Alerts on Jsonnet-as-a-Service</description><generator>Hugo</generator><language>en</language><atom:link href="https://jaas.projects.metio.wtf/tags/alerts/index.xml" rel="self" type="application/rss+xml"/><item><title>Alerting</title><link>https://jaas.projects.metio.wtf/observability/alerting/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/observability/alerting/</guid><description>&lt;p&gt;JaaS turns a sustained problem into a notification two ways: a Prometheus
+&lt;code&gt;PrometheusRule&lt;/code&gt; that pages on its &lt;a href="https://jaas.projects.metio.wtf/observability/metrics/"&gt;metrics&lt;/a&gt;
+, and Kubernetes
+Events that Flux&amp;rsquo;s notification-controller can route to chat or e-mail.&lt;/p&gt;
+&lt;h2 id="the-binary"&gt;The binary&lt;/h2&gt;
+&lt;p&gt;The operator emits a standard Kubernetes &lt;code&gt;Event&lt;/code&gt; on every Ready-condition
+transition — &lt;code&gt;Normal&lt;/code&gt; for &lt;code&gt;Synced&lt;/code&gt;, &lt;code&gt;Warning&lt;/code&gt; for every other reason. The reason
+string fills both the event &lt;code&gt;reason&lt;/code&gt; and &lt;code&gt;action&lt;/code&gt;. These Events need no flag to
+enable; they are written whenever the operator reconciles.&lt;/p&gt;</description></item><item><title>Observability</title><link>https://jaas.projects.metio.wtf/observability/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/observability/</guid><description>&lt;p&gt;JaaS gives you four ways to see what it is doing in a cluster. Structured logs
+tell you what happened on a single request or reconcile; traces follow one
+operation across its spans; metrics aggregate behaviour into time series for
+dashboards and alerts; and alerts plus Kubernetes Events turn a sustained
+problem into a page or a notification.&lt;/p&gt;
+&lt;p&gt;Each pillar has its own page covering both the binary&amp;rsquo;s flags and the Helm chart
+keys that drive them:&lt;/p&gt;</description></item><item><title>Service level objectives</title><link>https://jaas.projects.metio.wtf/observability/slos/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/observability/slos/</guid><description>&lt;p&gt;The JaaS operator tracks two service-level objectives. Each is an objective on a
+service-level indicator (SLI) computed from the &lt;a href="https://jaas.projects.metio.wtf/observability/metrics/"&gt;metrics&lt;/a&gt;
+,
+measured over a rolling window. The published dashboard renders them, and the Helm
+chart can alert on them.&lt;/p&gt;
+&lt;h2 id="slo-1--reconcile-availability"&gt;SLO 1 — reconcile availability&lt;/h2&gt;
+&lt;p&gt;&lt;strong&gt;Objective:&lt;/strong&gt; ≥ &lt;strong&gt;99%&lt;/strong&gt; of syncing reconciles reach &lt;code&gt;Ready=True&lt;/code&gt;, over a &lt;strong&gt;28-day&lt;/strong&gt;
+window.&lt;/p&gt;
+&lt;p&gt;The SLI counts only reconciles that were actually trying to sync — the intentional
+&lt;code&gt;Pending&lt;/code&gt; and &lt;code&gt;Suspended&lt;/code&gt; states are excluded from both halves:&lt;/p&gt;</description></item></channel></rss>
