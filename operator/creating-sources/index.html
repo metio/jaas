@@ -1,0 +1,223 @@
+<!doctype html><html lang=en><head><meta charset=utf-8><meta content="metio.wtf" name=author><meta content="Jsonnet-as-a-Service" name=subject><meta content="evaluate Jsonnet snippets on demand and return JSON" name=description><meta name=viewport content="width=device-width,initial-scale=1"><meta property="og:site_name" content="Jsonnet-as-a-Service"><meta property="og:title" content="Creating source artifacts · Jsonnet-as-a-Service"><meta property="og:description" content="Step-by-step recipes to prepare GitRepository, OCIRepository, and Bucket sources for a JsonnetSnippet — including the single-layer rule for OCI."><meta property="og:type" content="article"><meta property="og:url" content="https://jaas.projects.metio.wtf/operator/creating-sources/"><meta property="og:locale" content="en"><meta property="og:image" content="https://jaas.projects.metio.wtf/og-image.png"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta name=twitter:card content="summary_large_image"><meta name=twitter:title content="Creating source artifacts · Jsonnet-as-a-Service"><meta name=twitter:description content="Step-by-step recipes to prepare GitRepository, OCIRepository, and Bucket sources for a JsonnetSnippet — including the single-layer rule for OCI."><meta name=twitter:image content="https://jaas.projects.metio.wtf/og-image.png"><meta name=fediverse:creator content="@sebhoss@mastodon.online"><script type=application/ld+json>{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Organization","name":"metio.wtf"},"dateModified":"2026-06-26T15:54:29+02:00","description":"Step-by-step recipes to prepare GitRepository, OCIRepository, and Bucket sources for a JsonnetSnippet — including the single-layer rule for OCI.","headline":"Creating source artifacts","isPartOf":{"@type":"WebSite","name":"Jsonnet-as-a-Service","url":"https://jaas.projects.metio.wtf/"},"mainEntityOfPage":"https://jaas.projects.metio.wtf/operator/creating-sources/","url":"https://jaas.projects.metio.wtf/operator/creating-sources/"}</script><script type=application/ld+json>{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","item":"https://jaas.projects.metio.wtf/","name":"Home","position":1},{"@type":"ListItem","item":"https://jaas.projects.metio.wtf/operator/","name":"Operator mode","position":2},{"@type":"ListItem","item":"https://jaas.projects.metio.wtf/operator/creating-sources/","name":"Creating source artifacts","position":3}]}</script><link href=https://jaas.projects.metio.wtf/operator/creating-sources/ rel=canonical><link href=https://jaas.projects.metio.wtf/atom.xml rel=alternate title="Jsonnet-as-a-Service Atom" type=application/atom+xml><link href=https://jaas.projects.metio.wtf/index.xml rel=alternate title="Jsonnet-as-a-Service RSS" type=application/rss+xml><link href=https://jaas.projects.metio.wtf/sitemap.xml rel=sitemap title="Jsonnet-as-a-Service Sitemap" type=application/xml><link rel=author href=https://jaas.projects.metio.wtf/humans.txt><link rel=alternate type=application/rdf+xml title=FOAF href=https://jaas.projects.metio.wtf/foaf.rdf><link rel=license href=https://creativecommons.org/publicdomain/zero/1.0/><link rel=icon href=https://jaas.projects.metio.wtf/favicon.svg type=image/svg+xml><link rel=icon href=https://jaas.projects.metio.wtf/favicon.ico sizes="48x48 32x32 16x16"><link rel=apple-touch-icon href=https://jaas.projects.metio.wtf/apple-touch-icon.png><link href=https://jaas.projects.metio.wtf/css/mobile.min.4967d6bba3861616e6d5d2de4b890b8edee8aae461c1e8e9b22f733aad49016f2ad27ff42ddfe820f807f32098cfe2e6f6ede06b7cd6922d97a50a4d606cc165.css integrity="sha512-SWfWu6OGFhbm1dLeS4kLjt7oquRhwejpsi9zOq1JAW8q0n/0Ld/oIPgH8yCYz+Lm9u3ga3zWki2XpQpNYGzBZQ==" media="screen and (max-width: 800px)" rel=stylesheet><link href=https://jaas.projects.metio.wtf/css/tablet.min.589ea6ed457f1e7880d07ce9175ce2200e78eae7cee1a249e9826d625cd1b7eb3ca9ae5391b2fdbb0b2f57f76ea908049e76d457a8ddbd171a0a722020468b5c.css integrity="sha512-WJ6m7UV/HniA0HzpF1ziIA546ufO4aJJ6YJtYlzRt+s8qa5TkbL9uwsvV/duqQgEnnbUV6jdvRcaCnIgIEaLXA==" media="screen and (min-width: 801px) and (max-width: 1199px)" rel=stylesheet><link href=https://jaas.projects.metio.wtf/css/desktop.min.61a491426ce90ef60524cb57a4e2f3c74c79b194008cedb00eb86ffb6ea61e6112418fbe3aa565722271f077fdf06d7a75d05bad844bc69e3156ef7ffad1ee1c.css integrity="sha512-YaSRQmzpDvYFJMtXpOLzx0x5sZQAjO2wDrhv+26mHmESQY++OqVlciJx8Hf98G16ddBbrYRLxp4xVu9/+tHuHA==" media="screen and (min-width: 1200px)" rel=stylesheet><link href=https://jaas.projects.metio.wtf/css/darkmode.min.1ff1a9b4299fb7c393c44295c028b9ae3e30b0ced53310b7d193c3959d02ac76b805bc70bb530b2a8baf6c1abeab6c4a4ed048d62ca3bd931856ac81e3e6c020.css integrity="sha512-H/GptCmft8OTxEKVwCi5rj4wsM7VMxC30ZPDlZ0CrHa4Bbxwu1MLKouvbBq+q2xKTtBI1iyjvZMYVqyB4+bAIA==" media="screen and (prefers-color-scheme: dark)" rel=stylesheet><title>Jsonnet-as-a-Service &ndash; Creating source artifacts</title></head><body id=site><header id=header><a id=logolink href=https://jaas.projects.metio.wtf/ title=Jsonnet-as-a-Service><img id=logo src=https://jaas.projects.metio.wtf/images/logo.svg alt="Jsonnet-as-a-Service logo" width=40 height=40></a><h1 id=projectname><a id=rootlink href=https://jaas.projects.metio.wtf/>Jsonnet-as-a-Service</a>
+<a href=https://jaas.projects.metio.wtf/sitemap/ title="show me all pages" id=sitemaplink><img class=svgimg src=https://jaas.projects.metio.wtf/images/sitemap.svg alt=sitemap width=30 height=30></a></h1><span id=actions><a href=https://github.com/metio/jaas id=github title="want some code?"><img class=svgimg src=https://jaas.projects.metio.wtf/images/github.svg alt=github width=32 height=32>
+</a><a href=https://jaas.projects.metio.wtf/atom.xml id=newsfeed title="get notified about updates"><img class=svgimg src=https://jaas.projects.metio.wtf/images/rss.svg alt=newsfeed width=32 height=32></a></span></header><nav id=navigation><ul><h3 class="mobileonly menutitle">Links</h3><li class=mobileonly><a href=https://jaas.projects.metio.wtf/>Home</a></li><li class=mobileonly><a href=https://github.com/metio/jaas>See some code at GitHub</a></li><li class=mobileonly><a href=https://jaas.projects.metio.wtf/atom.xml>Subscribe to the Atom feed</a></li><li class=mobileonly><a href=https://jaas.projects.metio.wtf/sitemap/>See all pages at the sitemap</a></li><hr class="mobileonly menudivider"><h3 class="mobile-and-tablet menutitle">Navigation</h3><li><a href=/get-started/>Get started</a><ul><li><a href=/get-started/quickstart/>Quickstart</a></li><li><a href=/get-started/kubernetes/>Install on Kubernetes</a></li><li><a href=/get-started/local-rendering/>Local rendering</a></li></ul></li><li><a href=/guides/>Guides</a><ul><li><a href=/guides/grafana-dashboards/>Grafana dashboards</a></li><li><a href=/guides/deploying-manifests/>Deploying manifests with StageSet</a></li></ul></li><li><a href=/rendering/>Rendering Jsonnet</a><ul><li><a href=/rendering/rendering-endpoint/>Rendering endpoint</a></li><li><a href=/rendering/snippets-and-libraries/>Snippets and libraries</a></li><li><a href=/rendering/external-variables-and-tlas/>External variables and TLAs</a></li><li><a href=/rendering/jsonnet-libraries/>Jsonnet libraries</a></li><li><a href=/rendering/joi-images/>JOI images</a></li><li><a href=/rendering/evaluation-and-security/>Evaluation and security</a></li></ul></li><li><a href=/operator/>Operator mode</a><ul><li><a href=/operator/operator-mode/>Operator mode</a></li><li><a href=/operator/snippet-sources/>Snippet sources</a></li><li><a href=/operator/creating-sources/>Creating source artifacts</a></li><li><a href=/operator/storage-and-ha/>Storage and HA</a></li></ul></li><li><a href=/security/>Security & multi-tenancy</a><ul><li><a href=/security/tenancy-and-rbac/>Tenancy and RBAC</a></li><li><a href=/security/admission-webhook/>Admission webhook</a></li><li><a href=/security/network-policy/>Network policy</a></li><li><a href=/security/service-mesh/>Service mesh</a></li></ul></li><li><a href=/integrations/>Integrations & tooling</a><ul><li><a href=/integrations/flux-operator/>Flux Operator integration</a></li><li><a href=/integrations/claude-code/>Claude Code skill</a></li><li><a href=/integrations/mcp-server/>MCP server</a></li></ul></li><li><a href=/running/>Run in production</a><ul><li><a href=/running/production/>Production</a></li><li><a href=/running/operations/>Operations</a></li><li><a href=/running/scale-and-capacity/>Scale and capacity</a></li><li><a href=/running/disaster-recovery/>Backup and disaster recovery</a></li></ul></li><li><a href=/observability/>Observability</a><ul><li><a href=/observability/logging/>Logging</a></li><li><a href=/observability/tracing/>Tracing</a></li><li><a href=/observability/metrics/>Metrics</a></li><li><a href=/observability/slos/>Service level objectives</a></li><li><a href=/observability/alerting/>Alerting</a></li><li><a href=/observability/dashboard/>Dashboard</a></li></ul></li><li><a href=/api/>API</a><ul><li><a href=/api/jsonnetsnippet/>JsonnetSnippet</a></li><li><a href=/api/jsonnetlibrary/>JsonnetLibrary</a></li><li><a href=/api/externalartifact/>ExternalArtifact output</a></li></ul></li><li><a href=/reference/>Reference</a><ul><li><a href=/reference/configuration/>Configuration reference</a></li><li><a href=/reference/helm-values/>Helm chart values</a></li><li><a href=/reference/verifying-releases/>Verifying releases</a></li><li><a href=/reference/upgrading/>Upgrading</a></li></ul></li><li><a href=/comparisons/>Comparisons</a><ul><li><a href=/comparisons/tanka/>vs Tanka</a></li><li><a href=/comparisons/grafana-operator/>vs grafana-operator</a></li><li><a href=/comparisons/jsonnet-cli/>vs the jsonnet CLI</a></li><li><a href=/comparisons/jsonnet-controller/>vs jsonnet-controller</a></li><li><a href=/comparisons/flux-operator/>vs Flux Operator ResourceSet</a></li></ul></li><li><a href=/runbooks/>Runbooks</a></li><li><a href=/contributing/>Contributing</a><ul><li><a href=/contributing/building/>Building and testing</a></li><li><a href=/contributing/ci-and-release/>CI and releases</a></li></ul></li></ul></nav><main id=content><h1 class=post-titel><a href=https://jaas.projects.metio.wtf/operator/creating-sources/>Creating source artifacts
+</a><a href=https://github.com/metio/jaas/commits/main/docs/content/operator/creating-sources.md title="see history"><img src=https://jaas.projects.metio.wtf/images/history.svg height=16 width=14 class="icon svgimg" alt="see history">
+</a><a href=https://github.com/metio/jaas/edit/main/docs/content/operator/creating-sources.md title="edit this page"><img src=https://jaas.projects.metio.wtf/images/pencil.svg height=16 width=14 class="icon svgimg" alt="edit this page"></a></h1><div class=subtitle>Talks about:
+<a class="post-tag post-tag-flux" href=/tags/flux/>flux</a>, <a class="post-tag post-tag-oci" href=/tags/oci/>oci</a>, <a class="post-tag post-tag-operator" href=/tags/operator/>operator</a>, and <a class="post-tag post-tag-sources" href=/tags/sources/>sources</a></div><div id=post-content><p>A <code>JsonnetSnippet</code>&rsquo;s <code>spec.sourceRef</code> consumes a Flux source. The operator reads
+the referenced source CR&rsquo;s <code>status.artifact.url</code>, downloads the tarball Flux&rsquo;s
+source-controller serves there, verifies its <code>status.artifact.digest</code>, and
+extracts it into the snippet&rsquo;s file tree. Every supported kind —
+<code>GitRepository</code>, <code>OCIRepository</code>, and <code>Bucket</code> — reaches the operator through
+that same <code>status.artifact</code> contract, so the operator never talks to a git
+remote, an OCI registry, or an object store directly. Flux owns that fetch; the
+operator consumes the artifact Flux already produced.</p><p>The recipes below show how to produce each source kind so a snippet can reference
+it. <a href=/operator/snippet-sources/>Snippet sources</a>
+covers wiring the finished source
+into a <code>JsonnetSnippet</code>. For the source CRDs themselves and their full field
+reference, see the <a href=https://fluxcd.io/>Flux documentation</a>
+.</p><p>A <code>JsonnetSnippet</code> references the source you create with a <code>spec.sourceRef</code>:</p><div class=highlight><pre tabindex=0 class=chroma><code class=language-yaml data-lang=yaml><span class=line><span class=cl><span class=nt>apiVersion</span><span class=p>:</span><span class=w> </span><span class=l>jaas.metio.wtf/v1</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=nt>kind</span><span class=p>:</span><span class=w> </span><span class=l>JsonnetSnippet</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=nt>metadata</span><span class=p>:</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>  </span><span class=nt>name</span><span class=p>:</span><span class=w> </span><span class=l>dashboards</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>  </span><span class=nt>namespace</span><span class=p>:</span><span class=w> </span><span class=l>default</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=nt>spec</span><span class=p>:</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>  </span><span class=nt>serviceAccountName</span><span class=p>:</span><span class=w> </span><span class=l>dashboards-tenant</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>  </span><span class=nt>entryFile</span><span class=p>:</span><span class=w> </span><span class=l>dashboards/api-latency.jsonnet</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>  </span><span class=nt>sourceRef</span><span class=p>:</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=nt>kind</span><span class=p>:</span><span class=w> </span><span class=l>GitRepository     </span><span class=w> </span><span class=c># or OCIRepository, or Bucket</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=nt>name</span><span class=p>:</span><span class=w> </span><span class=l>dashboards-source</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=nt>path: dashboards/        # optional</span><span class=p>:</span><span class=w> </span><span class=l>narrow extraction to a subtree</span><span class=w>
+</span></span></span></code></pre></div><p>The tenant ServiceAccount needs <code>get</code> on the referenced source kind. See
+<a href=/security/tenancy-and-rbac/>Tenancy and RBAC</a>
+for the exact verbs.</p><h2 id=gitrepository>GitRepository</h2><p>A <code>GitRepository</code> source tracks a branch, tag, or commit of a git repository.
+source-controller clones the ref and packs the tree into the tarball the
+operator fetches. There is no packaging or layer constraint — the operator
+extracts whatever files the commit contains.</p><ol><li><p>Lay out your Jsonnet files in a directory. File names and the directory
+structure carry over verbatim into the snippet&rsquo;s file tree, so place the
+entry file where <code>spec.entryFile</code> expects it:</p><div class=highlight><pre tabindex=0 class=chroma><code class=language-text data-lang=text><span class=line><span class=cl>dashboards/
+</span></span><span class=line><span class=cl>├── api-latency.jsonnet
+</span></span><span class=line><span class=cl>├── error-budget.jsonnet
+</span></span><span class=line><span class=cl>└── lib/
+</span></span><span class=line><span class=cl>    └── panels.libsonnet
+</span></span></code></pre></div></li><li><p>Commit the files and push them to a git repository:</p><div class=highlight><pre tabindex=0 class=chroma><code class=language-shell data-lang=shell><span class=line><span class=cl>git add dashboards/
+</span></span><span class=line><span class=cl>git commit -m <span class=s2>&#34;Add Grafana dashboards&#34;</span>
+</span></span><span class=line><span class=cl>git push origin main
+</span></span></code></pre></div></li><li><p>Create the <code>GitRepository</code> source. With the Flux CLI:</p><div class=highlight><pre tabindex=0 class=chroma><code class=language-shell data-lang=shell><span class=line><span class=cl>flux create <span class=nb>source</span> git dashboards-source <span class=se>\
+</span></span></span><span class=line><span class=cl>  --url<span class=o>=</span>https://github.com/example-org/grafana-dashboards <span class=se>\
+</span></span></span><span class=line><span class=cl>  --branch<span class=o>=</span>main <span class=se>\
+</span></span></span><span class=line><span class=cl>  --interval<span class=o>=</span>5m <span class=se>\
+</span></span></span><span class=line><span class=cl>  --namespace<span class=o>=</span>default <span class=se>\
+</span></span></span><span class=line><span class=cl>  --export
+</span></span></code></pre></div><p>The equivalent CR YAML, which is authoritative:</p><div class=highlight><pre tabindex=0 class=chroma><code class=language-yaml data-lang=yaml><span class=line><span class=cl><span class=nt>apiVersion</span><span class=p>:</span><span class=w> </span><span class=l>source.toolkit.fluxcd.io/v1</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=nt>kind</span><span class=p>:</span><span class=w> </span><span class=l>GitRepository</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=nt>metadata</span><span class=p>:</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>  </span><span class=nt>name</span><span class=p>:</span><span class=w> </span><span class=l>dashboards-source</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>  </span><span class=nt>namespace</span><span class=p>:</span><span class=w> </span><span class=l>default</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=nt>spec</span><span class=p>:</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>  </span><span class=nt>interval</span><span class=p>:</span><span class=w> </span><span class=l>5m</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>  </span><span class=nt>url</span><span class=p>:</span><span class=w> </span><span class=l>https://github.com/example-org/grafana-dashboards</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>  </span><span class=nt>ref</span><span class=p>:</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=nt>branch</span><span class=p>:</span><span class=w> </span><span class=l>main</span><span class=w>
+</span></span></span></code></pre></div></li><li><p>Point a snippet&rsquo;s <code>spec.sourceRef</code> at the source. Set <code>kind: GitRepository</code>,
+<code>name: dashboards-source</code>, and optionally <code>path:</code> to extract only a subtree:</p><div class=highlight><pre tabindex=0 class=chroma><code class=language-yaml data-lang=yaml><span class=line><span class=cl><span class=nt>apiVersion</span><span class=p>:</span><span class=w> </span><span class=l>jaas.metio.wtf/v1</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=nt>kind</span><span class=p>:</span><span class=w> </span><span class=l>JsonnetSnippet</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=nt>metadata</span><span class=p>:</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>  </span><span class=nt>name</span><span class=p>:</span><span class=w> </span><span class=l>api-latency-dashboard</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>  </span><span class=nt>namespace</span><span class=p>:</span><span class=w> </span><span class=l>default</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=nt>spec</span><span class=p>:</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>  </span><span class=nt>serviceAccountName</span><span class=p>:</span><span class=w> </span><span class=l>dashboards-tenant</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>  </span><span class=nt>entryFile</span><span class=p>:</span><span class=w> </span><span class=l>dashboards/api-latency.jsonnet</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>  </span><span class=nt>sourceRef</span><span class=p>:</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=nt>kind</span><span class=p>:</span><span class=w> </span><span class=l>GitRepository</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=nt>name</span><span class=p>:</span><span class=w> </span><span class=l>dashboards-source</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=nt>path</span><span class=p>:</span><span class=w> </span><span class=l>dashboards/</span><span class=w>
+</span></span></span></code></pre></div></li></ol><p>When a new commit lands on the tracked branch, source-controller republishes the
+artifact and the operator&rsquo;s watch re-renders the snippet.</p><h2 id=ocirepository>OCIRepository</h2><p>An <code>OCIRepository</code> source pulls an OCI artifact from a registry. source-controller
+unpacks the artifact&rsquo;s single gzipped-tar layer into the tarball the operator
+fetches. Producing the artifact with <code>flux push artifact</code> packs a directory into
+exactly that shape.</p><ol><li><p>Lay out your Jsonnet files in a directory, the same as for a git source:</p><div class=highlight><pre tabindex=0 class=chroma><code class=language-text data-lang=text><span class=line><span class=cl>./
+</span></span><span class=line><span class=cl>├── main.jsonnet
+</span></span><span class=line><span class=cl>└── lib/
+</span></span><span class=line><span class=cl>    └── panels.libsonnet
+</span></span></code></pre></div></li><li><p>Push the directory as an OCI artifact with the Flux CLI. <code>flux push artifact</code>
+packs the directory into one gzipped-tar layer and pushes it to the registry:</p><div class=highlight><pre tabindex=0 class=chroma><code class=language-shell data-lang=shell><span class=line><span class=cl>flux push artifact oci://ghcr.io/example-org/dashboards:v1 <span class=se>\
+</span></span></span><span class=line><span class=cl>  --path<span class=o>=</span>. <span class=se>\
+</span></span></span><span class=line><span class=cl>  --source<span class=o>=</span><span class=s2>&#34;</span><span class=k>$(</span>git config --get remote.origin.url<span class=k>)</span><span class=s2>&#34;</span> <span class=se>\
+</span></span></span><span class=line><span class=cl>  --revision<span class=o>=</span><span class=s2>&#34;</span><span class=k>$(</span>git rev-parse HEAD<span class=k>)</span><span class=s2>&#34;</span>
+</span></span></code></pre></div><p><code>--source</code> and <code>--revision</code> stamp provenance metadata onto the artifact;
+set them to a URL and a version identifier of your choosing.</p></li><li><p>Create the <code>OCIRepository</code> source. With the Flux CLI:</p><div class=highlight><pre tabindex=0 class=chroma><code class=language-shell data-lang=shell><span class=line><span class=cl>flux create <span class=nb>source</span> oci dashboards-source <span class=se>\
+</span></span></span><span class=line><span class=cl>  --url<span class=o>=</span>oci://ghcr.io/example-org/dashboards <span class=se>\
+</span></span></span><span class=line><span class=cl>  --tag<span class=o>=</span>v1 <span class=se>\
+</span></span></span><span class=line><span class=cl>  --interval<span class=o>=</span>5m <span class=se>\
+</span></span></span><span class=line><span class=cl>  --namespace<span class=o>=</span>default <span class=se>\
+</span></span></span><span class=line><span class=cl>  --export
+</span></span></code></pre></div><p>The equivalent CR YAML, which is authoritative:</p><div class=highlight><pre tabindex=0 class=chroma><code class=language-yaml data-lang=yaml><span class=line><span class=cl><span class=nt>apiVersion</span><span class=p>:</span><span class=w> </span><span class=l>source.toolkit.fluxcd.io/v1</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=nt>kind</span><span class=p>:</span><span class=w> </span><span class=l>OCIRepository</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=nt>metadata</span><span class=p>:</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>  </span><span class=nt>name</span><span class=p>:</span><span class=w> </span><span class=l>dashboards-source</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>  </span><span class=nt>namespace</span><span class=p>:</span><span class=w> </span><span class=l>default</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=nt>spec</span><span class=p>:</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>  </span><span class=nt>interval</span><span class=p>:</span><span class=w> </span><span class=l>5m</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>  </span><span class=nt>url</span><span class=p>:</span><span class=w> </span><span class=l>oci://ghcr.io/example-org/dashboards</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>  </span><span class=nt>ref</span><span class=p>:</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=nt>tag</span><span class=p>:</span><span class=w> </span><span class=l>v1</span><span class=w>
+</span></span></span></code></pre></div></li><li><p>Point a snippet&rsquo;s <code>spec.sourceRef</code> at the source with <code>kind: OCIRepository</code>:</p><div class=highlight><pre tabindex=0 class=chroma><code class=language-yaml data-lang=yaml><span class=line><span class=cl><span class=nt>apiVersion</span><span class=p>:</span><span class=w> </span><span class=l>jaas.metio.wtf/v1</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=nt>kind</span><span class=p>:</span><span class=w> </span><span class=l>JsonnetSnippet</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=nt>metadata</span><span class=p>:</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>  </span><span class=nt>name</span><span class=p>:</span><span class=w> </span><span class=l>api-latency-dashboard</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>  </span><span class=nt>namespace</span><span class=p>:</span><span class=w> </span><span class=l>default</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=nt>spec</span><span class=p>:</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>  </span><span class=nt>serviceAccountName</span><span class=p>:</span><span class=w> </span><span class=l>dashboards-tenant</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>  </span><span class=nt>entryFile</span><span class=p>:</span><span class=w> </span><span class=l>main.jsonnet</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>  </span><span class=nt>sourceRef</span><span class=p>:</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=nt>kind</span><span class=p>:</span><span class=w> </span><span class=l>OCIRepository</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=nt>name</span><span class=p>:</span><span class=w> </span><span class=l>dashboards-source</span><span class=w>
+</span></span></span></code></pre></div></li></ol><blockquote><p><strong>Single layer is mandatory.</strong> <code>flux push artifact</code> produces an OCI artifact
+with exactly one gzipped-tar layer, which is what source-controller expects
+and the only shape it unpacks. An artifact built any other way — a hand-rolled
+<code>oras push</code> with one file per layer, a <code>Dockerfile</code>/container-image build, or
+any tool that splits content across multiple layers — is not consumed
+correctly. source-controller cannot reconstruct the file tree, the snippet&rsquo;s
+source never resolves, and the snippet reports <code>Ready=False</code>. Always build OCI
+sources with <code>flux push artifact</code>.</p></blockquote><p>Verify the layer count before relying on an artifact. Fetch the manifest and
+confirm the <code>layers</code> array has length 1:</p><div class=highlight><pre tabindex=0 class=chroma><code class=language-shell data-lang=shell><span class=line><span class=cl>oras manifest fetch oci://ghcr.io/example-org/dashboards:v1 <span class=p>|</span> <span class=se>\
+</span></span></span><span class=line><span class=cl>  jq <span class=s1>&#39;.layers | length&#39;</span>
+</span></span></code></pre></div><p>A result of <code>1</code> is required. Any other number means the artifact was not built
+with <code>flux push artifact</code> and will not resolve.</p><h3 id=private-registries-and-amazon-ecr>Private registries and Amazon ECR</h3><p>source-controller performs the pull, so registry credentials belong on the
+<code>OCIRepository</code> (or on source-controller itself) — never on the JaaS operator or a
+snippet&rsquo;s ServiceAccount. The same applies to a <code>JsonnetLibrary</code> whose <code>sourceRef</code>
+points at an <code>OCIRepository</code>.</p><p>For a generic private registry, add a <code>spec.secretRef</code> to a <code>docker-registry</code>
+Secret. For <strong>Amazon ECR you need no pull Secret at all</strong>: set <code>spec.provider: aws</code>
+and source-controller authenticates with its own ambient AWS identity. On EKS that
+is an IRSA role bound to <strong>source-controller&rsquo;s</strong> ServiceAccount with ECR read
+permissions:</p><div class=highlight><pre tabindex=0 class=chroma><code class=language-yaml data-lang=yaml><span class=line><span class=cl><span class=nt>apiVersion</span><span class=p>:</span><span class=w> </span><span class=l>source.toolkit.fluxcd.io/v1</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=nt>kind</span><span class=p>:</span><span class=w> </span><span class=l>OCIRepository</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=nt>metadata</span><span class=p>:</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>  </span><span class=nt>name</span><span class=p>:</span><span class=w> </span><span class=l>dashboards-source</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>  </span><span class=nt>namespace</span><span class=p>:</span><span class=w> </span><span class=l>default</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=nt>spec</span><span class=p>:</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>  </span><span class=nt>interval</span><span class=p>:</span><span class=w> </span><span class=l>5m</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>  </span><span class=nt>provider</span><span class=p>:</span><span class=w> </span><span class=l>aws</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>  </span><span class=nt>url</span><span class=p>:</span><span class=w> </span><span class=l>oci://111122223333.dkr.ecr.eu-west-1.amazonaws.com/dashboards</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>  </span><span class=nt>ref</span><span class=p>:</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=nt>tag</span><span class=p>:</span><span class=w> </span><span class=l>v1</span><span class=w>
+</span></span></span></code></pre></div><p>The IRSA role needs <code>ecr:GetAuthorizationToken</code> (resource <code>*</code>) plus
+<code>ecr:BatchGetImage</code> and <code>ecr:GetDownloadUrlForLayer</code> on the repository. Because the
+credential is source-controller&rsquo;s, one role covers every <code>OCIRepository</code> it pulls,
+and the JaaS operator stays out of the registry path entirely.</p><p>This IRSA role is source-controller&rsquo;s, not the JaaS operator&rsquo;s. The JaaS operator
+uses IRSA only for its own <a href=/operator/storage-and-ha/>S3 storage backend</a>
+— a
+separate concern from pulling sources.</p><p>There is a third way to load OCI content that does not go through a <code>sourceRef</code> at
+all: the chart can mount snippets and libraries from <strong>OCI image volumes</strong>
+(<code>snippets</code> / <code>additionalLibraries</code>), read straight from a registry into the pod.
+Those volumes are pulled by the <strong>kubelet</strong>, exactly like a container image — so
+they authenticate the way images do, not through IRSA. On EKS that means the
+<strong>node&rsquo;s</strong> IAM role with ECR read (the <code>AmazonEC2ContainerRegistryReadOnly</code>
+managed policy the default node role already carries), or an <code>imagePullSecret</code> on
+the pod. Pod-level IRSA grants the <em>pod&rsquo;s</em> ServiceAccount AWS API access, which the
+kubelet does not use when pulling images, so it is not the mechanism for this path.
+With a node role that can read ECR, image-volume snippets and libraries load with
+no pull Secret. Static OCI mounts and operator mode are mutually exclusive in one
+release, so a given install uses either these mounts or the <code>sourceRef</code> path above,
+not both.</p><p>The <a href=https://github.com/metio/jsonnet-oci-images>jsonnet-oci-images (JOI)</a>
+project enforces this same single-layer rule for every image it publishes, so
+its images are ready-made single-layer <code>OCIRepository</code> sources. Reference a JOI
+image directly when you need a shared Jsonnet library tree (grafonnet, the
+jsonnet-libs catalog) rather than building and maintaining your own OCI source.</p><h2 id=bucket>Bucket</h2><p>A <code>Bucket</code> source mirrors objects from an S3- or GCS-compatible bucket.
+source-controller fetches the matching objects, packs them into the tarball the
+operator fetches, and there is no layer constraint — the only requirement is
+that the objects laid out under the bucket prefix form the file tree your snippet
+expects.</p><ol><li><p>Produce the files to upload. Either upload the individual <code>.jsonnet</code> /
+<code>.libsonnet</code> files under a prefix, or pack them into a single archive — both
+work, source-controller flattens the mirrored objects into the file tree:</p><div class=highlight><pre tabindex=0 class=chroma><code class=language-text data-lang=text><span class=line><span class=cl>dashboards/
+</span></span><span class=line><span class=cl>├── main.jsonnet
+</span></span><span class=line><span class=cl>└── lib/
+</span></span><span class=line><span class=cl>    └── panels.libsonnet
+</span></span></code></pre></div></li><li><p>Upload the files to the bucket under a prefix. With the AWS CLI against an
+S3-compatible endpoint:</p><div class=highlight><pre tabindex=0 class=chroma><code class=language-shell data-lang=shell><span class=line><span class=cl>aws s3 cp dashboards/ s3://example-bucket/dashboards/ <span class=se>\
+</span></span></span><span class=line><span class=cl>  --recursive <span class=se>\
+</span></span></span><span class=line><span class=cl>  --endpoint-url<span class=o>=</span>https://s3.example.com
+</span></span></code></pre></div></li><li><p>Create the <code>Bucket</code> source. With the Flux CLI:</p><div class=highlight><pre tabindex=0 class=chroma><code class=language-shell data-lang=shell><span class=line><span class=cl>flux create <span class=nb>source</span> bucket dashboards-source <span class=se>\
+</span></span></span><span class=line><span class=cl>  --bucket-name<span class=o>=</span>example-bucket <span class=se>\
+</span></span></span><span class=line><span class=cl>  --endpoint<span class=o>=</span>s3.example.com <span class=se>\
+</span></span></span><span class=line><span class=cl>  --provider<span class=o>=</span>generic <span class=se>\
+</span></span></span><span class=line><span class=cl>  --secret-ref<span class=o>=</span>bucket-credentials <span class=se>\
+</span></span></span><span class=line><span class=cl>  --interval<span class=o>=</span>5m <span class=se>\
+</span></span></span><span class=line><span class=cl>  --namespace<span class=o>=</span>default <span class=se>\
+</span></span></span><span class=line><span class=cl>  --export
+</span></span></code></pre></div><p>The equivalent CR YAML, which is authoritative:</p><div class=highlight><pre tabindex=0 class=chroma><code class=language-yaml data-lang=yaml><span class=line><span class=cl><span class=nt>apiVersion</span><span class=p>:</span><span class=w> </span><span class=l>source.toolkit.fluxcd.io/v1</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=nt>kind</span><span class=p>:</span><span class=w> </span><span class=l>Bucket</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=nt>metadata</span><span class=p>:</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>  </span><span class=nt>name</span><span class=p>:</span><span class=w> </span><span class=l>dashboards-source</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>  </span><span class=nt>namespace</span><span class=p>:</span><span class=w> </span><span class=l>default</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=nt>spec</span><span class=p>:</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>  </span><span class=nt>interval</span><span class=p>:</span><span class=w> </span><span class=l>5m</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>  </span><span class=nt>provider</span><span class=p>:</span><span class=w> </span><span class=l>generic</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>  </span><span class=nt>bucketName</span><span class=p>:</span><span class=w> </span><span class=l>example-bucket</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>  </span><span class=nt>endpoint</span><span class=p>:</span><span class=w> </span><span class=l>s3.example.com</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>  </span><span class=nt>secretRef</span><span class=p>:</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=nt>name</span><span class=p>:</span><span class=w> </span><span class=l>bucket-credentials</span><span class=w>
+</span></span></span></code></pre></div><p>The referenced Secret carries the bucket credentials (<code>accesskey</code> /
+<code>secretkey</code>). See the <a href=https://fluxcd.io/>Flux documentation</a>
+for the Secret
+layout and provider-specific fields.</p></li><li><p>Point a snippet&rsquo;s <code>spec.sourceRef</code> at the source with <code>kind: Bucket</code>. Use
+<code>path:</code> to extract only the prefix that holds your Jsonnet:</p><div class=highlight><pre tabindex=0 class=chroma><code class=language-yaml data-lang=yaml><span class=line><span class=cl><span class=nt>apiVersion</span><span class=p>:</span><span class=w> </span><span class=l>jaas.metio.wtf/v1</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=nt>kind</span><span class=p>:</span><span class=w> </span><span class=l>JsonnetSnippet</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=nt>metadata</span><span class=p>:</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>  </span><span class=nt>name</span><span class=p>:</span><span class=w> </span><span class=l>api-latency-dashboard</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>  </span><span class=nt>namespace</span><span class=p>:</span><span class=w> </span><span class=l>default</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=nt>spec</span><span class=p>:</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>  </span><span class=nt>serviceAccountName</span><span class=p>:</span><span class=w> </span><span class=l>dashboards-tenant</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>  </span><span class=nt>entryFile</span><span class=p>:</span><span class=w> </span><span class=l>main.jsonnet</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>  </span><span class=nt>sourceRef</span><span class=p>:</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=nt>kind</span><span class=p>:</span><span class=w> </span><span class=l>Bucket</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=nt>name</span><span class=p>:</span><span class=w> </span><span class=l>dashboards-source</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=nt>path</span><span class=p>:</span><span class=w> </span><span class=l>dashboards/</span><span class=w>
+</span></span></span></code></pre></div></li></ol><h2 id=which-source-should-i-use>Which source should I use?</h2><table><thead><tr><th>Source</th><th>Use when</th></tr></thead><tbody><tr><td><code>GitRepository</code></td><td>Your Jsonnet is human-authored configuration living in a version-controlled git repository.</td></tr><tr><td><code>OCIRepository</code></td><td>You want an immutable, content-addressed artifact; must be a single layer, and pairs with JOI images.</td></tr><tr><td><code>Bucket</code></td><td>Your artifacts already live in S3- or GCS-compatible object storage.</td></tr></tbody></table></div></main><footer id=footer><p xmlns:dct=http://purl.org/dc/terms/ xmlns:vcard=http://www.w3.org/2001/vcard-rdf/3.0#><a rel=license href=https://creativecommons.org/publicdomain/zero/1.0/><img src=https://jaas.projects.metio.wtf/images/cc0.png style=border-style:none alt=CC0-1.0 width=88px height=31px></a><br>To the extent possible under law,
+<a rel=dct:publisher href=https://jaas.projects.metio.wtf/><span property="dct:title">metio.wtf</span>
+</a>has waived all copyright and related or neighboring rights to
+<span property="dct:title">jaas.projects.metio.wtf</span>.
+This work is published from:
+<span property="vcard:Country" datatype="dct:ISO3166" content="EN" about="https://jaas.projects.metio.wtf/">Germany</span></p><p id=footer-llms>For LLMs:
+<a href=https://jaas.projects.metio.wtf/llms.txt>llms.txt</a> &#183;
+<a href=https://jaas.projects.metio.wtf/llms-full.txt>llms-full.txt</a></p></footer></body></html>

@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Externalartifact on Jsonnet-as-a-Service</title><link>https://jaas.projects.metio.wtf/tags/externalartifact/</link><description>Recent content in Externalartifact on Jsonnet-as-a-Service</description><generator>Hugo</generator><language>en</language><atom:link href="https://jaas.projects.metio.wtf/tags/externalartifact/index.xml" rel="self" type="application/rss+xml"/><item><title>Deploying manifests with StageSet</title><link>https://jaas.projects.metio.wtf/guides/deploying-manifests/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/guides/deploying-manifests/</guid><description>&lt;p&gt;JaaS pairs with &lt;a href="https://stageset.projects.metio.wtf/"&gt;stageset-controller&lt;/a&gt;
+ to
+deploy Kubernetes manifests as code: you author the manifests in Jsonnet, the
+JaaS operator renders and publishes them as a Flux &lt;code&gt;ExternalArtifact&lt;/code&gt;, and
+stageset-controller rolls that artifact out across ordered, gated stages.&lt;/p&gt;
+&lt;p&gt;This tutorial covers the JaaS side — authoring the manifests with top-level
+arguments and external variables, and publishing the rendered JSON. For the
+rollout side (the &lt;code&gt;StageSet&lt;/code&gt; resource, its stages, gates, and actions), see the
+links at the end.&lt;/p&gt;</description></item><item><title>Grafana dashboards</title><link>https://jaas.projects.metio.wtf/guides/grafana-dashboards/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/guides/grafana-dashboards/</guid><description>&lt;p&gt;JaaS pairs with the
+&lt;a href="https://grafana.github.io/grafana-operator/"&gt;grafana-operator&lt;/a&gt;
+ to manage
+Grafana dashboards as code: you author the dashboard in Jsonnet, the JaaS
+operator renders it and publishes the dashboard JSON as a Flux
+&lt;code&gt;ExternalArtifact&lt;/code&gt;, and the grafana-operator reconciles that artifact into a live
+Grafana instance.&lt;/p&gt;
+&lt;p&gt;This tutorial covers the JaaS side — authoring the dashboard, importing
+grafonnet as a &lt;code&gt;JsonnetLibrary&lt;/code&gt;, and publishing the rendered JSON. For the
+grafana-operator side (the &lt;code&gt;GrafanaDashboard&lt;/code&gt; CR, datasources, folders), see the
+links at the end.&lt;/p&gt;</description></item><item><title>Quickstart</title><link>https://jaas.projects.metio.wtf/get-started/quickstart/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/get-started/quickstart/</guid><description>&lt;p&gt;This tutorial takes you from an empty cluster to one published Flux
+&lt;code&gt;ExternalArtifact&lt;/code&gt; carrying rendered JSON. The path is operator mode with no
+optional knobs — no webhook, no S3, no Flux source CRs — and a single
+&lt;code&gt;JsonnetSnippet&lt;/code&gt; whose source is inline &lt;code&gt;spec.files&lt;/code&gt;.&lt;/p&gt;
+&lt;h2 id="prerequisites"&gt;Prerequisites&lt;/h2&gt;
+&lt;ul&gt;
+&lt;li&gt;
+&lt;p&gt;A Kubernetes cluster. &lt;code&gt;kind&lt;/code&gt;, &lt;code&gt;minikube&lt;/code&gt;, or a managed cluster all work.&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;code&gt;kubectl&lt;/code&gt; configured to talk to it.&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;code&gt;helm&lt;/code&gt; 3.x.&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;Flux installed, at &lt;strong&gt;v2.7.0 or newer&lt;/strong&gt;. A &lt;code&gt;JsonnetSnippet&lt;/code&gt; publishes its
+result as a Flux &lt;code&gt;ExternalArtifact&lt;/code&gt;, and the &lt;code&gt;ExternalArtifact&lt;/code&gt; CRD lands in
+source-controller v1.7.0 (Flux v2.7.0) — earlier bundles have no such CRD and
+the publish path fails. Install all of Flux:&lt;/p&gt;</description></item></channel></rss>

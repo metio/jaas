@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Operator mode on Jsonnet-as-a-Service</title><link>https://jaas.projects.metio.wtf/operator/</link><description>Recent content in Operator mode on Jsonnet-as-a-Service</description><generator>Hugo</generator><language>en</language><atom:link href="https://jaas.projects.metio.wtf/operator/index.xml" rel="self" type="application/rss+xml"/><item><title>Creating source artifacts</title><link>https://jaas.projects.metio.wtf/operator/creating-sources/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/operator/creating-sources/</guid><description>&lt;p&gt;A &lt;code&gt;JsonnetSnippet&lt;/code&gt;&amp;rsquo;s &lt;code&gt;spec.sourceRef&lt;/code&gt; consumes a Flux source. The operator reads
+the referenced source CR&amp;rsquo;s &lt;code&gt;status.artifact.url&lt;/code&gt;, downloads the tarball Flux&amp;rsquo;s
+source-controller serves there, verifies its &lt;code&gt;status.artifact.digest&lt;/code&gt;, and
+extracts it into the snippet&amp;rsquo;s file tree. Every supported kind —
+&lt;code&gt;GitRepository&lt;/code&gt;, &lt;code&gt;OCIRepository&lt;/code&gt;, and &lt;code&gt;Bucket&lt;/code&gt; — reaches the operator through
+that same &lt;code&gt;status.artifact&lt;/code&gt; contract, so the operator never talks to a git
+remote, an OCI registry, or an object store directly. Flux owns that fetch; the
+operator consumes the artifact Flux already produced.&lt;/p&gt;</description></item><item><title>Operator mode</title><link>https://jaas.projects.metio.wtf/operator/operator-mode/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/operator/operator-mode/</guid><description>&lt;p&gt;JaaS runs as a Kubernetes operator alongside its HTTP renderer. In this mode it
+watches custom resources, evaluates the Jsonnet they describe, and publishes the
+result as a Flux &lt;a href="https://fluxcd.io/"&gt;&lt;code&gt;ExternalArtifact&lt;/code&gt;&lt;/a&gt;
+ that downstream
+controllers consume. The HTTP renderer keeps running; the operator is an
+additional set of goroutines, not a separate binary.&lt;/p&gt;
+&lt;h2 id="enabling-the-operator"&gt;Enabling the operator&lt;/h2&gt;
+&lt;p&gt;Set &lt;code&gt;--enable-flux-integration&lt;/code&gt; on the binary:&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-shell" data-lang="shell"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;jaas --enable-flux-integration &lt;span class="se"&gt;\
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; --storage-path&lt;span class="o"&gt;=&lt;/span&gt;/var/lib/jaas/artifacts &lt;span class="se"&gt;\
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; --storage-base-url&lt;span class="o"&gt;=&lt;/span&gt;http://jaas-storage.jaas.svc:8082
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;&lt;code&gt;--storage-path&lt;/code&gt; and &lt;code&gt;--storage-base-url&lt;/code&gt; are required in operator mode — they
+tell the operator where to write artifact tarballs and the public URL prefix
+downstream consumers fetch them from.&lt;/p&gt;</description></item><item><title>Snippet sources</title><link>https://jaas.projects.metio.wtf/operator/snippet-sources/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/operator/snippet-sources/</guid><description>&lt;p&gt;A &lt;code&gt;JsonnetSnippet&lt;/code&gt; declares exactly one source for its Jsonnet bytes: either
+inline &lt;code&gt;spec.files&lt;/code&gt; or a &lt;code&gt;spec.sourceRef&lt;/code&gt; pointing at a Flux source. Admission
+rejects a snippet that sets both or neither. The operator resolves the source
+into an in-memory file tree, evaluates &lt;code&gt;spec.entryFile&lt;/code&gt; within it, and publishes
+the result.&lt;/p&gt;
+&lt;h2 id="inline-files"&gt;Inline files&lt;/h2&gt;
+&lt;p&gt;&lt;code&gt;spec.files&lt;/code&gt; is a map of filename to Jsonnet source. The operator evaluates the
+entry file (&lt;code&gt;spec.entryFile&lt;/code&gt;, default &lt;code&gt;main.jsonnet&lt;/code&gt;) against the rest of the
+map. This is the simplest source — the snippet is self-contained, with no
+external dependency to fetch:&lt;/p&gt;</description></item><item><title>Storage and high availability</title><link>https://jaas.projects.metio.wtf/operator/storage-and-ha/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/operator/storage-and-ha/</guid><description>&lt;p&gt;In &lt;a href="https://jaas.projects.metio.wtf/operator/operator-mode/"&gt;operator mode&lt;/a&gt;
+ JaaS renders each &lt;code&gt;JsonnetSnippet&lt;/code&gt; into
+a tar.gz artifact, stores it, and publishes an &lt;code&gt;ExternalArtifact&lt;/code&gt; CR that points a
+Flux consumer at the tarball over HTTP. JaaS publishes artifacts through one of two
+storage backends — local filesystem or S3-compatible object storage — with optional
+leader election for multi-replica high availability and configurable revision
+retention.&lt;/p&gt;
+&lt;h2 id="serving-the-tarballs"&gt;Serving the tarballs&lt;/h2&gt;
+&lt;p&gt;Regardless of backend, the operator runs an HTTP server that Flux consumers fetch
+artifacts from. Three flags govern it, and &lt;code&gt;--storage-base-url&lt;/code&gt; and
+&lt;code&gt;--storage-path&lt;/code&gt; are required whenever &lt;code&gt;--enable-flux-integration&lt;/code&gt; is set:&lt;/p&gt;</description></item></channel></rss>

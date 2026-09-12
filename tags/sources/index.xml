@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Sources on Jsonnet-as-a-Service</title><link>https://jaas.projects.metio.wtf/tags/sources/</link><description>Recent content in Sources on Jsonnet-as-a-Service</description><generator>Hugo</generator><language>en</language><atom:link href="https://jaas.projects.metio.wtf/tags/sources/index.xml" rel="self" type="application/rss+xml"/><item><title>Creating source artifacts</title><link>https://jaas.projects.metio.wtf/operator/creating-sources/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/operator/creating-sources/</guid><description>&lt;p&gt;A &lt;code&gt;JsonnetSnippet&lt;/code&gt;&amp;rsquo;s &lt;code&gt;spec.sourceRef&lt;/code&gt; consumes a Flux source. The operator reads
+the referenced source CR&amp;rsquo;s &lt;code&gt;status.artifact.url&lt;/code&gt;, downloads the tarball Flux&amp;rsquo;s
+source-controller serves there, verifies its &lt;code&gt;status.artifact.digest&lt;/code&gt;, and
+extracts it into the snippet&amp;rsquo;s file tree. Every supported kind —
+&lt;code&gt;GitRepository&lt;/code&gt;, &lt;code&gt;OCIRepository&lt;/code&gt;, and &lt;code&gt;Bucket&lt;/code&gt; — reaches the operator through
+that same &lt;code&gt;status.artifact&lt;/code&gt; contract, so the operator never talks to a git
+remote, an OCI registry, or an object store directly. Flux owns that fetch; the
+operator consumes the artifact Flux already produced.&lt;/p&gt;</description></item><item><title>DependencyCycle</title><link>https://jaas.projects.metio.wtf/runbooks/dependencycycle/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/runbooks/dependencycycle/</guid><description>&lt;h2 id="symptom"&gt;Symptom&lt;/h2&gt;
+&lt;p&gt;&lt;code&gt;READY=False&lt;/code&gt;, &lt;code&gt;REASON=DependencyCycle&lt;/code&gt;. The Message names the snippet that closes the cycle.&lt;/p&gt;
+&lt;h2 id="cause"&gt;Cause&lt;/h2&gt;
+&lt;p&gt;The snippet&amp;rsquo;s &lt;code&gt;spec.sourceRef&lt;/code&gt; chain transitively points back at the snippet itself. The reconciler detects this and refuses to publish so chained snippets don&amp;rsquo;t loop forever (each republish would trigger every downstream snippet to re-render, which would re-trigger the upstream, and so on).&lt;/p&gt;
+&lt;p&gt;Two cycle shapes:&lt;/p&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;Direct sourceRef cycle:&lt;/strong&gt; &lt;code&gt;A.spec.sourceRef → ExternalArtifact/A&lt;/code&gt;. A snippet sourcing from its own published artifact.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Library-mediated cycle:&lt;/strong&gt; &lt;code&gt;A.spec.libraries → JsonnetLibrary/L&lt;/code&gt;, where &lt;code&gt;L.spec.sourceRef → ExternalArtifact/A&lt;/code&gt; (or a longer chain back to A).&lt;/li&gt;
+&lt;/ol&gt;
+&lt;p&gt;The validating webhook (&lt;code&gt;--enable-webhook&lt;/code&gt;) rejects new CRs that introduce a cycle at admission; the reconciler check is a fallback for when admission is bypassed or the cycle is introduced retroactively (e.g., adding a new library that closes a loop with existing snippets).&lt;/p&gt;</description></item><item><title>Operator mode</title><link>https://jaas.projects.metio.wtf/operator/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/operator/</guid><description>&lt;p&gt;With Flux integration enabled, JaaS watches &lt;code&gt;JsonnetSnippet&lt;/code&gt; resources, evaluates
+them, and publishes each result as an &lt;code&gt;ExternalArtifact&lt;/code&gt; that Flux consumers can
+deploy. These pages cover the operator and the sources it reads and writes.&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;&lt;a href="https://jaas.projects.metio.wtf/operator/operator-mode/"&gt;Operator mode&lt;/a&gt;
+&lt;/strong&gt; — enable the operator and the
+custom resources it reconciles.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;a href="https://jaas.projects.metio.wtf/operator/snippet-sources/"&gt;Snippet sources&lt;/a&gt;
+&lt;/strong&gt; — point a snippet at a Flux
+source for its inputs.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;a href="https://jaas.projects.metio.wtf/operator/creating-sources/"&gt;Creating source artifacts&lt;/a&gt;
+&lt;/strong&gt; — how snippets are
+published as &lt;code&gt;ExternalArtifact&lt;/code&gt; outputs.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;a href="https://jaas.projects.metio.wtf/operator/storage-and-ha/"&gt;Storage and HA&lt;/a&gt;
+&lt;/strong&gt; — artifact storage backends and
+leader-elected high availability.&lt;/li&gt;
+&lt;/ul&gt;</description></item><item><title>Snippet sources</title><link>https://jaas.projects.metio.wtf/operator/snippet-sources/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/operator/snippet-sources/</guid><description>&lt;p&gt;A &lt;code&gt;JsonnetSnippet&lt;/code&gt; declares exactly one source for its Jsonnet bytes: either
+inline &lt;code&gt;spec.files&lt;/code&gt; or a &lt;code&gt;spec.sourceRef&lt;/code&gt; pointing at a Flux source. Admission
+rejects a snippet that sets both or neither. The operator resolves the source
+into an in-memory file tree, evaluates &lt;code&gt;spec.entryFile&lt;/code&gt; within it, and publishes
+the result.&lt;/p&gt;
+&lt;h2 id="inline-files"&gt;Inline files&lt;/h2&gt;
+&lt;p&gt;&lt;code&gt;spec.files&lt;/code&gt; is a map of filename to Jsonnet source. The operator evaluates the
+entry file (&lt;code&gt;spec.entryFile&lt;/code&gt;, default &lt;code&gt;main.jsonnet&lt;/code&gt;) against the rest of the
+map. This is the simplest source — the snippet is self-contained, with no
+external dependency to fetch:&lt;/p&gt;</description></item><item><title>SourceFetchFailed</title><link>https://jaas.projects.metio.wtf/runbooks/sourcefetchfailed/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/runbooks/sourcefetchfailed/</guid><description>&lt;h2 id="symptom"&gt;Symptom&lt;/h2&gt;
+&lt;p&gt;&lt;code&gt;READY=False&lt;/code&gt;, &lt;code&gt;REASON=SourceFetchFailed&lt;/code&gt;. The Message describes what went wrong (HTTP error, digest mismatch, tarball too large, etc.).&lt;/p&gt;
+&lt;h2 id="cause"&gt;Cause&lt;/h2&gt;
+&lt;p&gt;The Fetcher resolved the source CR and started downloading the artifact, but the download itself failed. Three subcategories:&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;HTTP failure&lt;/strong&gt; — connection refused, 5xx from the source-controller endpoint, TLS handshake error&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Digest mismatch&lt;/strong&gt; — the bytes don&amp;rsquo;t hash to &lt;code&gt;status.artifact.digest&lt;/code&gt;. Possible truncation or in-flight tampering&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Tarball oversized&lt;/strong&gt; — extracted bytes exceed &lt;code&gt;MaxArchiveBytes&lt;/code&gt; (default 64 MiB)&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h2 id="diagnosis"&gt;Diagnosis&lt;/h2&gt;
+&lt;p&gt;Check the source CR&amp;rsquo;s &lt;code&gt;status.artifact.url&lt;/code&gt; is reachable from the operator pod:&lt;/p&gt;</description></item><item><title>SourceNotReady</title><link>https://jaas.projects.metio.wtf/runbooks/sourcenotready/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/runbooks/sourcenotready/</guid><description>&lt;h2 id="symptom"&gt;Symptom&lt;/h2&gt;
+&lt;p&gt;&lt;code&gt;READY=False&lt;/code&gt;, &lt;code&gt;REASON=SourceNotReady&lt;/code&gt;. The Message names the source CR (&lt;code&gt;GitRepository/foo&lt;/code&gt;, &lt;code&gt;ExternalArtifact/bar&lt;/code&gt;, etc.).&lt;/p&gt;
+&lt;h2 id="cause"&gt;Cause&lt;/h2&gt;
+&lt;p&gt;The Flux source CR the snippet references exists but its own &lt;code&gt;status.conditions[Ready]&lt;/code&gt; is not yet True (or &lt;code&gt;status.artifact&lt;/code&gt; is empty). The operator refuses to fetch from a source it can&amp;rsquo;t trust as ready.&lt;/p&gt;
+&lt;p&gt;For chained snippets specifically: the upstream snippet may have failed reconciliation, so its ExternalArtifact is stale or unpopulated.&lt;/p&gt;
+&lt;h2 id="diagnosis"&gt;Diagnosis&lt;/h2&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-shell" data-lang="shell"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;kubectl --namespace &amp;lt;ns&amp;gt; describe &amp;lt;kind&amp;gt; &amp;lt;source-name&amp;gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="c1"&gt;# Look for the Ready condition and any error messages.&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;For Flux sources, also check the source-controller logs:&lt;/p&gt;</description></item><item><title>SourceRefNotYetSupported</title><link>https://jaas.projects.metio.wtf/runbooks/sourcerefnotyetsupported/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/runbooks/sourcerefnotyetsupported/</guid><description>&lt;h2 id="symptom"&gt;Symptom&lt;/h2&gt;
+&lt;p&gt;&lt;code&gt;READY=False&lt;/code&gt;, &lt;code&gt;REASON=SourceRefNotYetSupported&lt;/code&gt;.&lt;/p&gt;
+&lt;h2 id="cause"&gt;Cause&lt;/h2&gt;
+&lt;p&gt;The snippet sets &lt;code&gt;spec.sourceRef&lt;/code&gt; but the operator was built without a Fetcher wired in. This is a mis-deployment in practice — production binary always wires &lt;code&gt;sources.New()&lt;/code&gt;. Seeing this in a real cluster means you&amp;rsquo;re running:&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;a test/dev binary&lt;/li&gt;
+&lt;li&gt;a custom build where &lt;code&gt;defaultBuilder&lt;/code&gt; was modified&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h2 id="diagnosis"&gt;Diagnosis&lt;/h2&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-shell" data-lang="shell"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;kubectl --namespace &amp;lt;jaas-ns&amp;gt; logs deploy/jaas &lt;span class="p"&gt;|&lt;/span&gt; grep -i &lt;span class="s2"&gt;&amp;#34;fetcher&amp;#34;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;If the operator logs no Fetcher initialization, the binary is incomplete.&lt;/p&gt;
+&lt;h2 id="remediation"&gt;Remediation&lt;/h2&gt;
+&lt;p&gt;Use a release binary, or convert the snippet to &lt;code&gt;spec.files&lt;/code&gt; inline as a temporary workaround.&lt;/p&gt;</description></item></channel></rss>

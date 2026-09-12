@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Prometheus on Jsonnet-as-a-Service</title><link>https://jaas.projects.metio.wtf/tags/prometheus/</link><description>Recent content in Prometheus on Jsonnet-as-a-Service</description><generator>Hugo</generator><language>en</language><atom:link href="https://jaas.projects.metio.wtf/tags/prometheus/index.xml" rel="self" type="application/rss+xml"/><item><title>Alerting</title><link>https://jaas.projects.metio.wtf/observability/alerting/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/observability/alerting/</guid><description>&lt;p&gt;JaaS turns a sustained problem into a notification two ways: a Prometheus
+&lt;code&gt;PrometheusRule&lt;/code&gt; that pages on its &lt;a href="https://jaas.projects.metio.wtf/observability/metrics/"&gt;metrics&lt;/a&gt;
+, and Kubernetes
+Events that Flux&amp;rsquo;s notification-controller can route to chat or e-mail.&lt;/p&gt;
+&lt;h2 id="the-binary"&gt;The binary&lt;/h2&gt;
+&lt;p&gt;The operator emits a standard Kubernetes &lt;code&gt;Event&lt;/code&gt; on every Ready-condition
+transition — &lt;code&gt;Normal&lt;/code&gt; for &lt;code&gt;Synced&lt;/code&gt;, &lt;code&gt;Warning&lt;/code&gt; for every other reason. The reason
+string fills both the event &lt;code&gt;reason&lt;/code&gt; and &lt;code&gt;action&lt;/code&gt;. These Events need no flag to
+enable; they are written whenever the operator reconciles.&lt;/p&gt;</description></item><item><title>Metrics</title><link>https://jaas.projects.metio.wtf/observability/metrics/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/observability/metrics/</guid><description>&lt;p&gt;The JaaS operator exposes a Prometheus metrics endpoint covering controller-runtime&amp;rsquo;s
+standard families plus a custom &lt;code&gt;jaas_*&lt;/code&gt; family the reconciler registers. Scrape
+it for dashboards and feed it into the shipped &lt;a href="https://jaas.projects.metio.wtf/observability/alerting/"&gt;alerts&lt;/a&gt;
+.&lt;/p&gt;
+&lt;h2 id="the-binary"&gt;The binary&lt;/h2&gt;
+&lt;p&gt;controller-runtime&amp;rsquo;s Prometheus endpoint binds &lt;code&gt;--metrics-bind-address&lt;/code&gt; (default
+&lt;code&gt;:8083&lt;/code&gt;), serving the standard text exposition format at &lt;code&gt;/metrics&lt;/code&gt;. Setting it
+to &lt;code&gt;0&lt;/code&gt; disables the endpoint. The default deliberately avoids controller-runtime&amp;rsquo;s
+built-in &lt;code&gt;:8080&lt;/code&gt;, which would collide with the Jsonnet HTTP port.&lt;/p&gt;
+&lt;p&gt;The full flag list with defaults is on the
+&lt;a href="https://jaas.projects.metio.wtf/reference/configuration/"&gt;configuration page&lt;/a&gt;
+.&lt;/p&gt;</description></item></channel></rss>

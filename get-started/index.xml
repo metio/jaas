@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Get started on Jsonnet-as-a-Service</title><link>https://jaas.projects.metio.wtf/get-started/</link><description>Recent content in Get started on Jsonnet-as-a-Service</description><generator>Hugo</generator><language>en</language><atom:link href="https://jaas.projects.metio.wtf/get-started/index.xml" rel="self" type="application/rss+xml"/><item><title>Kubernetes</title><link>https://jaas.projects.metio.wtf/get-started/kubernetes/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/get-started/kubernetes/</guid><description>&lt;p&gt;JaaS ships as a container image at &lt;code&gt;ghcr.io/metio/jaas:latest&lt;/code&gt; and as a Helm
+chart at &lt;code&gt;oci://ghcr.io/metio/helm-charts/jaas&lt;/code&gt;, also listed on
+&lt;a href="https://artifacthub.io/packages/helm/jaas/jaas"&gt;ArtifactHub&lt;/a&gt;
+. Pre-built
+binaries for Linux, macOS, and Windows are attached to each GitHub release for
+operators who prefer to run the binary directly.&lt;/p&gt;
+&lt;h2 id="prerequisites"&gt;Prerequisites&lt;/h2&gt;
+&lt;ul&gt;
+&lt;li&gt;A &lt;a href="https://kubernetes.io/"&gt;Kubernetes&lt;/a&gt;
+ cluster, &lt;strong&gt;v1.28 or later&lt;/strong&gt;, with
+&lt;code&gt;kubectl&lt;/code&gt; configured against it.&lt;/li&gt;
+&lt;li&gt;&lt;a href="https://helm.sh/"&gt;Helm&lt;/a&gt;
+ &lt;strong&gt;v3.14 or later&lt;/strong&gt; — OCI chart support is required to
+pull the chart from &lt;code&gt;ghcr.io&lt;/code&gt;.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;The Flux CR-based mode (below) additionally needs:&lt;/p&gt;</description></item><item><title>Local rendering</title><link>https://jaas.projects.metio.wtf/get-started/local-rendering/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/get-started/local-rendering/</guid><description>&lt;p&gt;JaaS runs as a cluster-free Jsonnet renderer: point it at a directory of
+snippets and a directory of libraries, then &lt;code&gt;GET&lt;/code&gt; a snippet name to receive the
+evaluated JSON. No Kubernetes, no operator mode, no Flux. The evaluation core is
+the same one the operator uses, so a snippet that renders correctly here renders
+identically in-cluster.&lt;/p&gt;
+&lt;p&gt;This tutorial runs against this repository&amp;rsquo;s &lt;code&gt;examples/&lt;/code&gt; layout, so clone the
+repo first:&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-shell" data-lang="shell"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;git clone https://github.com/metio/jaas
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nb"&gt;cd&lt;/span&gt; jaas
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;h2 id="step-1--get-the-binary-or-container-image"&gt;Step 1 — Get the binary or container image&lt;/h2&gt;
+&lt;p&gt;Pre-built binaries are attached to each
+&lt;a href="https://github.com/metio/jaas/releases"&gt;GitHub release&lt;/a&gt;
+. Download the archive
+for your platform, unpack it, and the &lt;code&gt;jaas&lt;/code&gt; binary is inside.&lt;/p&gt;</description></item><item><title>Quickstart</title><link>https://jaas.projects.metio.wtf/get-started/quickstart/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/get-started/quickstart/</guid><description>&lt;p&gt;This tutorial takes you from an empty cluster to one published Flux
+&lt;code&gt;ExternalArtifact&lt;/code&gt; carrying rendered JSON. The path is operator mode with no
+optional knobs — no webhook, no S3, no Flux source CRs — and a single
+&lt;code&gt;JsonnetSnippet&lt;/code&gt; whose source is inline &lt;code&gt;spec.files&lt;/code&gt;.&lt;/p&gt;
+&lt;h2 id="prerequisites"&gt;Prerequisites&lt;/h2&gt;
+&lt;ul&gt;
+&lt;li&gt;
+&lt;p&gt;A Kubernetes cluster. &lt;code&gt;kind&lt;/code&gt;, &lt;code&gt;minikube&lt;/code&gt;, or a managed cluster all work.&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;code&gt;kubectl&lt;/code&gt; configured to talk to it.&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;code&gt;helm&lt;/code&gt; 3.x.&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;Flux installed, at &lt;strong&gt;v2.7.0 or newer&lt;/strong&gt;. A &lt;code&gt;JsonnetSnippet&lt;/code&gt; publishes its
+result as a Flux &lt;code&gt;ExternalArtifact&lt;/code&gt;, and the &lt;code&gt;ExternalArtifact&lt;/code&gt; CRD lands in
+source-controller v1.7.0 (Flux v2.7.0) — earlier bundles have no such CRD and
+the publish path fails. Install all of Flux:&lt;/p&gt;</description></item></channel></rss>

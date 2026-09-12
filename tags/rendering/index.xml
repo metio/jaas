@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Rendering on Jsonnet-as-a-Service</title><link>https://jaas.projects.metio.wtf/tags/rendering/</link><description>Recent content in Rendering on Jsonnet-as-a-Service</description><generator>Hugo</generator><language>en</language><atom:link href="https://jaas.projects.metio.wtf/tags/rendering/index.xml" rel="self" type="application/rss+xml"/><item><title>MCP server</title><link>https://jaas.projects.metio.wtf/integrations/mcp-server/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/integrations/mcp-server/</guid><description>&lt;p&gt;JaaS exposes its evaluator and operator status as &lt;a href="https://modelcontextprotocol.io/"&gt;Model Context Protocol&lt;/a&gt;
+
+tools, so an LLM agent (Claude Code, Claude Desktop, or any MCP client) calls
+them directly. There are two modes, each with its own transport:&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;Local rendering over stdio&lt;/strong&gt; — &lt;code&gt;jaas mcp&lt;/code&gt; wraps the same evaluator the HTTP
+endpoint and the operator use, with no cluster and no Kubernetes client. This
+is the cluster-free authoring loop.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;In-cluster operator introspection over HTTP&lt;/strong&gt; — &lt;code&gt;--enable-mcp&lt;/code&gt; adds a
+streamable-HTTP server inside the operator pod that reads &lt;code&gt;JsonnetSnippet&lt;/code&gt;
+status as the operator&amp;rsquo;s ServiceAccount.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;The tools are thin adapters over existing code, so an agent&amp;rsquo;s render is
+byte-identical to the HTTP endpoint and the operator.&lt;/p&gt;</description></item><item><title>Rendering Jsonnet</title><link>https://jaas.projects.metio.wtf/rendering/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/rendering/</guid><description>&lt;p&gt;The core of JaaS: evaluate Jsonnet on demand and return JSON. These pages cover
+what you send it, how imports resolve, how you parameterize a render, and the
+limits that keep evaluation safe.&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;&lt;a href="https://jaas.projects.metio.wtf/rendering/rendering-endpoint/"&gt;Rendering endpoint&lt;/a&gt;
+&lt;/strong&gt; — the HTTP API that
+evaluates a snippet and returns JSON.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;a href="https://jaas.projects.metio.wtf/rendering/snippets-and-libraries/"&gt;Snippets and libraries&lt;/a&gt;
+&lt;/strong&gt; — how snippets
+and their imports are organized and resolved.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;a href="https://jaas.projects.metio.wtf/rendering/external-variables-and-tlas/"&gt;External variables and TLAs&lt;/a&gt;
+&lt;/strong&gt; —
+parameterize a render with &lt;code&gt;extVar&lt;/code&gt; and top-level arguments.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;a href="https://jaas.projects.metio.wtf/rendering/jsonnet-libraries/"&gt;Jsonnet libraries&lt;/a&gt;
+&lt;/strong&gt; — reusable &lt;code&gt;.libsonnet&lt;/code&gt;
+libraries on the import path.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;a href="https://jaas.projects.metio.wtf/rendering/joi-images/"&gt;JOI images&lt;/a&gt;
+&lt;/strong&gt; — ship libraries as single-layer OCI
+images.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;a href="https://jaas.projects.metio.wtf/rendering/evaluation-and-security/"&gt;Evaluation and security&lt;/a&gt;
+&lt;/strong&gt; — timeouts,
+stack limits, and import confinement around untrusted snippets.&lt;/li&gt;
+&lt;/ul&gt;</description></item></channel></rss>
