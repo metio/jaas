@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Rbac on Jsonnet-as-a-Service</title><link>https://jaas.projects.metio.wtf/tags/rbac/</link><description>Recent content in Rbac on Jsonnet-as-a-Service</description><generator>Hugo</generator><language>en</language><atom:link href="https://jaas.projects.metio.wtf/tags/rbac/index.xml" rel="self" type="application/rss+xml"/><item><title>CrossNamespaceRefRejected</title><link>https://jaas.projects.metio.wtf/runbooks/crossnamespacerefrejected/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/runbooks/crossnamespacerefrejected/</guid><description>&lt;h2 id="symptom"&gt;Symptom&lt;/h2&gt;
+&lt;p&gt;&lt;code&gt;READY=False&lt;/code&gt;, &lt;code&gt;REASON=CrossNamespaceRefRejected&lt;/code&gt;. The Message names the offending reference (a library or a sourceRef).&lt;/p&gt;
+&lt;h2 id="cause"&gt;Cause&lt;/h2&gt;
+&lt;p&gt;The operator is running with &lt;code&gt;--no-cross-namespace-refs=true&lt;/code&gt; (the chart default) and the snippet references a library or Flux source in a different namespace.&lt;/p&gt;
+&lt;p&gt;This is a deliberate isolation control — it mirrors Flux&amp;rsquo;s &lt;code&gt;--no-cross-namespace-refs&lt;/code&gt; and stops a tenant in namespace A from reaching libraries / sources in namespace B without an explicit relationship.&lt;/p&gt;
+&lt;h2 id="diagnosis"&gt;Diagnosis&lt;/h2&gt;
+&lt;p&gt;Inspect the spec and identify which reference points outside the snippet&amp;rsquo;s namespace:&lt;/p&gt;</description></item><item><title>LibraryNotFound</title><link>https://jaas.projects.metio.wtf/runbooks/librarynotfound/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/runbooks/librarynotfound/</guid><description>&lt;h2 id="symptom"&gt;Symptom&lt;/h2&gt;
+&lt;p&gt;&lt;code&gt;READY=False&lt;/code&gt;, &lt;code&gt;REASON=LibraryNotFound&lt;/code&gt;. The Message names the missing library.&lt;/p&gt;
+&lt;h2 id="cause"&gt;Cause&lt;/h2&gt;
+&lt;p&gt;A &lt;code&gt;spec.libraries[*]&lt;/code&gt; entry references a &lt;code&gt;JsonnetLibrary&lt;/code&gt; CR that the operator cannot Get. Common reasons:&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;the library CR doesn&amp;rsquo;t exist (typo, wrong namespace, not yet applied)&lt;/li&gt;
+&lt;li&gt;the tenant ServiceAccount doesn&amp;rsquo;t have &lt;code&gt;get&lt;/code&gt; on the library kind in the library&amp;rsquo;s namespace&lt;/li&gt;
+&lt;li&gt;the library is in a different namespace and &lt;code&gt;--no-cross-namespace-refs=true&lt;/code&gt;&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h2 id="diagnosis"&gt;Diagnosis&lt;/h2&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-shell" data-lang="shell"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="c1"&gt;# Confirm the library exists.&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;kubectl --namespace &amp;lt;ns&amp;gt; get jsonnetlibrary &amp;lt;name&amp;gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="c1"&gt;# Test the tenant&amp;#39;s RBAC.&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;kubectl --namespace &amp;lt;library-ns&amp;gt; auth can-i get jsonnetlibrary &amp;lt;name&amp;gt; &lt;span class="se"&gt;\
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; --as&lt;span class="o"&gt;=&lt;/span&gt;system:serviceaccount:&amp;lt;ns&amp;gt;:&amp;lt;tenant-sa&amp;gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;If &lt;code&gt;can-i&lt;/code&gt; returns &lt;code&gt;no&lt;/code&gt;, RBAC is the gap.&lt;/p&gt;</description></item><item><title>RBACDenied</title><link>https://jaas.projects.metio.wtf/runbooks/rbacdenied/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/runbooks/rbacdenied/</guid><description>&lt;h2 id="symptom"&gt;Symptom&lt;/h2&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-text" data-lang="text"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;kubectl --namespace &amp;lt;ns&amp;gt; describe jsonnetsnippet &amp;lt;name&amp;gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;...
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;Status:
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; Conditions:
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; Reason: RBACDenied
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; Status: False
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; Type: Ready
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; Message: RBAC denied reading the source CR — grant the tenant ServiceAccount get on the source kind ...
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;Or for a missing CRD:&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-text" data-lang="text"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; Message: source CR&amp;#39;s kind is not registered with the apiserver — install the corresponding CRD ...
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;The reconciler logs at warn level and stops engaging backoff for this snippet. The next reconcile happens only when the snippet&amp;rsquo;s spec changes, a referenced library / source CR&amp;rsquo;s status flips, or &lt;code&gt;spec.interval&lt;/code&gt; ticks — so the workqueue isn&amp;rsquo;t burning cycles on a permanently-failing call.&lt;/p&gt;</description></item><item><title>Security &amp; multi-tenancy</title><link>https://jaas.projects.metio.wtf/security/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/security/</guid><description>&lt;p&gt;How to run JaaS without granting it broad cluster power and how to constrain what
+it can reach. In operator mode, snippets resolve under a tenant ServiceAccount, so
+a snippet can do exactly what its RBAC allows and no more.&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;&lt;a href="https://jaas.projects.metio.wtf/security/tenancy-and-rbac/"&gt;Tenancy and RBAC&lt;/a&gt;
+&lt;/strong&gt; — tenant impersonation and
+the permissions the operator needs.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;a href="https://jaas.projects.metio.wtf/security/admission-webhook/"&gt;Admission webhook&lt;/a&gt;
+&lt;/strong&gt; — validate resources at
+admission time.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;a href="https://jaas.projects.metio.wtf/security/network-policy/"&gt;Network policy&lt;/a&gt;
+&lt;/strong&gt; — lock JaaS&amp;rsquo;s traffic down to
+what it needs.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;a href="https://jaas.projects.metio.wtf/security/service-mesh/"&gt;Service mesh&lt;/a&gt;
+&lt;/strong&gt; — run JaaS inside a mesh.&lt;/li&gt;
+&lt;/ul&gt;</description></item><item><title>ServiceAccountMissing</title><link>https://jaas.projects.metio.wtf/runbooks/serviceaccountmissing/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/runbooks/serviceaccountmissing/</guid><description>&lt;h2 id="symptom"&gt;Symptom&lt;/h2&gt;
+&lt;p&gt;&lt;code&gt;READY=False&lt;/code&gt;, &lt;code&gt;REASON=ServiceAccountMissing&lt;/code&gt;.&lt;/p&gt;
+&lt;h2 id="cause"&gt;Cause&lt;/h2&gt;
+&lt;p&gt;The snippet omitted &lt;code&gt;spec.serviceAccountName&lt;/code&gt; AND the operator was started without &lt;code&gt;--default-service-account&lt;/code&gt;. The operator refuses to reconcile a snippet with no effective ServiceAccount because every reconcile mints a tenant token from that SA — without one, there&amp;rsquo;s nothing to impersonate.&lt;/p&gt;
+&lt;h2 id="diagnosis"&gt;Diagnosis&lt;/h2&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-shell" data-lang="shell"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;kubectl --namespace &amp;lt;ns&amp;gt; get jsonnetsnippet &amp;lt;name&amp;gt; --output &lt;span class="nv"&gt;jsonpath&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="s1"&gt;&amp;#39;{.spec.serviceAccountName}&amp;#39;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;Empty? Either the snippet must set it, or the cluster operator must configure a default.&lt;/p&gt;
+&lt;h2 id="remediation"&gt;Remediation&lt;/h2&gt;
+&lt;p&gt;Pick one:&lt;/p&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;Snippet-side (preferred for multi-tenant setups):&lt;/strong&gt; set &lt;code&gt;spec.serviceAccountName: &amp;lt;existing-sa&amp;gt;&lt;/code&gt; on every snippet. Each tenant uses its own SA → least-privilege impersonation.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Cluster-side (single-tenant clusters):&lt;/strong&gt; start the operator with &lt;code&gt;--default-service-account=&amp;lt;sa-name&amp;gt;&lt;/code&gt;. Every snippet without an explicit SA impersonates this one. The default SA must exist in &lt;strong&gt;every snippet&amp;rsquo;s namespace&lt;/strong&gt; — the operator looks it up per-reconcile.&lt;/li&gt;
+&lt;/ol&gt;</description></item><item><title>Tenancy and RBAC</title><link>https://jaas.projects.metio.wtf/security/tenancy-and-rbac/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/security/tenancy-and-rbac/</guid><description>&lt;p&gt;In &lt;a href="https://jaas.projects.metio.wtf/operator/operator-mode/"&gt;operator mode&lt;/a&gt;
+ the JaaS operator never acts with its
+own broad privileges when touching tenant resources. Every reconcile of a
+&lt;code&gt;JsonnetSnippet&lt;/code&gt; runs against the RBAC of a tenant ServiceAccount, so a snippet
+can only reach what its own ServiceAccount is allowed to reach.&lt;/p&gt;
+&lt;h2 id="per-snippet-impersonation"&gt;Per-snippet impersonation&lt;/h2&gt;
+&lt;p&gt;Each &lt;code&gt;JsonnetSnippet&lt;/code&gt; carries a &lt;code&gt;spec.serviceAccountName&lt;/code&gt;. On every reconcile the
+operator mints a short-lived Bearer token for that ServiceAccount through the
+Kubernetes TokenRequest API (&lt;code&gt;serviceaccounts/token: create&lt;/code&gt;) and performs all
+tenant-side API calls — reading &lt;code&gt;JsonnetLibrary&lt;/code&gt; objects, fetching Flux source
+artifacts, and writing the published &lt;code&gt;ExternalArtifact&lt;/code&gt; — as that ServiceAccount.
+The operator does not use the &lt;code&gt;impersonate&lt;/code&gt; verb; it uses a real token, so the
+apiserver evaluates the tenant&amp;rsquo;s own RBAC.&lt;/p&gt;</description></item><item><title>Watch-layer silent failure</title><link>https://jaas.projects.metio.wtf/runbooks/operator-watch-silent/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/runbooks/operator-watch-silent/</guid><description>&lt;p&gt;The one RBAC-denial path the reconciler cannot surface itself: when the &lt;strong&gt;operator&amp;rsquo;s own&lt;/strong&gt; ClusterRole is missing a verb on a watched resource kind, controller-runtime&amp;rsquo;s informer fails to start its watch, logs warnings, and retries silently. The reconciler never sees the failure, and no snippet&amp;rsquo;s status condition reflects it. This is not tied to a per-snippet &lt;code&gt;Reason&lt;/code&gt;.&lt;/p&gt;
+&lt;p&gt;If a per-snippet runbook (&lt;a href="https://jaas.projects.metio.wtf/runbooks/rbacdenied/"&gt;rbacdenied&lt;/a&gt;
+, &lt;a href="https://jaas.projects.metio.wtf/runbooks/sourcefetchfailed/"&gt;sourcefetchfailed&lt;/a&gt;
+, &lt;a href="https://jaas.projects.metio.wtf/runbooks/sourcenotready/"&gt;sourcenotready&lt;/a&gt;
+) doesn&amp;rsquo;t match the symptoms, this is where to look next.&lt;/p&gt;</description></item></channel></rss>
