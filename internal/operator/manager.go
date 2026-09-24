@@ -300,7 +300,13 @@ func runWithBuilder(ctx context.Context, cfg Config, restCfg *rest.Config, build
 	// until the prerequisite appears. The manager retries the informer meanwhile
 	// (cacheSyncTimeout), so this never gates startup — it only explains the wait,
 	// turning raw reflector "forbidden" spam into a clear cause.
-	startupPreflight(ctx, restCfg, logger)
+	//
+	// The check is scoped to this manager rather than to the process: Supervise
+	// may build many of them, and a checker that outlived its manager would
+	// accumulate goroutines all logging the same thing.
+	preflightCtx, cancelPreflight := context.WithCancel(ctx)
+	defer cancelPreflight()
+	startupPreflight(preflightCtx, restCfg, logger)
 
 	// OnReady (the pod's readiness flip) is wired by the builder as a
 	// non-leader-election runnable, so it fires after cache sync on every

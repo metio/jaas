@@ -149,7 +149,10 @@ a ClusterRole missing a verb, a CRD not yet installed — JaaS keeps running and
 retries the manager with exponential backoff (1s, doubling, capped at 5m) for as
 long as the pod lives. The Jsonnet renderer and the artifact server need no
 cluster at all, so they keep serving throughout, and the manager comes up on its
-own once the cause is cleared, in the same process and without a restart.
+own once the cause is cleared, in the same process and without a restart. A
+manager that lasted at least a minute before failing gets a fresh backoff; one
+that fails quickly keeps the growing delay, so an operator that cannot stay up
+does not hammer the apiserver.
 
 Three signals report the state:
 
@@ -159,8 +162,8 @@ Three signals report the state:
 - `jaas_operator_available` is `0` while the operator is down and `1` once its
   cache has synced. `jaas_operator_start_failures_total` separates one long
   outage from a manager that keeps dying.
-- The log carries one `Operator unavailable, restarting` line at the transition
-  and a `still unavailable` line per retry, each naming the reason. The backoff
+- The log carries one `Operator unavailable, restarting` line per fresh cause and
+  a `still unavailable` line per retry, each naming the reason. The backoff
   paces them, so a long outage thins out to one line every five minutes.
 
 Readiness stays down for a pod whose operator has never synced, which stops a

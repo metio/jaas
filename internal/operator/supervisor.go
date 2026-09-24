@@ -27,6 +27,13 @@ const (
 	// superviseJitterFraction spreads retries across replicas so a fleet that
 	// lost the apiserver together does not reconnect in lockstep.
 	superviseJitterFraction = 0.2
+	// superviseHealthyRun is how long a manager has to last for its failure to
+	// count as a fresh cause rather than a continuing one, which is what resets
+	// the backoff. Availability alone is the wrong test: a manager whose cache
+	// syncs and which then dies on the next step — a webhook server with no
+	// certificate yet, say — would reset the delay on every attempt and retry
+	// about once a second for as long as the cause lasted.
+	superviseHealthyRun = time.Minute
 )
 
 // Supervise runs the operator manager and restarts it for as long as ctx
@@ -68,7 +75,7 @@ func Supervise(ctx context.Context, cfg Config, restCfg *rest.Config, state *ops
 	}
 	supervise(ctx, state, logger, func(ctx context.Context) error {
 		return Run(ctx, cfg, restCfg)
-	}, superviseDelay)
+	}, superviseDelay, superviseHealthyRun)
 }
 
 // supervise is Supervise with the manager and the backoff replaced by
@@ -80,9 +87,11 @@ func supervise(
 	logger *slog.Logger,
 	run func(context.Context) error,
 	delayFor func(attempt int) time.Duration,
+	healthyRun time.Duration,
 ) {
 	for attempt := 1; ; attempt++ {
 		state.RecordAttempt()
+		started := time.Now()
 		errCh := make(chan error, 1)
 		go func() { errCh <- run(ctx) }()
 
@@ -114,10 +123,12 @@ func supervise(
 		if err != nil && !errors.Is(err, context.Canceled) {
 			reason = err.Error()
 		}
-		// A manager that had been reconciling starts its backoff over: the
-		// cause is fresh, and the delay that had grown during an earlier
-		// outage says nothing about this one.
-		if state.MarkUnavailable(reason) {
+		state.MarkUnavailable(reason)
+		// A manager that ran for a while starts its backoff over: the cause is
+		// fresh, and the delay that had grown during an earlier outage says
+		// nothing about this one. One that failed quickly keeps the growing
+		// delay, whether it got as far as syncing or not.
+		if time.Since(started) >= healthyRun {
 			attempt = 1
 		}
 		delay := delayFor(attempt)
