@@ -218,38 +218,22 @@ func TestRunWithBuilder_RejectsInvalidLabelSelector(t *testing.T) {
 	}
 }
 
-func TestRunWithBuilder_PropagatesMetricsBindAddress(t *testing.T) {
-	cases := []struct {
-		name    string
-		addr    string
-		wantSet bool
-		wantVal string
-	}{
-		{"explicit address forwards", "127.0.0.1:9876", true, "127.0.0.1:9876"},
-		{"disabled forwards as \"0\"", "0", true, "0"},
-		{"empty leaves opts.Metrics zero", "", false, ""},
+// TestRunWithBuilder_DisablesManagerMetricsServer pins that the manager never
+// binds a metrics listener: jaas owns that endpoint, and a second server on the
+// same address would fight it for the port. An unset BindAddress would take
+// controller-runtime's ":8080" default, which is the jsonnet HTTP port.
+func TestRunWithBuilder_DisablesManagerMetricsServer(t *testing.T) {
+	var seenOpts ctrl.Options
+	fake := &fakeRunner{}
+	build := func(_ *rest.Config, opts ctrl.Options, _ Config) (runner, error) {
+		seenOpts = opts
+		return fake, nil
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			var seenOpts ctrl.Options
-			fake := &fakeRunner{}
-			build := func(_ *rest.Config, opts ctrl.Options, _ Config) (runner, error) {
-				seenOpts = opts
-				return fake, nil
-			}
-			cfg := Config{MetricsBindAddress: tc.addr}
-			if err := runWithBuilder(context.Background(), cfg, &rest.Config{}, build); err != nil {
-				t.Fatalf("unexpected: %v", err)
-			}
-			gotVal := seenOpts.Metrics.BindAddress
-			gotSet := gotVal != ""
-			if gotSet != tc.wantSet {
-				t.Errorf("Metrics set = %v, want %v (BindAddress=%q)", gotSet, tc.wantSet, gotVal)
-			}
-			if tc.wantSet && gotVal != tc.wantVal {
-				t.Errorf("Metrics.BindAddress = %q, want %q", gotVal, tc.wantVal)
-			}
-		})
+	if err := runWithBuilder(context.Background(), Config{}, &rest.Config{}, build); err != nil {
+		t.Fatalf("unexpected: %v", err)
+	}
+	if got := seenOpts.Metrics.BindAddress; got != "0" {
+		t.Errorf("Metrics.BindAddress = %q, want %q", got, "0")
 	}
 }
 

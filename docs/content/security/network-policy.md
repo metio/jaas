@@ -137,14 +137,16 @@ that.
 | Destination | Purpose | Mode | Selectable by label? |
 |---|---|---|---|
 | Cluster DNS | Name resolution — without it every other egress flow fails | always | Yes — by the DNS namespace |
-| kube-apiserver | TokenRequest minting, CR reads, `ExternalArtifact` writes, leader election, and webhook caBundle patching | operator | No — `ipBlock` CIDR only |
+| kube-apiserver | TokenRequest minting, CR reads, `ExternalArtifact` writes, leader election, and webhook caBundle patching | operator | Rendered for you — by Service name under `calico`, by entity under `cilium`, by node IPs under `clusterNetworkPolicy`, and from CIDRs you supply under `kubernetes` |
 | source-controller | Fetching upstream artifacts for snippets that use a `sourceRef` | operator | Yes — the `flux-system` namespace |
 | S3 endpoint | Reading and writing tarballs when `storage.backend` is `s3` | operator + S3 | Depends — in-cluster MinIO is label-selectable; an external bucket is `ipBlock` only |
 | OTLP collector | Shipping traces when `operator.tracing.endpoint` is set | operator + tracing | Depends — in-cluster collector is label-selectable; an external one is `ipBlock` only |
 
-The kube-apiserver is never label-selectable, so its egress rule must be an
-`ipBlock` CIDR. The same applies to any S3 bucket or OTLP collector that lives
-outside the cluster.
+No label selects the kube-apiserver, because its endpoints are host addresses
+rather than pods. Three of the four engines have a first-class way to name it
+anyway, and the chart uses each engine's own — see
+[opt-in egress](#opt-in-egress). An S3 bucket or OTLP collector outside the
+cluster still needs an `ipBlock` CIDR of its own.
 
 ## Configuring ingress
 
@@ -219,25 +221,67 @@ networkPolicy:
 Egress is off by default, and deliberately so. Adding the `Egress` policy type
 flips the JaaS pod to default-deny for outbound traffic — everything not explicitly
 allowed is dropped. Getting the allow-list complete is the cluster operator's risk,
-because the two destinations the operator needs most — the kube-apiserver and any
-external S3 or OTLP endpoint — are not label-selectable and so depend on `ipBlock`
-CIDRs that vary per cluster. An incomplete list does not fail loudly; it silently
-cuts the operator off.
+and an incomplete list does not fail loudly; it silently cuts the operator off.
 
-> **Warning:** Enabling egress **without** an `ipBlock` for the kube-apiserver cuts
-> the operator off from the control plane. It can no longer mint tokens, read CRs,
-> publish `ExternalArtifact` resources, hold the leader-election lease, or patch the
-> webhook caBundle. Always include the apiserver CIDR before turning egress on.
+A cluster that already runs its own default-deny egress baseline is the other way
+round: the pod is denied whatever the chart renders, and turning `egress.enabled`
+on is what re-admits the flows below. A policy with only `Ingress` in its types
+says nothing about outbound traffic, so it cannot re-admit anything.
 
-Find the apiserver's address with:
+The kube-apiserver rule is the one the operator cannot work without — tokens,
+CR reads, `ExternalArtifact` writes, the leader-election lease, and the webhook
+caBundle patch all go there — so the chart renders it for you, in the selected
+engine's own dialect:
+
+| `engine` | Rendered rule | CIDRs needed? |
+| --- | --- | --- |
+| `calico` | `destination.services` naming the `kubernetes` Service in `default`; Calico detects the endpoint addresses and ports from it | No |
+| `cilium` | `toEntities: [kube-apiserver]`, which Cilium keeps bound to the apiserver's current addresses | No |
+| `clusterNetworkPolicy` | a `nodes` peer, matching the IPs in `node.Status.Addresses` | Only for a managed control plane, whose apiserver is not a node IP |
+| `kubernetes` (default) | `ipBlock` peers | Yes — `networking.k8s.io/v1` can select the apiserver neither by label nor by entity |
+
+The rule is on by default and rendered whenever `operator.enabled` and
+`egress.enabled` are both set. Set
+`networkPolicy.egress.kubernetesAPI.enabled: false` where another policy already
+admits the apiserver.
+
+On the `kubernetes` and `clusterNetworkPolicy` engines the addresses and the port
+come from the cluster:
 
 ```shell
-kubectl --namespace default get endpointslice kubernetes --output jsonpath='{.endpoints[*].addresses[*]}'
+kubectl --namespace default get endpoints kubernetes
 ```
 
-Use that IP as a `/32` (or your control plane's CIDR for an HA apiserver). A
-complete operator egress block — DNS, the apiserver, source-controller, S3, and an
-OTLP collector — looks like this:
+Use the addresses as `/32` entries (or your control plane's CIDR for an HA
+apiserver) and **the port that command reports**, which is usually `6443` rather
+than the `443` the `kubernetes` Service publishes. Calico enforces egress policy
+after kube-proxy has rewritten the destination, and the upstream NetworkPolicy API
+leaves that ordering to the CNI, so naming the Service port matches nothing:
+
+```yaml
+networkPolicy:
+  enabled: true
+  egress:
+    enabled: true
+    kubernetesAPI:
+      ipBlocks:
+        - 10.0.0.1/32
+      port: 6443
+```
+
+Rendering with `engine: kubernetes`, operator mode, and egress on but no
+`ipBlocks` fails at render time rather than installing a policy that wedges the
+operator.
+
+Under the `calico` engine the rendered allowlist carries no `order`, which Calico
+processes last in the tier, before the implicit deny. That is fine against a
+rule-less deny-all, which contributes only that implicit deny. A cluster-wide
+policy that carries an explicit `action: Deny` is final and would shadow the
+allowlist entirely, including its ingress rules; `networkPolicy.calico.order`
+sorts the allowlist ahead of it.
+
+A complete operator egress block — DNS, the apiserver, source-controller, S3, and
+an OTLP collector — looks like this:
 
 ```yaml
 networkPolicy:
@@ -248,15 +292,13 @@ networkPolicy:
     # fails name resolution.
     dns: true
     dnsNamespace: kube-system
+    # kube-apiserver. Only the kubernetes and clusterNetworkPolicy engines
+    # need the addresses; calico and cilium resolve them themselves.
+    kubernetesAPI:
+      ipBlocks:
+        - 10.0.0.1/32
+      port: 6443
     to:
-      # kube-apiserver — not label-selectable, so an ipBlock CIDR.
-      # Replace with the IP(s) from the command above.
-      - to:
-          - ipBlock:
-              cidr: 10.0.0.1/32
-        ports:
-          - protocol: TCP
-            port: 443
       # source-controller — fetching upstream artifacts for sourceRef snippets.
       - to:
           - namespaceSelector:
@@ -279,6 +321,10 @@ networkPolicy:
           - protocol: TCP
             port: 4317
 ```
+
+Note that `networkPolicy.egress.to` is read by the `kubernetes` engine only; the
+other three take their extra rules from `networkPolicy.<engine>.egress` in that
+engine's own schema.
 
 Trim this to what your install actually uses: drop the S3 block on the local storage
 backend, and drop the OTLP block when [tracing](/observability/) is off. The

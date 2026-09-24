@@ -25,11 +25,17 @@ One of the chart's two probes is failing:
 
 Frequent causes:
 
-1. **Bind failure** on one of the HTTP servers (jsonnet, management, storage, metrics, webhook). The pod logs a clear "listen tcp: address already in use" or similar at boot.
-2. **OOMKilled** — a pathological snippet allocated a huge object; the kubelet killed the pod. `kubectl describe pod` shows `Last State: Terminated, Reason: OOMKilled`.
-3. **Image pull failure** — registry rate limit, wrong tag, missing pull secret.
-4. **TLS cert missing or unreadable** when `operator.webhook.enabled=true` and the cert-manager Secret hasn't materialized.
-5. **Lease contention** that leaves no replica as leader (every replica reconnecting to renew, never holding the lease).
+1. **The operator manager has never synced.** Readiness holds a pod down until
+   the manager's cache syncs once, so a manager that cannot start — denied egress
+   to the apiserver, an incomplete ClusterRole, missing CRDs — leaves the pod
+   `Running` and `0/1` indefinitely while `/jsonnet` keeps answering. `GET
+   /operator` names the reason; see
+   [operator-unavailable](/runbooks/operator-unavailable/).
+2. **Bind failure** on one of the HTTP servers (jsonnet, management, storage, metrics, webhook). The pod logs a clear "listen tcp: address already in use" or similar at boot.
+3. **OOMKilled** — a pathological snippet allocated a huge object; the kubelet killed the pod. `kubectl describe pod` shows `Last State: Terminated, Reason: OOMKilled`.
+4. **Image pull failure** — registry rate limit, wrong tag, missing pull secret.
+5. **TLS cert missing or unreadable** when `operator.webhook.enabled=true` and the cert-manager Secret hasn't materialized.
+6. **Lease contention** that leaves no replica as leader (every replica reconnecting to renew, never holding the lease).
 
 ## Diagnosis
 
@@ -62,9 +68,10 @@ kubectl --namespace <jaas-ns> get lease <release-name>-operator --output yaml
 
 ## Remediation
 
+- **Operator never synced.** Read the reason off `GET /operator` on the management port and follow [operator-unavailable](/runbooks/operator-unavailable/). The pod recovers on its own once the cause is cleared; it needs no restart.
 - **Bind failure.** Free the colliding port (often `8080`, when the controller-runtime metrics endpoint defaults conflict with the jsonnet HTTP port — confirm `--metrics-bind-address` is `:8083`).
 - **OOMKilled.** Raise `resources.memory`, then identify the runaway snippet — it is usually obvious from `jaas_snippet_rendered_bytes`.
-- **Image pull.** Standard k8s drill: check secrets, registry, tag.
+- **Image pull.** Standard Kubernetes drill: check secrets, registry, tag.
 - **TLS cert.** With `certMode=cert-manager`, confirm the Issuer / Certificate are ready. With `certMode=self-signed`, the operator regenerates on boot — a permission error on the cert-dir mount blocks it.
 - **Lease flap.** Try `kubectl --namespace <jaas-ns> delete lease <release-name>-operator` to force a fresh election. If it keeps flapping, the cluster has bigger problems than JaaS.
 

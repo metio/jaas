@@ -194,10 +194,10 @@ func TestRun_FluxIntegration_SelfSignedRequiresVWCName(t *testing.T) {
 // management probes to come up (i.e. operator initialized successfully),
 // then SIGTERMs and asserts a clean exit code.
 //
-// The metrics endpoint wiring is covered by
-// TestRunWithBuilder_PropagatesMetricsBindAddress in internal/operator;
-// proving that controller-runtime actually binds and serves Prometheus
-// text from that address is an upstream contract, not ours.
+// The metrics endpoint is covered by TestRun_ServesMetricsFromItsOwnListener,
+// which asserts the binary's own listener serves the registry, and by
+// TestRunWithBuilder_DisablesManagerMetricsServer in internal/operator, which
+// pins that the manager binds no competing one.
 func TestRun_FluxIntegration_BootsAgainstEnvtestAndShutsDownCleanly(t *testing.T) {
 	kubeconfig := envtestMainSetup(t)
 
@@ -235,8 +235,12 @@ func TestRun_FluxIntegration_BootsAgainstEnvtestAndShutsDownCleanly(t *testing.T
 		done <- run(args, nil, &stdout, &stderr, sigs)
 	}()
 
-	// Probes online ⇒ operator manager + all three HTTP servers booted.
+	// Liveness only proves the management server is listening, so the wait is on
+	// /operator: a 200 there means the manager built and its cache synced, which
+	// is what the log assertion below is about. Signalling on liveness alone
+	// would race the build and fail whenever the machine is loaded.
 	waitForReady(t, "127.0.0.1:"+mgmtPort, 30*time.Second)
+	awaitStatus(t, "127.0.0.1:"+mgmtPort, "/operator", http.StatusOK, 60*time.Second)
 
 	// The storage HTTP server serves an empty 404 for missing paths but
 	// the socket itself must be accepting connections.

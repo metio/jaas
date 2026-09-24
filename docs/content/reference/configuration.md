@@ -21,7 +21,7 @@ The Jsonnet server evaluates snippets and returns JSON. It binds on
 
 ## Management server
 
-The management server exposes the three Kubernetes probe endpoints. It binds on
+The management server exposes the Kubernetes probe endpoints. It binds on
 `--management-listen-address:--management-port`.
 
 {{< flag-table group="Management server" >}}
@@ -30,6 +30,13 @@ Endpoints: `GET /start` (startup probe), `GET /ready` (readiness probe),
 `GET /live` (liveness probe). Startup and readiness return `503` with a
 `{"status":"…"}` JSON body when the server is not yet ready. Liveness is an
 unconditional `200`.
+
+In operator mode the server also serves `GET /operator`, which reports whether
+the operator's manager is reconciling — `200`, or `503` with the reason, the
+time the reading last changed, and the number of manager starts. No probe is
+wired to it: the Jsonnet renderer and the artifact server work without an
+apiserver, so a degraded operator is not a reason to withdraw the pod from its
+Services. See [Degraded operator](/running/operations/#degraded-operator).
 
 ## Snippets and libraries
 
