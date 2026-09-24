@@ -143,13 +143,6 @@ type Config struct {
 	// when unset.
 	WebhookPort int
 
-	// SkipControllerNameValidation disables controller-runtime's
-	// once-per-process check that every controller name is unique. Only
-	// the envtest harness sets this — main.go-driven invocations always
-	// boot a single controller per process where the validation is a
-	// useful safety net.
-	SkipControllerNameValidation bool
-
 	// SkipImpersonation makes the reconciler use the manager's own client
 	// for tenant-side operations instead of building a per-snippet
 	// impersonating client. Only the envtest harness sets this so its
@@ -191,13 +184,6 @@ type Config struct {
 	// treated as zero; force-drop is unconditional only when an
 	// operator explicitly sets a very small value (test fixtures).
 	MaxWithdrawWait time.Duration
-
-	// MetricsBindAddress is the host:port the controller-runtime metrics
-	// server listens on. The default "" leaves controller-runtime's own
-	// default in place (":8080"), which collides with the jsonnet HTTP
-	// server, so main.go always sets this explicitly. "0" disables the
-	// metrics server entirely.
-	MetricsBindAddress string
 
 	// Logger receives operator-level events. nil falls back to slog.Default.
 	Logger *slog.Logger

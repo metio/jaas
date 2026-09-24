@@ -80,11 +80,19 @@ func (r *readinessSignal) Start(ctx context.Context) error {
 const cacheSyncTimeout = 100 * 365 * 24 * time.Hour
 
 var defaultBuilder builder = func(restCfg *rest.Config, opts ctrl.Options, cfg Config) (runner, error) {
-	if cfg.SkipControllerNameValidation {
-		// Set the field rather than replacing the struct, so the caller's
-		// CacheSyncTimeout (set in runWithBuilder) survives.
-		opts.Controller.SkipNameValidation = new(true)
-	}
+	// controller-runtime keeps the set of controller names for the lifetime of
+	// the process and never releases a stopped manager's entry, so a second
+	// manager registering "jsonnetsnippet" is rejected. Supervise builds a new
+	// manager whenever the previous one stops — a lost lease, a transient
+	// failure after a healthy period — and that rebuild would otherwise fail
+	// permanently, leaving an operator that can never recover without a
+	// restart. The check guards against two controllers reporting the same
+	// metric, which cannot happen here: exactly one manager is live at a time,
+	// and it owns exactly one controller of this name.
+	//
+	// The field is set rather than the struct replaced, so the caller's
+	// CacheSyncTimeout (set in runWithBuilder) survives.
+	opts.Controller.SkipNameValidation = new(true)
 	if cfg.EnableWebhook {
 		port := cfg.WebhookPort
 		if port == 0 {
@@ -223,9 +231,14 @@ func runWithBuilder(ctx context.Context, cfg Config, restCfg *rest.Config, build
 	// missing CRD or an incomplete ClusterRole degrades to "not ready, waiting",
 	// not a crash-loop. See cacheSyncTimeout.
 	opts.Controller.CacheSyncTimeout = cacheSyncTimeout
-	if cfg.MetricsBindAddress != "" {
-		opts.Metrics = metricsserver.Options{BindAddress: cfg.MetricsBindAddress}
-	}
+	// jaas serves the Prometheus registry itself, from a listener bound before
+	// the manager exists, so the manager's own metrics server stays off. Both
+	// write to the same registry, so the exported series are unchanged; what
+	// changes is that they remain scrapeable while the manager is down, which
+	// is precisely when jaas_operator_available carries information. Leaving
+	// the field unset would take controller-runtime's ":8080" default, which
+	// collides with the jsonnet HTTP server.
+	opts.Metrics = metricsserver.Options{BindAddress: "0"}
 	if cfg.LabelSelector != "" {
 		sel, err := labels.Parse(cfg.LabelSelector)
 		if err != nil {

@@ -44,6 +44,19 @@ func Groups() []string {
 	}
 }
 
+// Accepted values for --readiness-requires-operator. The two differ only in
+// whether an operator that has never synced holds the probe down; neither lets
+// a later operator failure withdraw a pod that has been serving.
+const (
+	// ReadinessOperatorOnce keeps the probe at 503 until the manager's cache
+	// has synced once, so a rollout stops at a pod whose operator cannot start.
+	ReadinessOperatorOnce = "once"
+	// ReadinessOperatorNever ties the probe to the HTTP listeners alone, so the
+	// Jsonnet renderer and the artifact server stay in their Services even
+	// where the operator has never reached the apiserver.
+	ReadinessOperatorNever = "never"
+)
+
 // Flags holds pointers to every value registered on the FlagSet. run
 // dereferences these after fs.Parse; flaggen never does.
 type Flags struct {
@@ -116,6 +129,8 @@ type Flags struct {
 	LeaderElection          *bool
 	LeaderElectionID        *string
 	LeaderElectionNamespace *string
+
+	ReadinessRequiresOperator *string
 
 	MetricsBindAddress *string
 
@@ -270,6 +285,7 @@ func (f *Flags) Validate() error {
 		{"--log-format", *f.LogFormat, []string{"json", "text"}},
 		{"--webhook-cert-mode", *f.WebhookCertMode, []string{"cert-manager", "self-signed"}},
 		{"--storage-backend", *f.StorageBackend, []string{"local", "s3"}},
+		{"--readiness-requires-operator", *f.ReadinessRequiresOperator, []string{ReadinessOperatorOnce, ReadinessOperatorNever}},
 	}
 	for _, e := range enums {
 		if !slices.Contains(e.allowed, e.val) {
@@ -334,7 +350,8 @@ func Register(fs *pflag.FlagSet, maxConcurrentEvalsDefault DefaultFunc) *Flags {
 	f.LeaderElection = fs.Bool("leader-election", true, "Enable controller-runtime leader election so only one operator replica reconciles at a time. Honored only when --enable-flux-integration is set.")
 	f.LeaderElectionID = fs.String("leader-election-id", "jaas-operator", "Lease object name used for leader election. Must be unique across JaaS installations sharing a namespace.")
 	f.LeaderElectionNamespace = fs.String("leader-election-namespace", "", "Namespace holding the leader-election Lease. Empty defaults to the operator pod's namespace.")
-	f.MetricsBindAddress = fs.String("metrics-bind-address", ":8083", "Bind address for the controller-runtime Prometheus metrics endpoint. Use \"0\" to disable. The default avoids the conflict between controller-runtime's built-in :8080 and the jsonnet HTTP server.")
+	f.ReadinessRequiresOperator = fs.String("readiness-requires-operator", ReadinessOperatorOnce, "Whether the readiness probe waits for the operator: once (the probe stays 503 until the manager's cache has synced, so a pod whose operator cannot start is not rolled out over a working one; a manager that dies later does not withdraw the pod again) or never (the probe tracks only the HTTP listeners, keeping the Jsonnet renderer in its Service through an apiserver outage). Ignored without --enable-flux-integration.")
+	f.MetricsBindAddress = fs.String("metrics-bind-address", ":8083", "Bind address for the Prometheus metrics endpoint, served by jaas itself so the operator's own metrics stay readable while its manager is down. Use \"0\" to disable. Only bound with --enable-flux-integration.")
 	f.EnableMCP = fs.Bool("enable-mcp", false, "Serve the operator's read tools over the Model Context Protocol (streamable HTTP). Requires --enable-flux-integration.")
 	f.MCPBindAddress = fs.String("mcp-bind-address", ":8084", "Bind address for the MCP streamable-HTTP server. Only used when --enable-mcp is set; chosen to avoid the jsonnet (:8080), management (:8081), storage (:8082), and metrics (:8083) ports.")
 	f.MCPAllowMutations = fs.Bool("mcp-allow-mutations", false, "Expose the gated MCP write tools (reconcile/suspend/resume) in addition to the read tools. Off by default — the MCP server is read-only unless this is set. Requires --enable-mcp.")
@@ -371,6 +388,7 @@ func Register(fs *pflag.FlagSet, maxConcurrentEvalsDefault DefaultFunc) *Flags {
 			"enable-flux-integration", "default-service-account", "no-cross-namespace-refs",
 			"label-selector", "watch-namespaces", "rerender-rate", "rerender-burst",
 			"kubeconfig", "max-withdraw-wait", "max-artifact-bytes", "artifact-gc-grace",
+			"readiness-requires-operator",
 		},
 		"Storage server (local and S3)": {
 			"storage-path", "storage-base-url", "storage-backend", "storage-listen-address",

@@ -175,18 +175,11 @@ func runManagerInBackground(t *testing.T, restCfg *rest.Config, cfg Config) (con
 	if cfg.Logger == nil {
 		cfg.Logger = discardLoggerEnvtest()
 	}
-	// Multiple envtest cases boot a manager in the same process; without
-	// this flag controller-runtime's metrics-registry uniqueness check
-	// fails on the second build.
-	cfg.SkipControllerNameValidation = true
 	// Most envtest cases don't provision per-snippet SAs + RBAC, so the
 	// reconciler would Fail with Forbidden once it tried to impersonate.
 	// envtest_impersonation_test.go explicitly opts back in by setting
 	// SkipImpersonation=false and seeding real SAs.
 	cfg.SkipImpersonation = true
-	if cfg.MetricsBindAddress == "" {
-		cfg.MetricsBindAddress = "0"
-	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() {

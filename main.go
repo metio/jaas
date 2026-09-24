@@ -25,6 +25,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/spf13/pflag"
 	apiruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
@@ -32,6 +33,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	crmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 
 	jaasv1 "github.com/metio/jaas/api/v1"
 	"github.com/metio/jaas/internal/cliflags"
@@ -40,6 +42,7 @@ import (
 	"github.com/metio/jaas/internal/mcp"
 	"github.com/metio/jaas/internal/observability"
 	"github.com/metio/jaas/internal/operator"
+	"github.com/metio/jaas/internal/opstate"
 	"github.com/metio/jaas/internal/storage"
 	"github.com/metio/jaas/internal/webhook/selfsigned"
 )
@@ -293,7 +296,6 @@ func run(args, env []string, stdout, stderr io.Writer, sigs <-chan os.Signal) in
 			LeaderElectionNamespace: *f.LeaderElectionNamespace,
 			KnownLibraryAliases:     ociLibraryAliasesFromPaths(*f.LibraryPaths),
 			OCILibraries:            loadOCILibraries(ctx, *f.LibraryPaths),
-			MetricsBindAddress:      *f.MetricsBindAddress,
 			MaxWithdrawWait:         *f.MaxWithdrawWait,
 			MaxArtifactBytes:        *f.MaxArtifactBytes,
 			ArtifactGCGrace:         *f.ArtifactGCGrace,
@@ -359,7 +361,11 @@ func run(args, env []string, stdout, stderr io.Writer, sigs <-chan os.Signal) in
 	slog.DebugContext(ctx, "Jsonnet server created")
 
 	state := handler.NewHealthState()
+	// opState stays nil outside operator mode: a renderer has no operator whose
+	// availability could be reported, and /operator is not registered there.
+	var opState *opstate.State
 	if *f.EnableFluxIntegration {
+		opState = opstate.New()
 		// Capture state.SetReady so the operator manager flips the pod's
 		// readiness probe only after mgr.Elected() closes (cache synced,
 		// leader elected — or LE off). Set here, post-state-construction.
@@ -369,6 +375,9 @@ func run(args, env []string, stdout, stderr io.Writer, sigs <-chan os.Signal) in
 	managementMux.HandleFunc("/start", handler.StartupHandler(state))
 	managementMux.HandleFunc("/ready", handler.ReadinessHandler(state))
 	managementMux.HandleFunc("/live", handler.LivenessHandler())
+	if opState != nil {
+		managementMux.HandleFunc("/operator", handler.OperatorHandler(opState))
+	}
 	slog.DebugContext(ctx, "Management handlers configured")
 
 	managementServer := &http.Server{
@@ -379,25 +388,43 @@ func run(args, env []string, stdout, stderr io.Writer, sigs <-chan os.Signal) in
 	}
 	slog.DebugContext(ctx, "Management server created")
 
-	managementListener, err := net.Listen("tcp", managementServer.Addr)
+	// Every listener is declared before the first bind so one unwinder can
+	// serve them all. Each bind happens in sequence, and a failure closes
+	// whatever is already open rather than exiting the process holding ports.
+	var (
+		managementListener net.Listener
+		jsonnetListener    net.Listener
+		storageServer      *http.Server
+		storageListener    net.Listener
+		metricsServer      *http.Server
+		metricsListener    net.Listener
+		mcpServer          *http.Server
+		mcpListener        net.Listener
+	)
+	// The closure reads the variables above at call time, so it covers whatever
+	// has been bound so far and skips the optional listeners a given
+	// configuration never binds.
+	closeBoundListeners := func() {
+		for _, l := range []net.Listener{managementListener, jsonnetListener, storageListener, metricsListener, mcpListener} {
+			if l != nil {
+				_ = l.Close()
+			}
+		}
+	}
+
+	managementListener, err = net.Listen("tcp", managementServer.Addr)
 	if err != nil {
 		slog.ErrorContext(ctx, "Cannot bind management listener", slog.String("addr", managementServer.Addr), slog.Any("error", err))
 		return 1
 	}
 
-	jsonnetListener, err := net.Listen("tcp", jsonnetServer.Addr)
+	jsonnetListener, err = net.Listen("tcp", jsonnetServer.Addr)
 	if err != nil {
-		_ = managementListener.Close()
+		closeBoundListeners()
 		slog.ErrorContext(ctx, "Cannot bind jsonnet listener", slog.String("addr", jsonnetServer.Addr), slog.Any("error", err))
 		return 1
 	}
 
-	var (
-		storageServer   *http.Server
-		storageListener net.Listener
-		mcpServer       *http.Server
-		mcpListener     net.Listener
-	)
 	if *f.EnableFluxIntegration {
 		storageServer = &http.Server{
 			Addr:         net.JoinHostPort(*f.StorageListenAddress, *f.StoragePort),
@@ -407,10 +434,32 @@ func run(args, env []string, stdout, stderr io.Writer, sigs <-chan os.Signal) in
 		}
 		storageListener, err = net.Listen("tcp", storageServer.Addr)
 		if err != nil {
-			_ = managementListener.Close()
-			_ = jsonnetListener.Close()
+			closeBoundListeners()
 			slog.ErrorContext(ctx, "Cannot bind storage listener", slog.String("addr", storageServer.Addr), slog.Any("error", err))
 			return 1
+		}
+
+		if *f.MetricsBindAddress != "0" {
+			// jaas serves the Prometheus registry rather than delegating to
+			// controller-runtime's metrics server, which only exists for as
+			// long as a manager does. Both write to the same registry, so the
+			// exported series are identical; binding it here is what keeps
+			// jaas_operator_available readable while the manager is the thing
+			// that is down.
+			metricsMux := http.NewServeMux()
+			metricsMux.Handle("/metrics", promhttp.HandlerFor(crmetrics.Registry, promhttp.HandlerOpts{}))
+			metricsServer = &http.Server{
+				Addr:         *f.MetricsBindAddress,
+				WriteTimeout: *f.ManagementWriteTimeout,
+				ReadTimeout:  *f.ManagementReadTimeout,
+				Handler:      metricsMux,
+			}
+			metricsListener, err = net.Listen("tcp", metricsServer.Addr)
+			if err != nil {
+				closeBoundListeners()
+				slog.ErrorContext(ctx, "Cannot bind metrics listener", slog.String("addr", metricsServer.Addr), slog.Any("error", err))
+				return 1
+			}
 		}
 
 		if *f.EnableMCP {
@@ -422,17 +471,13 @@ func run(args, env []string, stdout, stderr io.Writer, sigs <-chan os.Signal) in
 			// reconciler stamps on status.
 			mcpScheme := apiruntime.NewScheme()
 			if err := jaasv1.AddToScheme(mcpScheme); err != nil {
-				_ = managementListener.Close()
-				_ = jsonnetListener.Close()
-				_ = storageListener.Close()
+				closeBoundListeners()
 				slog.ErrorContext(ctx, "Cannot build MCP scheme", slog.Any("error", err))
 				return 1
 			}
 			mcpKubeClient, err := client.New(opRestCfg, client.Options{Scheme: mcpScheme})
 			if err != nil {
-				_ = managementListener.Close()
-				_ = jsonnetListener.Close()
-				_ = storageListener.Close()
+				closeBoundListeners()
 				slog.ErrorContext(ctx, "Cannot build MCP Kubernetes client", slog.Any("error", err))
 				return 1
 			}
@@ -450,9 +495,7 @@ func run(args, env []string, stdout, stderr io.Writer, sigs <-chan os.Signal) in
 			}))
 			mcpListener, err = net.Listen("tcp", mcpServer.Addr)
 			if err != nil {
-				_ = managementListener.Close()
-				_ = jsonnetListener.Close()
-				_ = storageListener.Close()
+				closeBoundListeners()
 				slog.ErrorContext(ctx, "Cannot bind MCP listener", slog.String("addr", mcpServer.Addr), slog.Any("error", err))
 				return 1
 			}
@@ -460,19 +503,27 @@ func run(args, env []string, stdout, stderr io.Writer, sigs <-chan os.Signal) in
 	}
 
 	state.MarkStarted()
-	// In HTTP-only mode the pod is ready as soon as the listeners
-	// are bound. In operator mode the readiness probe stays 503 until the
-	// manager's cache has synced — on every replica, leader or not — so a
-	// pod whose operator goroutine failed to boot never reports Ready, while
-	// standby (non-leader) replicas still go Ready and serve HTTP + storage.
-	// opCfg.OnReady (wired above when --enable-flux-integration is set) flips
-	// the probe; the operator manager fires it from a non-leader-election
-	// runnable after cache sync.
-	if !*f.EnableFluxIntegration {
+	// In HTTP-only mode the pod is ready as soon as the listeners are bound. In
+	// operator mode the readiness probe stays 503 until the manager's cache has
+	// synced — on every replica, leader or not — so a pod whose operator never
+	// came up is not rolled out over a working one, while standby (non-leader)
+	// replicas still go Ready and serve HTTP + storage. opCfg.OnReady (wired
+	// above when --enable-flux-integration is set) flips the probe; the operator
+	// manager fires it from a non-leader-election runnable after cache sync.
+	// Readiness only ratchets up: a manager that dies later does not withdraw a
+	// pod that has been serving, because the renderer and the artifact server
+	// keep working without an apiserver. --readiness-requires-operator=never
+	// drops the initial gate too, for installs that would rather keep the
+	// renderer in its Service than halt a rollout.
+	if !*f.EnableFluxIntegration || *f.ReadinessRequiresOperator == cliflags.ReadinessOperatorNever {
 		state.SetReady(true)
 	}
 
-	serverErrs := make(chan error, 4)
+	// One slot per HTTP server that can report a serve failure, so a late
+	// sender never blocks on a full buffer after the first error has been
+	// consumed. The operator is not among them: it degrades rather than
+	// ending the process.
+	serverErrs := make(chan error, 5)
 
 	go func() {
 		if err := jsonnetServer.Serve(jsonnetListener); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -497,6 +548,15 @@ func run(args, env []string, stdout, stderr io.Writer, sigs <-chan os.Signal) in
 		slog.DebugContext(ctx, "Storage server started", slog.String("addr", storageServer.Addr))
 	}
 
+	if metricsServer != nil {
+		go func() {
+			if err := metricsServer.Serve(metricsListener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				serverErrs <- fmt.Errorf("metrics server: %w", err)
+			}
+		}()
+		slog.DebugContext(ctx, "Metrics server started", slog.String("addr", metricsServer.Addr))
+	}
+
 	if mcpServer != nil {
 		go func() {
 			if err := mcpServer.Serve(mcpListener); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -517,14 +577,18 @@ func run(args, env []string, stdout, stderr io.Writer, sigs <-chan os.Signal) in
 	if *f.EnableFluxIntegration {
 		go func() {
 			defer close(operatorDone)
-			if err := operator.Run(ctx, opCfg, opRestCfg); err != nil && !errors.Is(err, context.Canceled) {
-				select {
-				case serverErrs <- fmt.Errorf("operator: %w", err):
-				default:
-				}
-			}
+			// A manager that cannot be built or started no longer ends the
+			// process. Every apiserver call the build makes — discovery for the
+			// field indexes, the RESTMapper lookups behind the Flux watches —
+			// is a reason an unreachable apiserver or a missing RBAC verb would
+			// otherwise turn into a restart loop that takes the Jsonnet
+			// renderer and the artifact server down with it, neither of which
+			// needs an apiserver. Supervise retries for as long as ctx lives,
+			// and the degradation surfaces on /operator, in the logs, and in
+			// jaas_operator_available.
+			operator.Supervise(ctx, opCfg, opRestCfg, opState)
 		}()
-		slog.DebugContext(ctx, "Operator manager started")
+		slog.DebugContext(ctx, "Operator supervisor started")
 
 		// Periodic storage GC: sweep orphaned .tmp residue left by Puts
 		// that died after writing the tmpfile but before the rename.
@@ -566,6 +630,12 @@ func run(args, env []string, stdout, stderr io.Writer, sigs <-chan os.Signal) in
 	if storageServer != nil {
 		if err := storageServer.Shutdown(shutdownCtx); err != nil {
 			slog.ErrorContext(ctx, "Cannot shut down storage server", slog.Any("error", err))
+			exitCode = 1
+		}
+	}
+	if metricsServer != nil {
+		if err := metricsServer.Shutdown(shutdownCtx); err != nil {
+			slog.ErrorContext(ctx, "Cannot shut down metrics server", slog.Any("error", err))
 			exitCode = 1
 		}
 	}
@@ -884,10 +954,24 @@ func provisionSelfSignedWebhookCert(ctx context.Context, restCfg *rest.Config, c
 	// during a rolling update converge instead of clobbering each other's
 	// CAs — and retries transient apiserver errors so a brief hiccup
 	// during restart doesn't fail the bootstrap.
-	if err := selfsigned.UpdateVWCCABundle(ctx, vwcs, cfg.VWCName, func(cur []byte) []byte {
-		return selfsigned.CombineCABundles(cur, bundle.CABundle)
-	}); err != nil {
-		return nil, fmt.Errorf("webhook self-signed: %w", err)
+	stamp := func(ctx context.Context) error {
+		return selfsigned.UpdateVWCCABundle(ctx, vwcs, cfg.VWCName, func(cur []byte) []byte {
+			return selfsigned.CombineCABundles(cur, bundle.CABundle)
+		})
+	}
+	// The patch is the only step here that needs the apiserver, and an
+	// apiserver the pod cannot reach must not end the process: the cert files
+	// on disk are already complete, and the Jsonnet renderer needs no cluster
+	// at all. Admission stays broken until the caBundle lands, so the goroutine
+	// below keeps trying and it starts working on its own once the cause —
+	// unreachable apiserver, a missing get/update on the named
+	// ValidatingWebhookConfiguration — is cleared.
+	stamped := true
+	if err := stamp(ctx); err != nil {
+		stamped = false
+		operator.RecordWebhookCertRenewalFailure()
+		slog.WarnContext(ctx, "Cannot stamp the webhook caBundle yet, retrying in the background",
+			slog.String("vwc", cfg.VWCName), slog.Any("error", err))
 	}
 
 	// Start the in-process renewer. controller-runtime's webhook server
@@ -919,12 +1003,46 @@ func provisionSelfSignedWebhookCert(ctx context.Context, restCfg *rest.Config, c
 					slog.Any("panic", p))
 			}
 		}()
+		if !stamped && retryWebhookCABundle(ctx, cfg.VWCName, stamp) != nil {
+			// Only ctx expiry ends the retry, which means the process is
+			// shutting down; there is nothing left for the renewer to rotate.
+			return
+		}
 		if err := renewer.Run(ctx); err != nil {
 			slog.WarnContext(ctx, "Self-signed webhook cert renewer exited",
 				slog.Any("error", err))
 		}
 	}()
 	return done, nil
+}
+
+// retryWebhookCABundle re-runs the caBundle patch until it lands or ctx ends,
+// backing off between attempts. It returns nil once the patch succeeds and
+// ctx.Err() when the process is shutting down.
+func retryWebhookCABundle(ctx context.Context, vwcName string, stamp func(context.Context) error) error {
+	const (
+		baseDelay = 5 * time.Second
+		maxDelay  = 2 * time.Minute
+	)
+	delay := baseDelay
+	for {
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+		if err := stamp(ctx); err == nil {
+			slog.InfoContext(ctx, "Webhook caBundle stamped", slog.String("vwc", vwcName))
+			return nil
+		} else if ctx.Err() == nil {
+			operator.RecordWebhookCertRenewalFailure()
+			slog.WarnContext(ctx, "Cannot stamp the webhook caBundle, admission stays closed",
+				slog.String("vwc", vwcName), slog.Duration("retryIn", delay), slog.Any("error", err))
+		}
+		delay = min(delay*2, maxDelay)
+	}
 }
 
 // ociLibraryAliasesFromPaths walks every --library-path entry and

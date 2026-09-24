@@ -21,7 +21,6 @@ import (
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	ctrlconfig "sigs.k8s.io/controller-runtime/pkg/config"
 
 	jaasv1 "github.com/metio/jaas/api/v1"
 	"github.com/metio/jaas/internal/sources"
@@ -342,17 +341,11 @@ func runManagerInBackgroundWithBuilder(t *testing.T, restCfg *rest.Config, cfg C
 	if cfg.Logger == nil {
 		cfg.Logger = discardLoggerEnvtest()
 	}
-	cfg.SkipControllerNameValidation = true
 	cfg.SkipImpersonation = true
-	if cfg.MetricsBindAddress == "" {
-		cfg.MetricsBindAddress = "0"
-	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	build := func(restCfg *rest.Config, opts ctrl.Options, c Config) (runner, error) {
-		if c.SkipControllerNameValidation {
-			opts.Controller = ctrlconfig.Controller{SkipNameValidation: new(true)}
-		}
+		opts.Controller.SkipNameValidation = new(true)
 		mgr, err := ctrl.NewManager(restCfg, opts)
 		if err != nil {
 			return nil, err
@@ -441,14 +434,11 @@ func runManagerInBackgroundWithReconcilerCapture(t *testing.T, restCfg *rest.Con
 	if cfg.Logger == nil {
 		cfg.Logger = discardLoggerEnvtest()
 	}
-	cfg.SkipControllerNameValidation = true
 	cfg.SkipImpersonation = true
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	build := func(restCfg *rest.Config, opts ctrl.Options, c Config) (runner, error) {
-		if c.SkipControllerNameValidation {
-			opts.Controller = ctrlconfig.Controller{SkipNameValidation: new(true)}
-		}
+		opts.Controller.SkipNameValidation = new(true)
 		mgr, err := ctrl.NewManager(restCfg, opts)
 		if err != nil {
 			return nil, err
@@ -728,6 +718,34 @@ func TestEnvtest_Reconcile_MultipleSnippets_InDistinctNamespaces(t *testing.T) {
 		}
 		if snip.Status.Revision == "" {
 			t.Errorf("%s has empty Status.Revision", key)
+		}
+	}
+}
+
+// TestEnvtest_Run_RebuildsAManagerInTheSameProcess pins that a second manager
+// can be built after the first has stopped.
+//
+// controller-runtime keeps controller names for the lifetime of the process and
+// never releases a stopped manager's entry, so a rebuild that registers
+// "jsonnetsnippet" again is rejected unless name validation is off. Supervise
+// rebuilds whenever a manager stops — a lost lease, a failure after a healthy
+// period — and a rejected rebuild would wedge the operator for the pod's
+// lifetime with an error no cluster change can clear.
+func TestEnvtest_Run_RebuildsAManagerInTheSameProcess(t *testing.T) {
+	cfg := envtestConfig(t)
+
+	for attempt := 1; attempt <= 2; attempt++ {
+		stop, done := runManagerInBackground(t, cfg, Config{Logger: discardLoggerEnvtest()})
+		// The manager reports a build failure before it ever blocks in Start,
+		// so a short wait is enough to tell a rejected build from a running one.
+		select {
+		case err := <-done:
+			t.Fatalf("attempt %d: manager returned early: %v", attempt, err)
+		case <-time.After(2 * time.Second):
+		}
+		stop()
+		if err := <-done; err != nil && !errors.Is(err, context.Canceled) {
+			t.Fatalf("attempt %d: manager exited with %v", attempt, err)
 		}
 	}
 }

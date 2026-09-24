@@ -10,10 +10,18 @@ it for dashboards and feed it into the shipped [alerts](/observability/alerting/
 
 ## The binary
 
-controller-runtime's Prometheus endpoint binds `--metrics-bind-address` (default
-`:8083`), serving the standard text exposition format at `/metrics`. Setting it
-to `0` disables the endpoint. The default deliberately avoids controller-runtime's
-built-in `:8080`, which would collide with the Jsonnet HTTP port.
+The Prometheus endpoint binds `--metrics-bind-address` (default `:8083`), serving
+the standard text exposition format at `/metrics`. Setting it to `0` disables the
+endpoint. The default deliberately avoids controller-runtime's built-in `:8080`,
+which would collide with the Jsonnet HTTP port.
+
+JaaS binds that listener itself rather than letting the controller-runtime
+manager do it. The exported series are the same either way, because both write to
+the same registry; what the choice buys is that the endpoint stays scrapeable
+when the manager is the thing that is down, which is exactly when
+`jaas_operator_available` carries information. A manager-owned endpoint would
+disappear with the manager, leaving a failed scrape that cannot distinguish a
+degraded operator from a pod that is gone.
 
 The full flag list with defaults is on the
 [configuration page](/reference/configuration/).
@@ -25,6 +33,8 @@ controller-runtime's registry so they ride the same `/metrics` endpoint:
 
 | Metric | Type | Labels | Meaning |
 |---|---|---|---|
+| `jaas_operator_available` | gauge | — | `1` once the manager's cache has synced and it is reconciling, `0` while it cannot start — an apiserver the pod cannot reach, a ClusterRole missing a verb, a CRD not installed. Renderer-mode processes never export it. See the [operator-unavailable runbook](/runbooks/operator-unavailable/). |
+| `jaas_operator_start_failures_total` | counter | — | Manager starts that failed or returned early. Read alongside the gauge: the gauge says the operator is down now, this separates one long outage from a manager that keeps dying and being restarted. |
 | `jaas_snippet_reconcile_total` | counter | `namespace`, `name`, `status`, `reason` | One bump per reconcile that touches the Ready condition. `status` is `True`/`False`; `reason` is the Reason constant from the snippet's condition. |
 | `jaas_snippet_rendered_bytes` | histogram | `namespace`, `name` | Rendered artifact size, observed only on `Synced` reconciles. Buckets run 256 B…64 MiB. |
 | `jaas_snippet_rate_limited_total` | counter | `namespace`, `name` | Reconciles deferred by the per-snippet token bucket. Paired with the `RateLimited` Warning event. |
@@ -35,7 +45,7 @@ controller-runtime's registry so they ride the same `/metrics` endpoint:
 | `jaas_eval_unavailable_total` | counter | — | Process-global accumulator of evaluations the semaphore rejected, across the HTTP and operator paths. Monotonic; resets on restart. |
 | `jaas_eval_outstanding_timed_out` | gauge | — | Evaluation goroutines whose parent's context fired before the synchronous go-jsonnet call returned. Sustained non-zero readings flag a runaway snippet. |
 | `jaas_storage_sweep_failures_total` | counter | — | Background storage-sweep passes that returned an error. The sweep removes orphaned `.tar.gz.tmp` residue; failures here don't block reconciles but let stale files accumulate. |
-| `jaas_webhook_cert_renewal_failures_total` | counter | — | Self-signed cert renewal attempts that returned an error. Sustained non-zero values flag RBAC drift or a write-permission loss on `--webhook-cert-dir`; the existing cert's natural expiry is the deadline before admission breaks cluster-wide. |
+| `jaas_webhook_cert_renewal_failures_total` | counter | — | Self-signed caBundle writes that returned an error, at bootstrap and at renewal. Sustained non-zero values flag RBAC drift, an unreachable apiserver, or a write-permission loss on `--webhook-cert-dir`. A bootstrap that has not landed yet keeps admission closed; for a renewal, the existing cert's natural expiry is the deadline. |
 | `jaas_tenant_token_mint_failures_total` | counter | `namespace`, `serviceAccount` | `TokenRequest` mints that returned an error. Sustained non-zero values on a pair indicate revoked `serviceaccounts/token: create` or a deleted namespace; affected snippets pin Ready=Unknown. |
 | `jaas_crd_watch_engagement_failures_total` | counter | `gvk` | `EngageFluxWatch` calls that returned an error. Sustained non-zero values on a GVK mean dependent snippets won't re-render on upstream source events until the watch engages. |
 
@@ -55,6 +65,14 @@ metrics and these controller-runtime signals.
 Once scraped, a few PromQL queries answer the common questions:
 
 ```promql
+# The operator is not reconciling: the pod is up and serving Jsonnet, but its
+# manager cannot start. Diagnose with the operator-unavailable runbook.
+jaas_operator_available == 0
+
+# A manager that keeps dying and being restarted, as opposed to one outage
+# that persists.
+increase(jaas_operator_start_failures_total[30m]) > 3
+
 # Rate of failed reconciles per snippet, excluding healthy/intentional states.
 sum by (namespace, name) (
   rate(jaas_snippet_reconcile_total{status="False",reason!~"Synced|Suspended|Pending"}[5m])

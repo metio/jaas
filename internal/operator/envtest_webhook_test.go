@@ -173,12 +173,11 @@ func TestEnvtest_Webhook_AdmissionRejectsExtVarConflict(t *testing.T) {
 func startValidatorManager(t *testing.T, restCfg *rest.Config, whOpts envtest.WebhookInstallOptions) (context.CancelFunc, <-chan error) {
 	t.Helper()
 	opCfg := Config{
-		EnableWebhook:                true,
-		WebhookCertDir:               whOpts.LocalServingCertDir,
-		WebhookPort:                  whOpts.LocalServingPort,
-		ExtVars:                      map[string]string{"cluster": "prod"},
-		SkipControllerNameValidation: true,
-		Logger:                       discardLoggerEnvtest(),
+		EnableWebhook:  true,
+		WebhookCertDir: whOpts.LocalServingCertDir,
+		WebhookPort:    whOpts.LocalServingPort,
+		ExtVars:        map[string]string{"cluster": "prod"},
+		Logger:         discardLoggerEnvtest(),
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)

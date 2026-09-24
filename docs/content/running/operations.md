@@ -141,10 +141,45 @@ changes automatically.
   If the cleanup Job hangs, check `operator.cleanupOnDelete.kubectlTimeout`
   (default `2m`) and the backend health.
 
+## Degraded operator
+
+The operator subsystem is supervised independently of the rest of the process.
+When the manager cannot be built or started — an apiserver the pod cannot reach,
+a ClusterRole missing a verb, a CRD not yet installed — JaaS keeps running and
+retries the manager with exponential backoff (1s, doubling, capped at 5m) for as
+long as the pod lives. The Jsonnet renderer and the artifact server need no
+cluster at all, so they keep serving throughout, and the manager comes up on its
+own once the cause is cleared, in the same process and without a restart.
+
+Three signals report the state:
+
+- `GET /operator` on the management port returns `200` while the operator is
+  reconciling, and `503` with the reason, the time the reading last changed, and
+  the number of manager starts while it is not.
+- `jaas_operator_available` is `0` while the operator is down and `1` once its
+  cache has synced. `jaas_operator_start_failures_total` separates one long
+  outage from a manager that keeps dying.
+- The log carries one `Operator unavailable, restarting` line at the transition
+  and a `still unavailable` line per retry, each naming the reason. The backoff
+  paces them, so a long outage thins out to one line every five minutes.
+
+Readiness stays down for a pod whose operator has never synced, which stops a
+rolling update from replacing a working replica with one that cannot reconcile. A
+manager that dies later does not withdraw a pod that has been serving. Where the
+renderer matters more than that rollout gate,
+`--readiness-requires-operator=never` ties readiness to the HTTP listeners alone,
+leaving `/operator` and the gauge as the operator's own signals.
+
+Liveness is unconditional either way, so a degraded operator never restarts the
+pod. Diagnosis is in the
+[operator-unavailable runbook](/runbooks/operator-unavailable/).
+
 ## Monitoring operational health
 
 Key signals to watch:
 
+- `jaas_operator_available == 0` — the operator is not reconciling at all; see
+  [Degraded operator](#degraded-operator).
 - `jaas_storage_sweep_failures_total` — non-zero means the sweep goroutine is
   erroring; investigate storage backend health.
 - `jaas_snippet_reconcile_total{status!="Synced"}` — elevated rate means

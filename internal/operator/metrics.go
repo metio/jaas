@@ -6,10 +6,13 @@
 package operator
 
 import (
+	"sync/atomic"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
 
 	"github.com/metio/jaas/internal/eval"
+	"github.com/metio/jaas/internal/opstate"
 )
 
 // snippetReconcileTotal counts how many reconciles ended in each
@@ -178,7 +181,7 @@ func RecordSweepFailure() {
 var webhookCertRenewalFailuresTotal = prometheus.NewCounter(
 	prometheus.CounterOpts{
 		Name: "jaas_webhook_cert_renewal_failures_total",
-		Help: "Self-signed webhook cert renewal attempts (Renewer.renewOnce) that returned an error. Sustained non-zero values flag RBAC drift or CertDir write-perm loss; the existing cert's natural expiry is the deadline.",
+		Help: "Self-signed webhook caBundle writes that returned an error, at bootstrap and at renewal. Sustained non-zero values flag RBAC drift, an unreachable apiserver, or CertDir write-perm loss; admission stays closed until a write lands, and the existing cert's natural expiry is the deadline.",
 	},
 )
 
@@ -246,8 +249,60 @@ func recordForceDrop(namespace, name, reason string) {
 	snippetForceDropTotal.WithLabelValues(namespace, name, reason).Inc()
 }
 
+// operatorState is the availability the gauge below reads. The supervisor owns
+// the State and publishes it here once, so the gauge can be a package-level
+// collector registered at init like every other metric while still reading
+// through to the live value on each scrape.
+var operatorState atomic.Pointer[opstate.State]
+
+// SetOperatorState publishes the State that jaas_operator_available reports.
+func SetOperatorState(state *opstate.State) {
+	operatorState.Store(state)
+}
+
+// operatorAvailableGauge reports whether the operator subsystem is reconciling.
+// It is 0 while the manager cannot be built or started — an apiserver the pod
+// cannot reach, a ClusterRole missing a verb, a CRD not installed — and 1 once
+// its cache has synced.
+//
+// The endpoint that serves this is bound by jaas itself rather than by the
+// manager, which is what makes the metric readable in the state it describes: a
+// manager that never started would otherwise take its own metrics server with
+// it, and the only remaining signal would be a failed scrape, which does not
+// distinguish a degraded operator from a pod that is gone.
+var operatorAvailableGauge = prometheus.NewGaugeFunc(
+	prometheus.GaugeOpts{
+		Name: "jaas_operator_available",
+		Help: "1 when the operator's manager has synced and is reconciling, 0 while it cannot start. Renderer-mode processes never report it.",
+	},
+	func() float64 {
+		if operatorState.Load().Available() {
+			return 1
+		}
+		return 0
+	},
+)
+
+// operatorStartFailuresTotal counts manager starts that ended in failure.
+// Paired with jaas_operator_available: the gauge says the operator is down now,
+// this says how often it has gone down, which separates one long outage from a
+// manager that keeps dying and being restarted.
+var operatorStartFailuresTotal = prometheus.NewCounter(
+	prometheus.CounterOpts{
+		Name: "jaas_operator_start_failures_total",
+		Help: "Operator manager starts that failed or returned early. Sustained growth flags a manager that cannot stay up, as opposed to one outage that persists.",
+	},
+)
+
+// recordOperatorStartFailure counts one failed manager start.
+func recordOperatorStartFailure() {
+	operatorStartFailuresTotal.Inc()
+}
+
 func init() {
 	metrics.Registry.MustRegister(
+		operatorAvailableGauge,
+		operatorStartFailuresTotal,
 		snippetReconcileTotal,
 		snippetRateLimitedTotal,
 		snippetEvalUnavailableTotal,
