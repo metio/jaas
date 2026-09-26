@@ -36,7 +36,7 @@ These cover failures that don't map to a single `Reason` constant — typically 
 | Workqueue saturation | [workqueue-saturation.md](workqueue-saturation.md) | `JaaSControllerWorkqueueDepthHigh` |
 | High reconcile latency | [reconcile-latency.md](reconcile-latency.md) | `JaaSReconcileLatencyHigh` |
 | Operator pod not ready | [operator-pod-down.md](operator-pod-down.md) | `JaaSOperatorPodDown` |
-| Operator manager cannot start (pod serving, nothing reconciling) | [operator-unavailable.md](operator-unavailable.md) | (no direct alert yet; `jaas_operator_available == 0`) |
+| Operator manager cannot start (pod serving, nothing reconciling) | [operator-unavailable.md](operator-unavailable.md) | `JaaSOperatorUnavailable` / `JaaSOperatorFlapping` |
 | Watch-layer silent failure (operator-self RBAC) | [operator-watch-silent.md](operator-watch-silent.md) | (no direct alert; diagnose via deploy logs) |
 | Eval-concurrency saturation (cap full, requests shed) | [eval-saturation.md](eval-saturation.md) | `JaaSEvalSaturation` / `JaaSEvalRejected` / `JaaSEvalLeakedGoroutines` |
 | Self-signed webhook cert renewal failing | [webhook-cert-renewal.md](webhook-cert-renewal.md) | `JaaSWebhookCertRenewalFailing` |
