@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en"><generator uri="https://gohugo.io/" version="0.163.3">Hugo</generator><title type="html">Upgrade on Jsonnet-as-a-Service</title><link href="https://jaas.projects.metio.wtf/tags/upgrade/" rel="alternate" type="text/html" title="html"/><link href="https://jaas.projects.metio.wtf/tags/upgrade/index.xml" rel="alternate" type="application/rss+xml" title="rss"/><link href="https://jaas.projects.metio.wtf/tags/upgrade/atom.xml" rel="self" type="application/atom+xml" title="atom"/><updated>2026-09-26T09:32:28+00:00</updated><author><name>metio.wtf</name></author><id>https://jaas.projects.metio.wtf/tags/upgrade/</id><entry><title type="html">Upgrading</title><link href="https://jaas.projects.metio.wtf/reference/upgrading/?utm_source=atom_feed" rel="alternate" type="text/html"/><link href="https://jaas.projects.metio.wtf/reference/helm-values/?utm_source=atom_feed" rel="related" type="text/html" title="Helm chart values"/><link href="https://jaas.projects.metio.wtf/get-started/kubernetes/?utm_source=atom_feed" rel="related" type="text/html" title="Kubernetes"/><link href="https://jaas.projects.metio.wtf/running/disaster-recovery/?utm_source=atom_feed" rel="related" type="text/html" title="Backup and disaster recovery"/><link href="https://jaas.projects.metio.wtf/reference/configuration/?utm_source=atom_feed" rel="related" type="text/html" title="Configuration reference"/><link href="https://jaas.projects.metio.wtf/running/operations/?utm_source=atom_feed" rel="related" type="text/html" title="Operations"/><id>https://jaas.projects.metio.wtf/reference/upgrading/</id><published>0001-01-01T00:00:00+00:00</published><updated>2026-09-24T22:19:59+02:00</updated><content type="html"><![CDATA[<blockquote>Actions required when upgrading JaaS between releases — a release with no section here needs no migration.</blockquote><p>This page lists the actions required when upgrading JaaS. A release with no
+section here needs no migration — a plain <code>helm upgrade</code> (or new image tag)
+suffices.</p>
+<h2 id="2026924">2026.9.24</h2>
+<p>An operator that cannot reach the apiserver no longer ends the process. The pod
+stays <code>Running</code> and retries its manager in place, so the failures that used to
+show up as <code>CrashLoopBackOff</code> — egress denied to the apiserver, an incomplete
+ClusterRole, CRDs not installed — now show up as a pod that is <code>Running</code>, not
+<code>Ready</code>, and reconciling nothing. <code>/jsonnet</code> keeps serving throughout.</p>
+<p>Alerting that watched container restarts for this class of failure goes quiet.
+Watch the operator&rsquo;s own signals instead:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-promql" data-lang="promql"><span class="line"><span class="cl"><span class="c1"># The operator is not reconciling at all.</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nv">jaas_operator_available</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">0</span><span class="w">
+</span></span></span></code></pre></div><p><code>GET /operator</code> on the management port carries the same state with the reason
+attached, and <a href="/runbooks/operator-unavailable/">operator-unavailable</a>
+ covers
+diagnosis. Readiness behaves as before: a pod whose manager has never synced
+stays out of its Services, which still halts a rolling update.</p>
+]]></content><category scheme="https://jaas.projects.metio.wtf/tags/installation" term="installation" label="installation"/><category scheme="https://jaas.projects.metio.wtf/tags/upgrade" term="upgrade" label="upgrade"/><category scheme="https://jaas.projects.metio.wtf/tags/migration" term="migration" label="migration"/><category scheme="https://jaas.projects.metio.wtf/tags/helm" term="helm" label="helm"/></entry></feed>

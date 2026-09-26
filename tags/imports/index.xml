@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Imports on Jsonnet-as-a-Service</title><link>https://jaas.projects.metio.wtf/tags/imports/</link><description>Recent content in Imports on Jsonnet-as-a-Service</description><generator>Hugo</generator><language>en</language><atom:link href="https://jaas.projects.metio.wtf/tags/imports/index.xml" rel="self" type="application/rss+xml"/><item><title>Jsonnet libraries</title><link>https://jaas.projects.metio.wtf/rendering/jsonnet-libraries/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/rendering/jsonnet-libraries/</guid><description>&lt;p&gt;Snippets import reusable Jsonnet from two places: namespaced &lt;code&gt;JsonnetLibrary&lt;/code&gt;
+custom resources and OCI-mounted shared libraries the operator carries on disk.
+Both feed the same import-alias namespace, so a snippet&amp;rsquo;s &lt;code&gt;import&lt;/code&gt; statements
+look identical regardless of where the library comes from.&lt;/p&gt;
+&lt;h2 id="the-jsonnetlibrary-crd"&gt;The JsonnetLibrary CRD&lt;/h2&gt;
+&lt;p&gt;A &lt;code&gt;JsonnetLibrary&lt;/code&gt; is a namespaced bundle of &lt;code&gt;.libsonnet&lt;/code&gt; files. Like a snippet,
+it declares exactly one source — inline &lt;code&gt;spec.files&lt;/code&gt; or a &lt;code&gt;spec.sourceRef&lt;/code&gt; to a
+Flux source (&lt;code&gt;GitRepository&lt;/code&gt;, &lt;code&gt;OCIRepository&lt;/code&gt;, &lt;code&gt;Bucket&lt;/code&gt;, &lt;code&gt;ExternalArtifact&lt;/code&gt;).
+The library carries no registration name of its own; the import alias is chosen
+on the snippet side.&lt;/p&gt;</description></item><item><title>Snippets and libraries</title><link>https://jaas.projects.metio.wtf/rendering/snippets-and-libraries/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/rendering/snippets-and-libraries/</guid><description>&lt;p&gt;In renderer mode you declare snippets and libraries on disk through command-line
+flags. A snippet becomes reachable at the
+&lt;a href="https://jaas.projects.metio.wtf/rendering/rendering-endpoint/"&gt;rendering endpoint&lt;/a&gt;
+; a library is importable by any
+snippet.&lt;/p&gt;
+&lt;h2 id="directory-snippets"&gt;Directory snippets&lt;/h2&gt;
+&lt;p&gt;Point &lt;code&gt;--snippet-directory&lt;/code&gt; at a directory whose subdirectories each hold a
+&lt;code&gt;main.jsonnet&lt;/code&gt;. Each subdirectory name becomes a snippet name:&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-shell" data-lang="shell"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;./jaas --snippet-directory examples/snippets/dashboards
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;curl http://127.0.0.1:8080/jsonnet/example1
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;Given this layout, &lt;code&gt;example1&lt;/code&gt; resolves to
+&lt;code&gt;examples/snippets/dashboards/example1/main.jsonnet&lt;/code&gt;:&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-text" data-lang="text"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;examples/snippets/dashboards
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;├── example1
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;│ └── main.jsonnet
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;├── tla-example
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;│ └── main.jsonnet
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;└── multi-tla
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; └── main.jsonnet
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;h2 id="file-snippets"&gt;File snippets&lt;/h2&gt;
+&lt;p&gt;Point &lt;code&gt;--snippet&lt;/code&gt; at an individual Jsonnet file. The file path becomes the
+snippet name:&lt;/p&gt;</description></item></channel></rss>
