@@ -4,9 +4,9 @@ description: The jaas process is running and serving Jsonnet, but its controller
 tags: [runbooks, troubleshooting, operator, networking, rbac]
 ---
 
-Linked from the `jaas_operator_available == 0` signal and from `GET /operator`
-returning `503`. The pod is up and the Jsonnet renderer answers; the controller
-manager is what cannot start.
+Linked from the `JaaSOperatorUnavailable` and `JaaSOperatorFlapping` alerts, and
+from `GET /operator` returning `503`. The pod is up and the Jsonnet renderer
+answers; the controller manager is what cannot start.
 
 ## Symptom
 
@@ -46,7 +46,14 @@ watches — so anything that blocks those calls keeps the operator down:
    chart install with `crds.create=false` and no out-of-band apply lands here.
 4. **The apiserver is genuinely unreachable** — control-plane outage, DNS
    failure inside the cluster, a mesh sidecar that has not started yet.
-5. **The leader-election lease was lost** after a period of healthy operation.
+5. **The webhook has no certificate.** With
+   `operator.webhook.certMode=cert-manager` the reason is
+   `open …/tls.crt: no such file or directory` — the Certificate has not been
+   issued, or the Secret is not mounted. The manager syncs its cache and then
+   fails on the webhook server, so the reading alternates between available and
+   unavailable until the certificate lands; that is the shape
+   `JaaSOperatorFlapping` catches and `JaaSOperatorUnavailable` can miss.
+6. **The leader-election lease was lost** after a period of healthy operation.
    The reason is `leader election lost`; the next manager blocks on acquiring
    the lease again, which is the behaviour the lease exists for. Repeated losses
    point at apiserver latency or a clock problem, not at JaaS.
@@ -58,7 +65,7 @@ watches — so anything that blocks those calls keeps the operator down:
 kubectl --namespace <jaas-ns> port-forward deploy/<release> 8081:8081 &
 curl --silent http://127.0.0.1:8081/operator
 
-# The same reason in the logs, once per transition plus one per retry.
+# The same reason in the logs, once per fresh cause plus one per retry.
 kubectl --namespace <jaas-ns> logs deploy/<release> | grep -i "operator unavailable\|still unavailable"
 
 # Is it reachability? Resolve and dial the apiserver from the pod's namespace.
@@ -68,7 +75,9 @@ kubectl --namespace default get endpoints kubernetes
 
 An `i/o timeout` against the address that `get endpoints kubernetes` reports,
 with a default-deny policy in the namespace, is cause 1. A `forbidden` naming a
-resource is cause 2. A `no matches for kind` is cause 3.
+resource is cause 2. A `no matches for kind` is cause 3. A missing `tls.crt`,
+with an attempt count that keeps climbing while the gauge flips between 0 and 1,
+is cause 5.
 
 ## Remediation
 
