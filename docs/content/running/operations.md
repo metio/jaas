@@ -170,8 +170,9 @@ Readiness stays down for a pod whose operator has never synced, which stops a
 rolling update from replacing a working replica with one that cannot reconcile. A
 manager that dies later does not withdraw a pod that has been serving. Where the
 renderer matters more than that rollout gate,
-`--readiness-requires-operator=never` ties readiness to the HTTP listeners alone,
-leaving `/operator` and the gauge as the operator's own signals.
+`--readiness-requires-operator=never` (chart:
+`operator.readinessRequiresOperator`) ties readiness to the HTTP listeners
+alone, leaving `/operator` and the gauge as the operator's own signals.
 
 Liveness is unconditional either way, so a degraded operator never restarts the
 pod. Diagnosis is in the
