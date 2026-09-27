@@ -119,11 +119,17 @@ jobs:
           [ "$(jq 'length' <<<"$flux" 2>/dev/null || echo 0)" -gt 0 ] || flux='["v2.7.0"]'
           # Newest kind release — the pinned helm/kind-action's bundled kind can
           # lag new node images ("unknown containerd config version: N"); pin the
-          # binary to the node image. Empty falls back to the action default.
+          # binary to the node image.
+          #
+          # A discovery miss fails the job rather than falling back to the action
+          # default: an older kind writes a kubeadm.k8s.io/v1beta3
+          # ClusterConfiguration that a v1.37.0 node image refuses outright, so
+          # the fallback surfaces as a confusing kubeadm error.
           kind=$(gh release list --repo kubernetes-sigs/kind --limit 30 \
                    --json tagName,isPrerelease \
                    --jq '.[] | select(.isPrerelease==false) | .tagName' \
             | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
+          [ -n "$kind" ] || { echo "::error::kind release discovery failed"; exit 1; }
           {
             echo "k8s=$k8s"
             echo "flux=$flux"
