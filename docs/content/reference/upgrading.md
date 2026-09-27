@@ -8,7 +8,7 @@ This page lists the actions required when upgrading JaaS. A release with no
 section here needs no migration — a plain `helm upgrade` (or new image tag)
 suffices.
 
-## After 2026.9.25092339
+## 2026.9.25092339
 
 An operator that cannot reach the apiserver no longer ends the process. The pod
 stays `Running` and retries its manager in place, so the failures that used to
