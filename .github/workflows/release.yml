@@ -201,6 +201,14 @@ jobs:
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3
         with:
           tag_name: ${{ needs.prepare.outputs.version }}
+          # Tag the commit this run built. Without target_commitish the action
+          # creates a missing tag at the default branch's tip at the moment the
+          # release is created, which is minutes after the version is computed —
+          # so a commit merging in that window takes the tag, leaving it on code
+          # this release never built. `git checkout <tag>` would then disagree
+          # with the published image, and a chart pinning appVersion to the tag
+          # would point at source that never shipped.
+          target_commitish: ${{ github.sha }}
           name: ${{ needs.prepare.outputs.version }}
           token: ${{ secrets.GITHUB_TOKEN }}
           draft: false
