@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Logging on Jsonnet-as-a-Service</title><link>https://jaas.projects.metio.wtf/tags/logging/</link><description>Recent content in Logging on Jsonnet-as-a-Service</description><generator>Hugo</generator><language>en</language><atom:link href="https://jaas.projects.metio.wtf/tags/logging/index.xml" rel="self" type="application/rss+xml"/><item><title>Logging</title><link>https://jaas.projects.metio.wtf/observability/logging/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/observability/logging/</guid><description>&lt;p&gt;JaaS logs through Go&amp;rsquo;s &lt;code&gt;log/slog&lt;/code&gt;. Every request, reconcile, and lifecycle event
+is a structured record you can filter and parse rather than scrape with a regex.
+In operator mode, controller-runtime&amp;rsquo;s own output — leader election, cache sync,
+manager startup — flows through the &lt;strong&gt;same&lt;/strong&gt; slog handler via the logr bridge
+(&lt;code&gt;ctrl.SetLogger(logr.FromSlogHandler(...))&lt;/code&gt;), so the manager&amp;rsquo;s logs share the
+configured level and format instead of emitting controller-runtime&amp;rsquo;s default zap
+output.&lt;/p&gt;
+&lt;h2 id="the-binary"&gt;The binary&lt;/h2&gt;
+&lt;p&gt;Two flags control logging. They apply in every mode JaaS runs in:&lt;/p&gt;</description></item><item><title>Observability</title><link>https://jaas.projects.metio.wtf/observability/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/observability/</guid><description>&lt;p&gt;JaaS gives you four ways to see what it is doing in a cluster. Structured logs
+tell you what happened on a single request or reconcile; traces follow one
+operation across its spans; metrics aggregate behaviour into time series for
+dashboards and alerts; and alerts plus Kubernetes Events turn a sustained
+problem into a page or a notification.&lt;/p&gt;
+&lt;p&gt;Each pillar has its own page covering both the binary&amp;rsquo;s flags and the Helm chart
+keys that drive them:&lt;/p&gt;</description></item></channel></rss>

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Multi-Tenancy on Jsonnet-as-a-Service</title><link>https://jaas.projects.metio.wtf/tags/multi-tenancy/</link><description>Recent content in Multi-Tenancy on Jsonnet-as-a-Service</description><generator>Hugo</generator><language>en</language><atom:link href="https://jaas.projects.metio.wtf/tags/multi-tenancy/index.xml" rel="self" type="application/rss+xml"/><item><title>Security &amp; multi-tenancy</title><link>https://jaas.projects.metio.wtf/security/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/security/</guid><description>&lt;p&gt;How to run JaaS without granting it broad cluster power and how to constrain what
+it can reach. In operator mode, snippets resolve under a tenant ServiceAccount, so
+a snippet can do exactly what its RBAC allows and no more.&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;&lt;a href="https://jaas.projects.metio.wtf/security/tenancy-and-rbac/"&gt;Tenancy and RBAC&lt;/a&gt;
+&lt;/strong&gt; — tenant impersonation and
+the permissions the operator needs.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;a href="https://jaas.projects.metio.wtf/security/admission-webhook/"&gt;Admission webhook&lt;/a&gt;
+&lt;/strong&gt; — validate resources at
+admission time.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;a href="https://jaas.projects.metio.wtf/security/network-policy/"&gt;Network policy&lt;/a&gt;
+&lt;/strong&gt; — lock JaaS&amp;rsquo;s traffic down to
+what it needs.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;a href="https://jaas.projects.metio.wtf/security/service-mesh/"&gt;Service mesh&lt;/a&gt;
+&lt;/strong&gt; — run JaaS inside a mesh.&lt;/li&gt;
+&lt;/ul&gt;</description></item></channel></rss>

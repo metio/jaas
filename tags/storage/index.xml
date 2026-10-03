@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Storage on Jsonnet-as-a-Service</title><link>https://jaas.projects.metio.wtf/tags/storage/</link><description>Recent content in Storage on Jsonnet-as-a-Service</description><generator>Hugo</generator><language>en</language><atom:link href="https://jaas.projects.metio.wtf/tags/storage/index.xml" rel="self" type="application/rss+xml"/><item><title>ArtifactTooLarge</title><link>https://jaas.projects.metio.wtf/runbooks/artifacttoolarge/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/runbooks/artifacttoolarge/</guid><description>&lt;h2 id="symptom"&gt;Symptom&lt;/h2&gt;
+&lt;p&gt;&lt;code&gt;READY=False&lt;/code&gt;, &lt;code&gt;REASON=ArtifactTooLarge&lt;/code&gt;. The Message states the rendered byte count and the configured cap.&lt;/p&gt;
+&lt;h2 id="cause"&gt;Cause&lt;/h2&gt;
+&lt;p&gt;The snippet&amp;rsquo;s rendered output exceeds the operator&amp;rsquo;s &lt;code&gt;--max-artifact-bytes&lt;/code&gt; (Helm: &lt;code&gt;operator.storage.maxArtifactBytes&lt;/code&gt;). The cap is a defense-in-depth control — one runaway snippet shouldn&amp;rsquo;t fill a shared storage volume.&lt;/p&gt;
+&lt;p&gt;Common triggers:&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;a snippet generating massive arrays via &lt;code&gt;std.range(n)&lt;/code&gt; with a much larger &lt;code&gt;n&lt;/code&gt; than intended&lt;/li&gt;
+&lt;li&gt;accidentally inlining a large data fixture via &lt;code&gt;importstr&lt;/code&gt;&lt;/li&gt;
+&lt;li&gt;forgetting to project / filter when fanning out per-tenant configs&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h2 id="diagnosis"&gt;Diagnosis&lt;/h2&gt;
+&lt;p&gt;Check the rendered size locally:&lt;/p&gt;</description></item><item><title>Backup and disaster recovery</title><link>https://jaas.projects.metio.wtf/running/disaster-recovery/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/running/disaster-recovery/</guid><description>&lt;p&gt;Back up your GitOps repository and rebuild a lost JaaS install from it. The
+operator reconstructs every derived artifact from the &lt;code&gt;JsonnetSnippet&lt;/code&gt; and
+&lt;code&gt;JsonnetLibrary&lt;/code&gt; resources you already keep under version control — so a full
+recovery is &amp;ldquo;reinstall the chart, restore the resources, wait for one
+reconcile loop&amp;rdquo;.&lt;/p&gt;
+&lt;h2 id="recovery-philosophy"&gt;Recovery philosophy&lt;/h2&gt;
+&lt;p&gt;JaaS is a renderer. On every reconcile it re-evaluates a snippet&amp;rsquo;s spec and
+re-publishes the result, so the bytes it writes to the artifact store are
+&lt;strong&gt;derived state&lt;/strong&gt;, not data you author. Two facts make recovery cheap:&lt;/p&gt;</description></item><item><title>Storage and high availability</title><link>https://jaas.projects.metio.wtf/operator/storage-and-ha/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/operator/storage-and-ha/</guid><description>&lt;p&gt;In &lt;a href="https://jaas.projects.metio.wtf/operator/operator-mode/"&gt;operator mode&lt;/a&gt;
+ JaaS renders each &lt;code&gt;JsonnetSnippet&lt;/code&gt; into
+a tar.gz artifact, stores it, and publishes an &lt;code&gt;ExternalArtifact&lt;/code&gt; CR that points a
+Flux consumer at the tarball over HTTP. JaaS publishes artifacts through one of two
+storage backends — local filesystem or S3-compatible object storage — with optional
+leader election for multi-replica high availability and configurable revision
+retention.&lt;/p&gt;
+&lt;h2 id="serving-the-tarballs"&gt;Serving the tarballs&lt;/h2&gt;
+&lt;p&gt;Regardless of backend, the operator runs an HTTP server that Flux consumers fetch
+artifacts from. Three flags govern it, and &lt;code&gt;--storage-base-url&lt;/code&gt; and
+&lt;code&gt;--storage-path&lt;/code&gt; are required whenever &lt;code&gt;--enable-flux-integration&lt;/code&gt; is set:&lt;/p&gt;</description></item><item><title>Storage backend recovery</title><link>https://jaas.projects.metio.wtf/runbooks/storage-recovery/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/runbooks/storage-recovery/</guid><description>&lt;p&gt;The artifact store itself is degraded — a PVC was lost, the S3 endpoint is unavailable, or the storage HTTP server is down. Downstream Flux consumers (kustomize-controller, helm-controller, grafana-operator) dereference &lt;code&gt;ExternalArtifact.status.artifact.url&lt;/code&gt; to fetch tarballs; when that URL stops returning bytes, dependent resources stall. This state is not tied to a single status &lt;code&gt;Reason&lt;/code&gt;.&lt;/p&gt;
+&lt;h2 id="symptom"&gt;Symptom&lt;/h2&gt;
+&lt;p&gt;One or more of:&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;Downstream Flux consumers report &lt;code&gt;404 Not Found&lt;/code&gt; or &lt;code&gt;connection refused&lt;/code&gt; against the JaaS storage URL.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;kubectl get externalartifact --all-namespaces&lt;/code&gt; shows resources whose URL is unreachable from the consumer pods.&lt;/li&gt;
+&lt;li&gt;The operator pod is healthy (Ready=True on snippets), but the storage Service is unresponsive.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;helm upgrade&lt;/code&gt; of the chart from &lt;code&gt;persistence.enabled: false&lt;/code&gt; to &lt;code&gt;true&lt;/code&gt; — or vice versa — caused a gap.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h2 id="triage-which-backend-are-you-running"&gt;Triage: which backend are you running?&lt;/h2&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-shell" data-lang="shell"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;kubectl --namespace &amp;lt;jaas-ns&amp;gt; get deploy jaas &lt;span class="se"&gt;\
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; --output &lt;span class="nv"&gt;jsonpath&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="s1"&gt;&amp;#39;{.spec.template.spec.containers[0].args}&amp;#39;&lt;/span&gt; &lt;span class="se"&gt;\
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="p"&gt;|&lt;/span&gt; tr &lt;span class="s1"&gt;&amp;#39;,&amp;#39;&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;\n&amp;#39;&lt;/span&gt; &lt;span class="p"&gt;|&lt;/span&gt; grep -E &lt;span class="s1"&gt;&amp;#39;storage-backend|storage-path|s3-endpoint&amp;#39;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;--storage-backend=local&lt;/code&gt; → filesystem behind &lt;code&gt;--storage-path&lt;/code&gt;. Either an emptyDir (chart default) or a PVC.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;--storage-backend=s3&lt;/code&gt; → an external S3-compatible bucket; the storage HTTP server in-pod is a thin streaming proxy over &lt;code&gt;minio-go&lt;/code&gt;.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h2 id="filesystem-backend"&gt;Filesystem backend&lt;/h2&gt;
+&lt;h3 id="pvc-lost-or-replaced"&gt;PVC lost or replaced&lt;/h3&gt;
+&lt;p&gt;Symptom: every &lt;code&gt;ExternalArtifact&lt;/code&gt; URL returns 404 even though the snippet&amp;rsquo;s Ready=True. The Publisher writes idempotently on every reconcile, so making the operator re-render every snippet is the fix:&lt;/p&gt;</description></item></channel></rss>
