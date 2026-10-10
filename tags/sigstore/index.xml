@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Sigstore on Jsonnet-as-a-Service</title><link>https://jaas.projects.metio.wtf/tags/sigstore/</link><description>Recent content in Sigstore on Jsonnet-as-a-Service</description><generator>Hugo</generator><language>en</language><atom:link href="https://jaas.projects.metio.wtf/tags/sigstore/index.xml" rel="self" type="application/rss+xml"/><item><title>Verifying releases</title><link>https://jaas.projects.metio.wtf/reference/verifying-releases/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/reference/verifying-releases/</guid><description>&lt;p&gt;Every jaas release is signed with &lt;a href="https://github.com/sigstore/cosign"&gt;cosign&lt;/a&gt;
+
+keyless. There is no GPG key to import — identity is proven by the release
+workflow&amp;rsquo;s OIDC certificate from Sigstore&amp;rsquo;s Fulcio CA, recorded in the public
+Rekor transparency log. Verify before you deploy.&lt;/p&gt;
+&lt;p&gt;You need &lt;code&gt;cosign&lt;/code&gt; (any v2/v4 release) on your PATH. Replace &lt;code&gt;&amp;lt;version&amp;gt;&lt;/code&gt; with the
+calendar-version tag you are installing (for example &lt;code&gt;2026.6.15&lt;/code&gt;).&lt;/p&gt;
+&lt;h2 id="verify-the-container-image"&gt;Verify the container image&lt;/h2&gt;
+&lt;p&gt;Both the image and the build attestations are signed against the workflow&amp;rsquo;s
+Fulcio identity. The certificate-identity is the release workflow path; the OIDC
+issuer is GitHub Actions:&lt;/p&gt;</description></item></channel></rss>

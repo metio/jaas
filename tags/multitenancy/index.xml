@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Multitenancy on Jsonnet-as-a-Service</title><link>https://jaas.projects.metio.wtf/tags/multitenancy/</link><description>Recent content in Multitenancy on Jsonnet-as-a-Service</description><generator>Hugo</generator><language>en</language><atom:link href="https://jaas.projects.metio.wtf/tags/multitenancy/index.xml" rel="self" type="application/rss+xml"/><item><title>Tenancy and RBAC</title><link>https://jaas.projects.metio.wtf/security/tenancy-and-rbac/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/security/tenancy-and-rbac/</guid><description>&lt;p&gt;In &lt;a href="https://jaas.projects.metio.wtf/operator/operator-mode/"&gt;operator mode&lt;/a&gt;
+ the JaaS operator never acts with its
+own broad privileges when touching tenant resources. Every reconcile of a
+&lt;code&gt;JsonnetSnippet&lt;/code&gt; runs against the RBAC of a tenant ServiceAccount, so a snippet
+can only reach what its own ServiceAccount is allowed to reach.&lt;/p&gt;
+&lt;h2 id="per-snippet-impersonation"&gt;Per-snippet impersonation&lt;/h2&gt;
+&lt;p&gt;Each &lt;code&gt;JsonnetSnippet&lt;/code&gt; carries a &lt;code&gt;spec.serviceAccountName&lt;/code&gt;. On every reconcile the
+operator mints a short-lived Bearer token for that ServiceAccount through the
+Kubernetes TokenRequest API (&lt;code&gt;serviceaccounts/token: create&lt;/code&gt;) and performs all
+tenant-side API calls — reading &lt;code&gt;JsonnetLibrary&lt;/code&gt; objects, fetching Flux source
+artifacts, and writing the published &lt;code&gt;ExternalArtifact&lt;/code&gt; — as that ServiceAccount.
+The operator does not use the &lt;code&gt;impersonate&lt;/code&gt; verb; it uses a real token, so the
+apiserver evaluates the tenant&amp;rsquo;s own RBAC.&lt;/p&gt;</description></item></channel></rss>

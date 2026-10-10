@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Integrations &amp; tooling on Jsonnet-as-a-Service</title><link>https://jaas.projects.metio.wtf/integrations/</link><description>Recent content in Integrations &amp; tooling on Jsonnet-as-a-Service</description><generator>Hugo</generator><language>en</language><atom:link href="https://jaas.projects.metio.wtf/integrations/index.xml" rel="self" type="application/rss+xml"/><item><title>Claude Code skill</title><link>https://jaas.projects.metio.wtf/integrations/claude-code/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/integrations/claude-code/</guid><description>&lt;p&gt;Install the JaaS skill into &lt;a href="https://claude.com/claude-code"&gt;Claude Code&lt;/a&gt;
+ and
+Claude gains working knowledge of JaaS: it authors and edits &lt;code&gt;JsonnetSnippet&lt;/code&gt; and
+&lt;code&gt;JsonnetLibrary&lt;/code&gt; resources, wires snippets to inline files or a Flux source
+(&lt;code&gt;GitRepository&lt;/code&gt; / &lt;code&gt;OCIRepository&lt;/code&gt; / &lt;code&gt;Bucket&lt;/code&gt; / &lt;code&gt;ExternalArtifact&lt;/code&gt;), chains one
+snippet&amp;rsquo;s output into another, pairs JaaS with the grafana-operator or
+stageset-controller, configures per-snippet ServiceAccount impersonation, and
+calls the HTTP rendering endpoint with top-level arguments and external variables.
+The skill points Claude at the live documentation and a compact cheat-sheet, so it
+reaches for current fields and defaults instead of guessing.&lt;/p&gt;</description></item><item><title>Flux Operator (ResourceSet) integration</title><link>https://jaas.projects.metio.wtf/integrations/flux-operator/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/integrations/flux-operator/</guid><description>&lt;p&gt;Render the same Jsonnet for many clusters or tenants without writing a snippet by
+hand for each one: let a &lt;a href="https://fluxoperator.dev/"&gt;Flux Operator&lt;/a&gt;
+ &lt;code&gt;ResourceSet&lt;/code&gt;
+template a &lt;code&gt;JsonnetSnippet&lt;/code&gt; per input, and JaaS renders each instance into its own
+&lt;code&gt;ExternalArtifact&lt;/code&gt;. The &lt;code&gt;ResourceSet&lt;/code&gt; supplies the per-instance values through Go
+template substitution; JaaS does the evaluation. There is no &lt;code&gt;ResourceSet&lt;/code&gt; field
+in the JaaS API — you use the two together: the &lt;code&gt;ResourceSet&lt;/code&gt; templates ordinary
+&lt;code&gt;JsonnetSnippet&lt;/code&gt; CRs, which JaaS reconciles like any other. This needs the Flux
+Operator installed alongside JaaS in the operator mode described under
+&lt;a href="https://jaas.projects.metio.wtf/operator/operator-mode/"&gt;operator mode&lt;/a&gt;
+.&lt;/p&gt;</description></item><item><title>MCP server</title><link>https://jaas.projects.metio.wtf/integrations/mcp-server/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/integrations/mcp-server/</guid><description>&lt;p&gt;JaaS exposes its evaluator and operator status as &lt;a href="https://modelcontextprotocol.io/"&gt;Model Context Protocol&lt;/a&gt;
+
+tools, so an LLM agent (Claude Code, Claude Desktop, or any MCP client) calls
+them directly. There are two modes, each with its own transport:&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;Local rendering over stdio&lt;/strong&gt; — &lt;code&gt;jaas mcp&lt;/code&gt; wraps the same evaluator the HTTP
+endpoint and the operator use, with no cluster and no Kubernetes client. This
+is the cluster-free authoring loop.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;In-cluster operator introspection over HTTP&lt;/strong&gt; — &lt;code&gt;--enable-mcp&lt;/code&gt; adds a
+streamable-HTTP server inside the operator pod that reads &lt;code&gt;JsonnetSnippet&lt;/code&gt;
+status as the operator&amp;rsquo;s ServiceAccount.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;The tools are thin adapters over existing code, so an agent&amp;rsquo;s render is
+byte-identical to the HTTP endpoint and the operator.&lt;/p&gt;</description></item></channel></rss>
