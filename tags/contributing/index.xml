@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Contributing on Jsonnet-as-a-Service</title><link>https://jaas.projects.metio.wtf/tags/contributing/</link><description>Recent content in Contributing on Jsonnet-as-a-Service</description><generator>Hugo</generator><language>en</language><atom:link href="https://jaas.projects.metio.wtf/tags/contributing/index.xml" rel="self" type="application/rss+xml"/><item><title>Building and Testing</title><link>https://jaas.projects.metio.wtf/contributing/building/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/contributing/building/</guid><description>&lt;p&gt;The host needs no Go toolchain. Every build and test command runs through the
+development shell that &lt;code&gt;flake.nix&lt;/code&gt; defines, with &lt;code&gt;flake.lock&lt;/code&gt; pinning each tool
+to an exact version:&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-shell" data-lang="shell"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;nix develop --command &amp;lt;command&amp;gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;CI runs the same shell, so a gate that is green locally is green there by
+construction. Run &lt;code&gt;nix develop&lt;/code&gt; on its own to drop into an interactive shell and
+invoke the tools bare.&lt;/p&gt;
+&lt;p&gt;The shell carries the Go toolchain, the static-analysis suite, the docs and
+dashboard tooling, and the envtest assets. &lt;code&gt;KUBEBUILDER_ASSETS&lt;/code&gt; points at an
+&lt;code&gt;etcd&lt;/code&gt; + &lt;code&gt;kube-apiserver&lt;/code&gt; + &lt;code&gt;kubectl&lt;/code&gt; bundle assembled from nixpkgs, so the
+envtest-backed tests run offline with nothing to download.&lt;/p&gt;</description></item><item><title>CI and Releases</title><link>https://jaas.projects.metio.wtf/contributing/ci-and-release/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/contributing/ci-and-release/</guid><description>&lt;h2 id="static-analysis"&gt;Static analysis&lt;/h2&gt;
+&lt;p&gt;golangci-lint is not used. The tools below run directly, both in CI and locally inside the dev shell (see &lt;a href="https://jaas.projects.metio.wtf/contributing/building/"&gt;Building and Testing&lt;/a&gt;
+). Every tool is a separate, auditable binary with its own config file.&lt;/p&gt;
+&lt;table&gt;
+	&lt;thead&gt;
+			&lt;tr&gt;
+					&lt;th&gt;Tool&lt;/th&gt;
+					&lt;th&gt;Scope&lt;/th&gt;
+					&lt;th&gt;Config&lt;/th&gt;
+			&lt;/tr&gt;
+	&lt;/thead&gt;
+	&lt;tbody&gt;
+			&lt;tr&gt;
+					&lt;td&gt;&lt;code&gt;go vet&lt;/code&gt; (all analyzers)&lt;/td&gt;
+					&lt;td&gt;Go correctness&lt;/td&gt;
+					&lt;td&gt;—&lt;/td&gt;
+			&lt;/tr&gt;
+			&lt;tr&gt;
+					&lt;td&gt;&lt;a href="https://staticcheck.dev"&gt;staticcheck&lt;/a&gt;
+&lt;/td&gt;
+					&lt;td&gt;Bugs, simplifications, style&lt;/td&gt;
+					&lt;td&gt;&lt;code&gt;staticcheck.conf&lt;/code&gt; (&lt;code&gt;checks = [&amp;quot;all&amp;quot;]&lt;/code&gt;)&lt;/td&gt;
+			&lt;/tr&gt;
+			&lt;tr&gt;
+					&lt;td&gt;&lt;a href="https://github.com/securego/gosec"&gt;gosec&lt;/a&gt;
+&lt;/td&gt;
+					&lt;td&gt;Security patterns&lt;/td&gt;
+					&lt;td&gt;inline &lt;code&gt;#nosec&lt;/code&gt; justifications&lt;/td&gt;
+			&lt;/tr&gt;
+			&lt;tr&gt;
+					&lt;td&gt;&lt;a href="https://go.dev/security/vuln/"&gt;govulncheck&lt;/a&gt;
+&lt;/td&gt;
+					&lt;td&gt;Known vulnerabilities in the dependency graph&lt;/td&gt;
+					&lt;td&gt;—&lt;/td&gt;
+			&lt;/tr&gt;
+			&lt;tr&gt;
+					&lt;td&gt;&lt;a href="https://github.com/arch-go/arch-go"&gt;arch-go&lt;/a&gt;
+&lt;/td&gt;
+					&lt;td&gt;Architecture rules&lt;/td&gt;
+					&lt;td&gt;&lt;code&gt;arch-go.yml&lt;/code&gt;&lt;/td&gt;
+			&lt;/tr&gt;
+			&lt;tr&gt;
+					&lt;td&gt;&lt;a href="https://github.com/mvdan/gofumpt"&gt;gofumpt&lt;/a&gt;
+&lt;/td&gt;
+					&lt;td&gt;Strict formatting&lt;/td&gt;
+					&lt;td&gt;—&lt;/td&gt;
+			&lt;/tr&gt;
+			&lt;tr&gt;
+					&lt;td&gt;&lt;a href="https://reuse.software"&gt;REUSE&lt;/a&gt;
+&lt;/td&gt;
+					&lt;td&gt;License / copyright metadata on every file&lt;/td&gt;
+					&lt;td&gt;&lt;code&gt;REUSE.toml&lt;/code&gt;&lt;/td&gt;
+			&lt;/tr&gt;
+			&lt;tr&gt;
+					&lt;td&gt;&lt;a href="https://yamllint.readthedocs.io"&gt;yamllint&lt;/a&gt;
+&lt;/td&gt;
+					&lt;td&gt;YAML&lt;/td&gt;
+					&lt;td&gt;&lt;code&gt;.yamllint.yaml&lt;/code&gt;&lt;/td&gt;
+			&lt;/tr&gt;
+			&lt;tr&gt;
+					&lt;td&gt;&lt;a href="https://github.com/rhysd/actionlint"&gt;actionlint&lt;/a&gt;
+&lt;/td&gt;
+					&lt;td&gt;GitHub Actions workflows&lt;/td&gt;
+					&lt;td&gt;—&lt;/td&gt;
+			&lt;/tr&gt;
+			&lt;tr&gt;
+					&lt;td&gt;&lt;a href="https://github.com/DavidAnson/markdownlint-cli2"&gt;markdownlint&lt;/a&gt;
+&lt;/td&gt;
+					&lt;td&gt;Markdown&lt;/td&gt;
+					&lt;td&gt;&lt;code&gt;.markdownlint.yaml&lt;/code&gt;&lt;/td&gt;
+			&lt;/tr&gt;
+			&lt;tr&gt;
+					&lt;td&gt;&lt;a href="https://github.com/crate-ci/typos"&gt;typos&lt;/a&gt;
+&lt;/td&gt;
+					&lt;td&gt;Spelling&lt;/td&gt;
+					&lt;td&gt;&lt;code&gt;.typos.toml&lt;/code&gt;&lt;/td&gt;
+			&lt;/tr&gt;
+			&lt;tr&gt;
+					&lt;td&gt;&lt;a href="https://github.com/aquasecurity/trivy"&gt;Trivy&lt;/a&gt;
+&lt;/td&gt;
+					&lt;td&gt;Container image CVEs&lt;/td&gt;
+					&lt;td&gt;—&lt;/td&gt;
+			&lt;/tr&gt;
+	&lt;/tbody&gt;
+&lt;/table&gt;
+&lt;h3 id="architecture-rules"&gt;Architecture rules&lt;/h3&gt;
+&lt;p&gt;&lt;code&gt;arch-go.yml&lt;/code&gt; pins two invariants enforced with 100% compliance:&lt;/p&gt;</description></item><item><title>Claude Code skill</title><link>https://jaas.projects.metio.wtf/integrations/claude-code/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/integrations/claude-code/</guid><description>&lt;p&gt;Install the JaaS skill into &lt;a href="https://claude.com/claude-code"&gt;Claude Code&lt;/a&gt;
+ and
+Claude gains working knowledge of JaaS: it authors and edits &lt;code&gt;JsonnetSnippet&lt;/code&gt; and
+&lt;code&gt;JsonnetLibrary&lt;/code&gt; resources, wires snippets to inline files or a Flux source
+(&lt;code&gt;GitRepository&lt;/code&gt; / &lt;code&gt;OCIRepository&lt;/code&gt; / &lt;code&gt;Bucket&lt;/code&gt; / &lt;code&gt;ExternalArtifact&lt;/code&gt;), chains one
+snippet&amp;rsquo;s output into another, pairs JaaS with the grafana-operator or
+stageset-controller, configures per-snippet ServiceAccount impersonation, and
+calls the HTTP rendering endpoint with top-level arguments and external variables.
+The skill points Claude at the live documentation and a compact cheat-sheet, so it
+reaches for current fields and defaults instead of guessing.&lt;/p&gt;</description></item></channel></rss>
