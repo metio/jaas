@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Tanka on Jsonnet-as-a-Service</title><link>https://jaas.projects.metio.wtf/tags/tanka/</link><description>Recent content in Tanka on Jsonnet-as-a-Service</description><generator>Hugo</generator><language>en</language><atom:link href="https://jaas.projects.metio.wtf/tags/tanka/index.xml" rel="self" type="application/rss+xml"/><item><title>JaaS vs Tanka</title><link>https://jaas.projects.metio.wtf/comparisons/tanka/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/comparisons/tanka/</guid><description>&lt;p&gt;&lt;a href="https://tanka.dev"&gt;Grafana Tanka&lt;/a&gt;
+ and JaaS both render Kubernetes manifests
+from Jsonnet, and both build on the same &lt;a href="https://github.com/jsonnet-bundler/jsonnet-bundler"&gt;&lt;code&gt;jsonnet-bundler&lt;/code&gt;&lt;/a&gt;
+
+vendoring conventions. The difference is &lt;em&gt;where the rendering runs and how the
+result reaches the cluster&lt;/em&gt;.&lt;/p&gt;
+&lt;h2 id="the-two-models"&gt;The two models&lt;/h2&gt;
+&lt;p&gt;Tanka renders and applies from a developer workstation or a CI runner. You
+organise your code as environments (&lt;code&gt;environments/&amp;lt;env&amp;gt;/main.jsonnet&lt;/code&gt; plus a
+&lt;code&gt;spec.json&lt;/code&gt;), run &lt;code&gt;tk show&lt;/code&gt; or &lt;code&gt;tk export&lt;/code&gt; to inspect the rendered objects, and
+&lt;code&gt;tk apply&lt;/code&gt; to push them to the cluster the environment names in its &lt;code&gt;apiServer&lt;/code&gt;
+field. The workstation or CI runner needs the Jsonnet toolchain, the vendored
+library tree, and credentials for the target cluster.&lt;/p&gt;</description></item></channel></rss>

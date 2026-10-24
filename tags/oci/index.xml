@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Oci on Jsonnet-as-a-Service</title><link>https://jaas.projects.metio.wtf/tags/oci/</link><description>Recent content in Oci on Jsonnet-as-a-Service</description><generator>Hugo</generator><language>en</language><atom:link href="https://jaas.projects.metio.wtf/tags/oci/index.xml" rel="self" type="application/rss+xml"/><item><title>Creating source artifacts</title><link>https://jaas.projects.metio.wtf/operator/creating-sources/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/operator/creating-sources/</guid><description>&lt;p&gt;A &lt;code&gt;JsonnetSnippet&lt;/code&gt;&amp;rsquo;s &lt;code&gt;spec.sourceRef&lt;/code&gt; consumes a Flux source. The operator reads
+the referenced source CR&amp;rsquo;s &lt;code&gt;status.artifact.url&lt;/code&gt;, downloads the tarball Flux&amp;rsquo;s
+source-controller serves there, verifies its &lt;code&gt;status.artifact.digest&lt;/code&gt;, and
+extracts it into the snippet&amp;rsquo;s file tree. Every supported kind —
+&lt;code&gt;GitRepository&lt;/code&gt;, &lt;code&gt;OCIRepository&lt;/code&gt;, and &lt;code&gt;Bucket&lt;/code&gt; — reaches the operator through
+that same &lt;code&gt;status.artifact&lt;/code&gt; contract, so the operator never talks to a git
+remote, an OCI registry, or an object store directly. Flux owns that fetch; the
+operator consumes the artifact Flux already produced.&lt;/p&gt;</description></item><item><title>JOI images</title><link>https://jaas.projects.metio.wtf/rendering/joi-images/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/rendering/joi-images/</guid><description>&lt;p&gt;&lt;a href="https://github.com/metio/jsonnet-oci-images"&gt;Jsonnet OCI Images&lt;/a&gt;
+ (JOI) package
+popular Jsonnet libraries as single-layer OCI images, one per upstream library,
+published at &lt;code&gt;ghcr.io/metio/joi-&amp;lt;org&amp;gt;-&amp;lt;repo&amp;gt;&lt;/code&gt;. Because each image is a single
+layer, the same artifact serves two roles: a container &lt;strong&gt;image volume&lt;/strong&gt; mounted
+into jaas, and a Flux &lt;strong&gt;&lt;code&gt;OCIRepository&lt;/code&gt;&lt;/strong&gt; source the operator fetches — so a
+snippet imports a vendored library without bundling it.&lt;/p&gt;
+&lt;p&gt;Deploy them with the &lt;a href="https://jaas.projects.metio.wtf/reference/helm-values/#joi-library-chart"&gt;JOI Helm chart&lt;/a&gt;
+,
+which renders a &lt;code&gt;JsonnetLibrary&lt;/code&gt; + &lt;code&gt;OCIRepository&lt;/code&gt; pair for each enabled library.
+With Flux, install it via a &lt;code&gt;HelmRelease&lt;/code&gt; and enable the libraries you need under
+&lt;code&gt;values.libraries&lt;/code&gt;:&lt;/p&gt;</description></item></channel></rss>

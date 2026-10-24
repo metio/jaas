@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Grafana-Operator on Jsonnet-as-a-Service</title><link>https://jaas.projects.metio.wtf/tags/grafana-operator/</link><description>Recent content in Grafana-Operator on Jsonnet-as-a-Service</description><generator>Hugo</generator><language>en</language><atom:link href="https://jaas.projects.metio.wtf/tags/grafana-operator/index.xml" rel="self" type="application/rss+xml"/><item><title>JaaS and grafana-operator</title><link>https://jaas.projects.metio.wtf/comparisons/grafana-operator/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/comparisons/grafana-operator/</guid><description>&lt;p&gt;JaaS and the &lt;a href="https://grafana.github.io/grafana-operator/"&gt;grafana-operator&lt;/a&gt;
+ are
+not alternatives — they do different jobs and are commonly used together. JaaS
+&lt;em&gt;produces&lt;/em&gt; dashboard JSON from Jsonnet; grafana-operator &lt;em&gt;consumes&lt;/em&gt; dashboard
+JSON and reconciles it into a Grafana instance.&lt;/p&gt;
+&lt;h2 id="division-of-labour"&gt;Division of labour&lt;/h2&gt;
+&lt;p&gt;grafana-operator manages Grafana itself. It reconciles &lt;code&gt;GrafanaDashboard&lt;/code&gt;,
+&lt;code&gt;GrafanaDatasource&lt;/code&gt;, &lt;code&gt;GrafanaFolder&lt;/code&gt;, and related resources into one or more
+Grafana instances, handling authentication, folder placement, datasource wiring,
+and drift correction inside Grafana. A &lt;code&gt;GrafanaDashboard&lt;/code&gt; can take its dashboard
+model from inline JSON, a URL, a ConfigMap, a &lt;code&gt;grafana.com&lt;/code&gt; dashboard ID, or a
+remote source.&lt;/p&gt;</description></item></channel></rss>

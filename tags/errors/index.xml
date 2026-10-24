@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Errors on Jsonnet-as-a-Service</title><link>https://jaas.projects.metio.wtf/tags/errors/</link><description>Recent content in Errors on Jsonnet-as-a-Service</description><generator>Hugo</generator><language>en</language><atom:link href="https://jaas.projects.metio.wtf/tags/errors/index.xml" rel="self" type="application/rss+xml"/><item><title>Rendering endpoint</title><link>https://jaas.projects.metio.wtf/rendering/rendering-endpoint/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/rendering/rendering-endpoint/</guid><description>&lt;p&gt;Send a &lt;code&gt;GET&lt;/code&gt; to the rendering endpoint with a snippet name and JaaS returns the
+evaluated Jsonnet as JSON:&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-shell" data-lang="shell"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;curl http://127.0.0.1:8080/jsonnet/example1
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;The Jsonnet server binds &lt;code&gt;127.0.0.1:8080&lt;/code&gt; by default (&lt;code&gt;--listen-address&lt;/code&gt;,
+&lt;code&gt;--port&lt;/code&gt;). The URL shape is &lt;code&gt;GET /&amp;lt;jsonnet-endpoint-path&amp;gt;/{snippet...}&lt;/code&gt;, where
+&lt;code&gt;{snippet...}&lt;/code&gt; is a trailing path segment that may contain slashes. A successful
+response carries &lt;code&gt;Content-Type: application/json&lt;/code&gt; and the rendered document.&lt;/p&gt;
+&lt;h2 id="the-endpoint-path"&gt;The endpoint path&lt;/h2&gt;
+&lt;p&gt;The leading path segment defaults to &lt;code&gt;jsonnet&lt;/code&gt; and is set with
+&lt;code&gt;--jsonnet-endpoint-path&lt;/code&gt;. Running with &lt;code&gt;--jsonnet-endpoint-path render&lt;/code&gt; moves the
+endpoint to &lt;code&gt;GET /render/{snippet...}&lt;/code&gt;:&lt;/p&gt;</description></item></channel></rss>

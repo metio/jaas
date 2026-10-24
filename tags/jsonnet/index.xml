@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Jsonnet on Jsonnet-as-a-Service</title><link>https://jaas.projects.metio.wtf/tags/jsonnet/</link><description>Recent content in Jsonnet on Jsonnet-as-a-Service</description><generator>Hugo</generator><language>en</language><atom:link href="https://jaas.projects.metio.wtf/tags/jsonnet/index.xml" rel="self" type="application/rss+xml"/><item><title>JOI images</title><link>https://jaas.projects.metio.wtf/rendering/joi-images/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/rendering/joi-images/</guid><description>&lt;p&gt;&lt;a href="https://github.com/metio/jsonnet-oci-images"&gt;Jsonnet OCI Images&lt;/a&gt;
+ (JOI) package
+popular Jsonnet libraries as single-layer OCI images, one per upstream library,
+published at &lt;code&gt;ghcr.io/metio/joi-&amp;lt;org&amp;gt;-&amp;lt;repo&amp;gt;&lt;/code&gt;. Because each image is a single
+layer, the same artifact serves two roles: a container &lt;strong&gt;image volume&lt;/strong&gt; mounted
+into jaas, and a Flux &lt;strong&gt;&lt;code&gt;OCIRepository&lt;/code&gt;&lt;/strong&gt; source the operator fetches — so a
+snippet imports a vendored library without bundling it.&lt;/p&gt;
+&lt;p&gt;Deploy them with the &lt;a href="https://jaas.projects.metio.wtf/reference/helm-values/#joi-library-chart"&gt;JOI Helm chart&lt;/a&gt;
+,
+which renders a &lt;code&gt;JsonnetLibrary&lt;/code&gt; + &lt;code&gt;OCIRepository&lt;/code&gt; pair for each enabled library.
+With Flux, install it via a &lt;code&gt;HelmRelease&lt;/code&gt; and enable the libraries you need under
+&lt;code&gt;values.libraries&lt;/code&gt;:&lt;/p&gt;</description></item><item><title>Rendering Jsonnet</title><link>https://jaas.projects.metio.wtf/rendering/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/rendering/</guid><description>&lt;p&gt;The core of JaaS: evaluate Jsonnet on demand and return JSON. These pages cover
+what you send it, how imports resolve, how you parameterize a render, and the
+limits that keep evaluation safe.&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;&lt;a href="https://jaas.projects.metio.wtf/rendering/rendering-endpoint/"&gt;Rendering endpoint&lt;/a&gt;
+&lt;/strong&gt; — the HTTP API that
+evaluates a snippet and returns JSON.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;a href="https://jaas.projects.metio.wtf/rendering/snippets-and-libraries/"&gt;Snippets and libraries&lt;/a&gt;
+&lt;/strong&gt; — how snippets
+and their imports are organized and resolved.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;a href="https://jaas.projects.metio.wtf/rendering/external-variables-and-tlas/"&gt;External variables and TLAs&lt;/a&gt;
+&lt;/strong&gt; —
+parameterize a render with &lt;code&gt;extVar&lt;/code&gt; and top-level arguments.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;a href="https://jaas.projects.metio.wtf/rendering/jsonnet-libraries/"&gt;Jsonnet libraries&lt;/a&gt;
+&lt;/strong&gt; — reusable &lt;code&gt;.libsonnet&lt;/code&gt;
+libraries on the import path.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;a href="https://jaas.projects.metio.wtf/rendering/joi-images/"&gt;JOI images&lt;/a&gt;
+&lt;/strong&gt; — ship libraries as single-layer OCI
+images.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;a href="https://jaas.projects.metio.wtf/rendering/evaluation-and-security/"&gt;Evaluation and security&lt;/a&gt;
+&lt;/strong&gt; — timeouts,
+stack limits, and import confinement around untrusted snippets.&lt;/li&gt;
+&lt;/ul&gt;</description></item></channel></rss>

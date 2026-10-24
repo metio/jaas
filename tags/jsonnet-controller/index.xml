@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Jsonnet-Controller on Jsonnet-as-a-Service</title><link>https://jaas.projects.metio.wtf/tags/jsonnet-controller/</link><description>Recent content in Jsonnet-Controller on Jsonnet-as-a-Service</description><generator>Hugo</generator><language>en</language><atom:link href="https://jaas.projects.metio.wtf/tags/jsonnet-controller/index.xml" rel="self" type="application/rss+xml"/><item><title>JaaS vs jsonnet-controller</title><link>https://jaas.projects.metio.wtf/comparisons/jsonnet-controller/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/comparisons/jsonnet-controller/</guid><description>&lt;p&gt;&lt;a href="https://github.com/pelotech/jsonnet-controller"&gt;pelotech/jsonnet-controller&lt;/a&gt;
+ is
+a Flux-style controller that builds Jsonnet inside the controller and applies the
+result to the cluster, with a configuration model compatible with
+&lt;a href="https://github.com/kubecfg/kubecfg"&gt;kubecfg&lt;/a&gt;
+. JaaS and jsonnet-controller both
+turn Jsonnet into Kubernetes objects under Flux, but they draw the boundary
+between rendering and deployment in different places.&lt;/p&gt;
+&lt;h2 id="coupled-build-and-apply-vs-a-rendering-service"&gt;Coupled build-and-apply vs a rendering service&lt;/h2&gt;
+&lt;p&gt;jsonnet-controller couples the two halves: one controller reads a Jsonnet
+source, evaluates it, and applies the resulting objects to the cluster. The
+rendered output lives inside the controller&amp;rsquo;s reconcile loop; the unit of
+configuration is &amp;ldquo;build this Jsonnet and apply it here.&amp;rdquo;&lt;/p&gt;</description></item></channel></rss>

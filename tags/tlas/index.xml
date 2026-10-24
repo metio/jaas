@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Tlas on Jsonnet-as-a-Service</title><link>https://jaas.projects.metio.wtf/tags/tlas/</link><description>Recent content in Tlas on Jsonnet-as-a-Service</description><generator>Hugo</generator><language>en</language><atom:link href="https://jaas.projects.metio.wtf/tags/tlas/index.xml" rel="self" type="application/rss+xml"/><item><title>External variables and TLAs</title><link>https://jaas.projects.metio.wtf/rendering/external-variables-and-tlas/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jaas.projects.metio.wtf/rendering/external-variables-and-tlas/</guid><description>&lt;p&gt;JaaS feeds two kinds of input into an evaluation: external variables, set by the
+process owner at startup, and top-level arguments, supplied per request through
+the URL query string.&lt;/p&gt;
+&lt;h2 id="external-variables"&gt;External variables&lt;/h2&gt;
+&lt;p&gt;External variables come from two sources. The environment mechanism reads every
+variable prefixed with &lt;code&gt;JAAS_EXT_VAR_&lt;/code&gt; — the suffix is the variable name:&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-shell" data-lang="shell"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nv"&gt;JAAS_EXT_VAR_name&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;Alice &lt;span class="se"&gt;\
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nv"&gt;JAAS_EXT_VAR_key&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;secret &lt;span class="se"&gt;\
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; ./jaas --snippet-directory examples/snippets/dashboards
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;The &lt;code&gt;--ext-var KEY=VALUE&lt;/code&gt; flag does the same and is repeatable. On a key
+conflict, the flag takes precedence over the environment value:&lt;/p&gt;</description></item></channel></rss>
