@@ -3,8 +3,8 @@
 
 # htmltest config for the built documentation site. Run from the repo root after
 # a site build has produced docs/public/:
-#   nix develop --command hugo --minify --source docs
-#   nix develop --command htmltest
+#   hugo --minify --source docs
+#   htmltest
 DirectoryPath: docs/public
 # External link checking is off by default so the gate stays deterministic and
 # offline (no rate limits / transient network failures). Flip to true to also

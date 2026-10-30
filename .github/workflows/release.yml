@@ -78,12 +78,14 @@ jobs:
     steps:
       - name: Clone Git Repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-      - uses: metio/nix-devshell@d0c25fdb0d2c08f23bc62c867317a266b6f1a5c1 # 2026.9.12204255
+      - uses: metio/breto@c9a84cb81ba92328c0148a4bb905b2bbe3cb817d # 2026.10.30080906
+        with:
+          registries: github:metio/toolchains
       - id: build
         name: Build & Archive
         # Cross-compile and archive for this platform: tar.gz on linux/darwin,
-        # zip on windows (with a .exe binary). go comes from the flake; GOOS/
-        # GOARCH/CGO_ENABLED ride the step env into `nix develop --command`.
+        # zip on windows (with a .exe binary). go comes from @go; GOOS/
+        # GOARCH/CGO_ENABLED ride the step env.
         run: |
           set -euo pipefail
           ver="${{ needs.prepare.outputs.version }}"
@@ -92,7 +94,7 @@ jobs:
           name="$REPO_NAME"
           ext=""
           [ "$os" = windows ] && ext=".exe"
-          nix develop --command go build -o "${name}_v${ver}${ext}" -trimpath \
+          go build -o "${name}_v${ver}${ext}" -trimpath \
             -ldflags="-s -w -X main.version=${ver} -X main.commit=${{ github.sha }}" .
           if [ "$os" = windows ]; then
             zip "${name}_${ver}_${os}_${arch}.zip" "${name}_v${ver}${ext}" LICENSE README.md

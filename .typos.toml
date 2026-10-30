@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: The jaas Authors
 # SPDX-License-Identifier: 0BSD
 [default.extend-words]
+edn = "edn"
 # POSIX open(2) flag name, not a misspelling of "wrongly".
 wronly = "wronly"
 # Deliberate spelling used in comments and a test name.

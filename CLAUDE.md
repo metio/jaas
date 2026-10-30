@@ -13,21 +13,21 @@ JaaS (Jsonnet-as-a-Service) is a Go webservice that evaluates Jsonnet snippets o
 
 ## Common commands
 
-The toolchain is a **nix flake** (`flake.nix` + `flake.lock`, Renovate-maintained): the Go correctness gates run in CI via the shared `metio/ci` reusable `golang.yml`, and the same tools live in the flake so a local run reproduces them. `KUBEBUILDER_ASSETS` is set by the devShell (etcd + kube-apiserver + kubectl assembled from nixpkgs), so envtest tests run offline. Run any command through the devShell:
+The toolchain is declared in `.breto.edn`, which names the [metio/toolchains](https://github.com/metio/toolchains) groups that pin each tool; breto installs them from the published registry, locally and in CI through the breto action. The Go correctness gates run in CI via the shared `metio/ci` reusable `golang.yml`, and the same tools sit on `PATH` in a project shell (`eval "$(breto env)"`, or the breto prompt hook), so a local run reproduces them. `KUBEBUILDER_ASSETS` comes from `@envtest` (etcd + kube-apiserver + kubectl from controller-tools' envtest releases), so envtest tests run offline once installed:
 
 ```shell
-nix develop --command go build -o jaas .
-nix develop --command go vet ./...                         # Go correctness
-nix develop --command staticcheck ./...                    # staticcheck (checks=all via staticcheck.conf)
-nix develop --command gofumpt -l .                         # strict formatting (empty output == clean)
-nix develop --command gosec ./...                          # security scanner
-nix develop --command arch-go                              # architecture rules (arch-go.yml)
-nix develop --command modernize ./...                      # newer-Go idiom check (ignore zz_generated.deepcopy.go maps.Copy hits)
-nix develop --command go test -count=1 -race -cover ./...  # full suite with race detector (envtest wired)
-nix develop --command go test -count=1 -v -run TestName ./internal/handler/  # single test
+go build -o jaas .
+go vet ./...                         # Go correctness
+staticcheck ./...                    # staticcheck (checks=all via staticcheck.conf)
+gofumpt -l .                         # strict formatting (empty output == clean)
+gosec ./...                          # security scanner
+arch-go                              # architecture rules (arch-go.yml)
+modernize ./...                      # newer-Go idiom check (ignore zz_generated.deepcopy.go maps.Copy hits)
+go test -count=1 -race -cover ./...  # full suite with race detector (envtest wired)
+go test -count=1 -v -run TestName ./internal/handler/  # single test
 ```
 
-Or `nix develop` to drop into the shell and run tools bare. On this host `nix` is nix-portable (see the root `CLAUDE.md`'s nix section). Three tools are not in nixpkgs — `arch-go`, `modernize` (an x/tools gopls subpackage), and `helm-schema` — so the flake builds them from source (`packages.*`); `update-flake.yml` runs `nix-update` weekly to bump their versions + hashes (Renovate can't compute nix hashes), keeping maintenance zero-touch.
+The `:commands` of `.breto.edn` (`generate`, `website`, `serve`) are linked into the project's bin directory, so they run bare in a project shell or as `breto run <name>`. Tool versions change in metio/toolchains, where Renovate bumps the groups; a new toolchains release reaches this project on the next `breto update`.
 
 **Static analysis is the standalone tools above — never golangci-lint** (it is banned project-wide). The Go gate is `go vet` + `staticcheck` (`staticcheck.conf`, `checks = ["all"]`) + `gofumpt` + `gosec` + `arch-go` (`arch-go.yml`). Separate CI jobs run `yamllint` (`.yamllint.yaml`), `actionlint`, `markdownlint` (`.markdownlint.yaml`), and `typos` (`.typos.toml`). gosec false positives are silenced with inline `// #nosec <rule> -- <invariant>` comments, not config-wide exclusions. These configs are kept identical to the `stageset-controller` repo so both projects lint the same way.
 
@@ -76,7 +76,7 @@ Two ways a library reaches a snippet, both feeding the same import-alias namespa
 
 The operator's package layout:
 
-- `api/v1/` — CRD types with kubebuilder annotations + handwritten `zz_generated.deepcopy.go`. Regenerate both via `nix develop --command generate` — a flake-declared command reading `scripts/generate.sh`, which `verify.yml`'s `generated` job runs before failing on any diff, so the gate and the recipe cannot disagree. controller-gen is a `go.mod` `tool` directive — its version lives only in `go.mod` (Renovate's gomod manager bumps it), and the release `Dockerfile` runs the same `go tool controller-gen` to bake the generated CRDs into the image under `/crds`. Scheme registration uses apimachinery's `runtime.NewSchemeBuilder` — not controller-runtime's deprecated helper — so the API package stays free of controller-runtime as a dep (an `arch-go` rule enforces that `api/` imports no `fluxcd`/controller-runtime). The controller code in `internal/operator` *does* adopt Flux runtime libraries — `pkg/runtime/{conditions,predicates,patch,jitter}`: the Ready condition carries `ObservedGeneration`; a `reconcile.fluxcd.io/requestedAt` annotation triggers a reconcile via `ReconcileRequestedPredicate` and is recorded in `status.lastHandledReconcileAt` (so `flux reconcile`/`kubectl annotate` works); status writes go through a conflict-safe patch helper; requeue intervals are jittered. **Trap:** adding the finalizer returns `Requeue` rather than relying on the resulting Update — the generation predicate drops a finalizer-add event because it doesn't bump `.metadata.generation`.
+- `api/v1/` — CRD types with kubebuilder annotations + handwritten `zz_generated.deepcopy.go`. Regenerate both via `generate` — a `.breto.edn` command running `scripts/generate.sh`, which `verify.yml`'s `generated` job runs before failing on any diff, so the gate and the recipe cannot disagree. controller-gen is a `go.mod` `tool` directive — its version lives only in `go.mod` (Renovate's gomod manager bumps it), and the release `Dockerfile` runs the same `go tool controller-gen` to bake the generated CRDs into the image under `/crds`. Scheme registration uses apimachinery's `runtime.NewSchemeBuilder` — not controller-runtime's deprecated helper — so the API package stays free of controller-runtime as a dep (an `arch-go` rule enforces that `api/` imports no `fluxcd`/controller-runtime). The controller code in `internal/operator` *does* adopt Flux runtime libraries — `pkg/runtime/{conditions,predicates,patch,jitter}`: the Ready condition carries `ObservedGeneration`; a `reconcile.fluxcd.io/requestedAt` annotation triggers a reconcile via `ReconcileRequestedPredicate` and is recorded in `status.lastHandledReconcileAt` (so `flux reconcile`/`kubectl annotate` works); status writes go through a conflict-safe patch helper; requeue intervals are jittered. **Trap:** adding the finalizer returns `Requeue` rather than relying on the resulting Update — the generation predicate drops a finalizer-add event because it doesn't bump `.metadata.generation`.
 - `internal/eval/` — shared go-jsonnet wrapper. `EvaluateFile` (file-based, used by the HTTP handler via `FileImporter`) and `EvaluateAnonymousSnippet` (string-based, used by the reconciler via `InMemoryImporter`) both flow through `buildVM`. `InMemoryImporter` resolves imports with the **same semantics as `jsonnet -J vendor`**, so jb-vendored libraries (grafonnet, docsonnet, …) render identically on the operator path and locally: (1) relative to the importing file within its own root (bare-sibling `import 'dashboard.libsonnet'`, `./x`, `../x`), then (2) a bare registered alias → its `main.libsonnet`, then (3) explicit `alias/file` (authoritative when the head is a registered alias), then (4) a JPATH/vendor search of the import path across `Self.Files` then every library — which is what lets absolute `import 'github.com/grafana/grafonnet/gen/...'` resolve against a `JsonnetLibrary` whose `sourceRef.path` is empty (whole vendor tree). A slash-prefixed path whose head is not a registered alias is NOT an alias error — it falls through to the vendor search. Resolution depends on the importing file, so the importer caches on `(importedFrom, importedPath)` and records each `foundAt`'s location for transitive relative imports. Sibling files (step 1) win over a library's default entry. The `joi` helm chart in helm-charts publishes JOI images as `JsonnetLibrary` + `OCIRepository` pairs with empty `path` for exactly this reason.
 - `internal/storage/` — artifact store backends behind the `storage.Backend` interface (`Put` / `Prune` / `Delete` / `Sweep` / `Open` / `HTTPHandler` / `Close`; `Open` returns a reader over a stored `<revision>.tar.gz` for in-process readers like the MCP `diff_revisions` tool, returning `ErrRevisionNotFound` for a pruned/absent revision). Two production implementations: `*Store` (filesystem, rooted at `--storage-path`, surfaced via `http.FileServer`; `os.OpenRoot` guards against `..` traversal) and `*S3Backend` (any S3-compatible bucket via minio-go, surfaced via a streaming proxy handler so source-controller's contract — fetch a bare HTTP URL — stays unchanged). Both produce byte-identical tar.gz output for the same input (sorted entries + zero ModTime), so digests don't drift across backends. `S3Backend.Put` streams the tarball through an `io.Pipe` directly into `minio.PutObject` with `objectSize=-1` (forces multipart) — no full-tarball buffer; resident set during a publish is bounded by the configured PartSize (16 MiB) regardless of artifact size. Selection is via `--storage-backend=local|s3`; S3 setup lives behind `--s3-endpoint`, `--s3-bucket`, `--s3-prefix`, `--s3-region`, `--s3-use-ssl`, `--s3-access-key` / `-s3-secret-key` / `-s3-session-token`, `--s3-anonymous`. Empty static creds engage minio-go's IAM/IRSA discovery chain (env → EC2/EKS metadata). Multi-replica HA pairs the S3 backend with leader election: every replica reads from the same bucket, only the lease-holder writes.
 - `internal/sources/` — Flux source-controller artifact fetcher. `Fetcher.Fetch(ctx, client, ref, ownerNs)` looks up the source CR (Unstructured), waits for `status.conditions[Ready]=True`, runs the URL through `internal/urlguard` (rejecting loopback / link-local / multicast / unspecified plus inet_aton-form alt-IPv4 that bypasses `net.ParseIP`), streams the artifact body into a tempfile while sha256-hashing inline, verifies the computed digest against `status.artifact.digest` via a `<algo>:<hex>` parser that catches missing prefix / wrong hex length / non-string types (ErrDigestInvalid distinct from ErrDigestMismatch), then gunzips+untars into a path→content map (filtered by `SourceRef.Path`). Four independent byte caps enforced: compressed-download `MaxArchiveBytes` (default 64 MiB, bounds ONLY the on-the-wire body → `ErrArtifactBodyTooLarge`), decompressed-extracted-result `MaxExtractedBytes` (default 64 MiB, the aggregate sum of extracted entry bodies held in memory → `ErrTarballTooLarge`; independent of the compressed cap because gzip can hide the expanded size behind a small body), per-entry `MaxPerEntryBytes` (16 MiB, with `io.LimitReader` body bound that catches lying headers), decompressed-stream `MaxDecompressedBytes` (512 MiB, via `cappedReader` wrapping the gzip stream) — defends against gzip-bombs and crafted hdr.Size overflow. None of these are CLI flags. Tar entry path validation: rejects NUL, backslash, `..`, absolute paths, and any byte outside `[A-Za-z0-9._/-]` plus drops dot-prefixed segments silently. The tenant-impersonating client passed in is the same one used for library Gets — the tenant SA's RBAC governs both source-CR read and artifact fetch. The HTTP client also installs `safeDialContext`, which resolves each host once and rejects/pins the dialed IP through `urlguard.ForbiddenIP` on the initial dial and every redirect hop — so a name that passes the string-level URL check but resolves (or rebinds) to a forbidden address never connects. Tests install `urlguard.PermissiveHTTPURL` via `Fetcher.URLValidator` AND a permissive `Fetcher.IPValidator` so httptest's 127.0.0.1 listeners stay reachable.
@@ -190,15 +190,15 @@ The Helm chart lives in the [metio/helm-charts](https://github.com/metio/helm-ch
 The suite spans several layers; all run via `go test` and all are exercised by the `test` job in `verify.yml` (`go test -v -race -shuffle=on -coverprofile=cover.out ./...`). Locally, run them through the dev shell:
 
 ```shell
-nix develop --command go test -count=1 -race -cover ./...                       # everything, race detector on
-nix develop --command go test -count=1 -v -run TestName ./internal/handler/     # a single test
-nix develop --command go test -bench=. -benchmem -run=^$ ./internal/operator/   # benchmarks (skip tests)
-nix develop --command go test -fuzz=FuzzName -fuzztime=30s ./internal/urlguard/ # one fuzz target
+go test -count=1 -race -cover ./...                       # everything, race detector on
+go test -count=1 -v -run TestName ./internal/handler/     # a single test
+go test -bench=. -benchmem -run=^$ ./internal/operator/   # benchmarks (skip tests)
+go test -fuzz=FuzzName -fuzztime=30s ./internal/urlguard/ # one fuzz target
 ```
 
 - **Unit tests** — the bulk of the suite, table-driven, no external state. They live next to the code they cover across `internal/...` and `api/v1/`. Several pin wire-stable contracts and act as drift gates: `conditions_test.go` (every `Reason*` has a matching `docs/runbooks/<reason>.md`; constant count must match `AllReasons`), `TestErrorResponse_StableCodeValues` (the `ErrCode*` strings). Property-based tests (rapid) cover the storage tar-determinism and history keep-set invariants; treat a failing property test as a real bug, not flakiness.
 
-- **envtest-backed operator tests** — files named `envtest_*_test.go` (in `internal/operator/`, plus `internal/webhook/selfsigned/envtest_test.go` and the top-level `main_envtest_test.go`) boot a **real kube-apiserver + etcd** via controller-runtime's `envtest` and run the reconciler / webhook / `run(...)` against it. They share one apiserver per test binary (`sync.Once`-guarded, lazy) so the cost stays off runs that don't select them. **Each one `t.Skip`s when `KUBEBUILDER_ASSETS` is unset** — there is no build tag; selection is by asset availability. The flake's devShell exports `KUBEBUILDER_ASSETS` from a nixpkgs-assembled bundle, so these tests run by default and need no download; on a host without the assets they silently skip. The envtest harness sets `Config.SkipImpersonation` (the only place that's allowed); the manager never binds a metrics listener, so parallel test cases cannot fight over that port. `main_degraded_envtest_test.go` drives the degraded operator through an `apiserverGate` — a TCP proxy in front of the envtest apiserver that a test switches between dropping and forwarding connections, with the kubeconfig rewritten to point at it. It proxies TCP rather than terminating TLS, so the client still validates the real apiserver certificate (only the port changes, and envtest's cert covers 127.0.0.1). The gate tracks forwarded connections and closes them at teardown: a watch left in the client's idle pool otherwise keeps the copy loops blocked and adds ~90s to the test. `chaos_test.go` is also envtest-backed.
+- **envtest-backed operator tests** — files named `envtest_*_test.go` (in `internal/operator/`, plus `internal/webhook/selfsigned/envtest_test.go` and the top-level `main_envtest_test.go`) boot a **real kube-apiserver + etcd** via controller-runtime's `envtest` and run the reconciler / webhook / `run(...)` against it. They share one apiserver per test binary (`sync.Once`-guarded, lazy) so the cost stays off runs that don't select them. **Each one `t.Skip`s when `KUBEBUILDER_ASSETS` is unset** — there is no build tag; selection is by asset availability. `@envtest` exports `KUBEBUILDER_ASSETS` in the project shell, so these tests run by default; on a host without the assets they silently skip. The envtest harness sets `Config.SkipImpersonation` (the only place that's allowed); the manager never binds a metrics listener, so parallel test cases cannot fight over that port. `main_degraded_envtest_test.go` drives the degraded operator through an `apiserverGate` — a TCP proxy in front of the envtest apiserver that a test switches between dropping and forwarding connections, with the kubeconfig rewritten to point at it. It proxies TCP rather than terminating TLS, so the client still validates the real apiserver certificate (only the port changes, and envtest's cert covers 127.0.0.1). The gate tracks forwarded connections and closes them at teardown: a watch left in the client's idle pool otherwise keeps the copy loops blocked and adds ~90s to the test. `chaos_test.go` is also envtest-backed.
 
 - **Golden / example e2e** — `examples_test.go` boots the whole binary via `runInBackground` and asserts HTTP responses against `testdata/golden/`. See the [Examples & golden tests](#examples--golden-tests) section below for the `-update` regen flow and the per-snippet feature matrix.
 
@@ -215,7 +215,7 @@ The files under `examples/` aren't just documentation — they're also fixtures 
 If you edit an example (or add a new one), regenerate the goldens:
 
 ```shell
-nix develop --command go test -update ./...
+go test -update ./...
 ```
 
 Then inspect and commit the diff in `testdata/golden/`. The `-update` flag is defined in `examples_test.go` and is a no-op for the rest of the suite.
@@ -249,11 +249,11 @@ The runbook markdown stays at `docs/runbooks/` — pinned there by the `conditio
 
 The desktop nav is an explicit `[menu.main]` tree in `hugo.toml` — the theme renders a menu entry only when it has children. `outputs.home` includes `LLMS` (generates `/llms-full.txt`, the whole site concatenated for LLMs) and `LLMSINDEX` (generates `/llms.txt`, a concise link index auto-derived from each page's front-matter title + description) — both are theme output formats, so no static llms file is hand-maintained. A Claude skill lives at `skills/jaas/` (`SKILL.md` + `references/reference.md`) with `.claude-plugin/{plugin,marketplace}.json`, mirroring the stageset repo.
 
-Build/preview locally with the flake's commands (declared in `flake.nix` from `scripts/<name>.sh`):
+Build/preview locally with the `.breto.edn` commands, which run `scripts/<name>.sh`:
 
 ```shell
-nix develop --command website   # one-shot build into docs/public/
-nix develop --command serve     # live server on :1212
+website   # one-shot build into docs/public/
+serve     # live server on :1212
 ```
 
 `serve` sets `HUGO_RESOURCEDIR=/tmp/hugo-resources-dev` and
@@ -265,11 +265,11 @@ lets one serve the other's prod-URL'd hashed CSS and the browser blocks it on an
 SRI mismatch. Separate directories make a build and a serve session independent
 in either order.
 
-Both website linters ride in the devShell. Build the site first, then:
+Both website linters come with `@docs`. Build the site first, then:
 
 ```shell
-nix develop --command htmltest                          # rendered HTML: dead internal links, missing alt, broken anchors (.htmltest.yml)
-nix develop --command bash -c 'cd docs/themes/metio && biome lint'   # theme CSS (run from theme dir, no path; biome v2 treats its biome.json as the project root and files.includes scopes the run)
+htmltest                          # rendered HTML: dead internal links, missing alt, broken anchors (.htmltest.yml)
+bash -c 'cd docs/themes/metio && biome lint'   # theme CSS (run from theme dir, no path; biome v2 treats its biome.json as the project root and files.includes scopes the run)
 ```
 
 `htmltest` reads `.htmltest.yml` (rooted at `docs/public`, external links off for a deterministic offline gate — flip `CheckExternal` to verify outbound URLs). The CSS lives in the theme submodule, so `biome` is configured by `biome.json` *in the theme repo* (it excludes the vendored `normalize.css` / `syntax.css`); fix CSS findings there, not in the submodule checkout.

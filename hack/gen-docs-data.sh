@@ -8,9 +8,9 @@
 #   - docs/data/joi-values.json  — the joi chart's flattened values schema
 #   - docs/data/joi-images.json  — the JOI image catalog (from jsonnet-oci-images)
 #
-# Run this through the flake's development shell before building the site:
-#   nix develop --command hack/gen-docs-data.sh
-#   nix develop --command hugo --minify --source docs
+# Run this in the project's breto shell before building the site:
+#   hack/gen-docs-data.sh
+#   hugo --minify --source docs
 #
 # The schemas are generated on-the-fly from each chart's Chart.yaml + values.yaml
 # fetched from helm-charts' main branch (helm-schema, the same tool the chart

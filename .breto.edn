@@ -1,0 +1,10 @@
+;; SPDX-FileCopyrightText: The jaas Authors
+;; SPDX-License-Identifier: 0BSD
+
+{:packages ["@go" "@envtest" "@docs" "@jsonnet" "@containers" "@helm" "@lint" "jq"]
+ :commands {"generate" {:run ["bash" "-euo" "pipefail" "scripts/generate.sh"]
+                        :description "Regenerate the deepcopy code and the CRDs with controller-gen"}
+            "website" {:run ["bash" "-euo" "pipefail" "scripts/website.sh"]
+                       :description "Build the site into docs/public"}
+            "serve" {:run ["bash" "-euo" "pipefail" "scripts/serve.sh"]
+                     :description "Serve the site with live reload"}}}

@@ -14,43 +14,53 @@ jobs:
     # detect job auto-enables envtest and arch-go from this repo's files. Named
     # "Golang" so its checks read "Golang / test", "Golang / lint", …
     name: Golang
-    uses: metio/ci/.github/workflows/golang.yml@03a3682906e5fcfac66ff2ccae9a34241b453dc4 # 2026.9.29150349
+    uses: metio/ci/.github/workflows/golang.yml@fafdce8a81c933131048b4c97d20f7011fcf6d3f # 2026.10.30081152
   reuse:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-      - uses: metio/nix-devshell@d0c25fdb0d2c08f23bc62c867317a266b6f1a5c1 # 2026.9.12204255
-      - run: nix develop --command reuse lint
+      - uses: metio/breto@c9a84cb81ba92328c0148a4bb905b2bbe3cb817d # 2026.10.30080906
+        with:
+          registries: github:metio/toolchains
+      - run: reuse lint
   yaml:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-      - uses: metio/nix-devshell@d0c25fdb0d2c08f23bc62c867317a266b6f1a5c1 # 2026.9.12204255
-      - run: nix develop --command yamllint .
+      - uses: metio/breto@c9a84cb81ba92328c0148a4bb905b2bbe3cb817d # 2026.10.30080906
+        with:
+          registries: github:metio/toolchains
+      - run: yamllint .
   github-actions:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-      - uses: metio/nix-devshell@d0c25fdb0d2c08f23bc62c867317a266b6f1a5c1 # 2026.9.12204255
-      # shellcheck rides in the devShell, so actionlint lints run: blocks too.
-      - run: nix develop --command actionlint
+      - uses: metio/breto@c9a84cb81ba92328c0148a4bb905b2bbe3cb817d # 2026.10.30080906
+        with:
+          registries: github:metio/toolchains
+      # shellcheck comes with @lint, so actionlint lints run: blocks too.
+      - run: actionlint
   markdown:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-      - uses: metio/nix-devshell@d0c25fdb0d2c08f23bc62c867317a266b6f1a5c1 # 2026.9.12204255
-      - run: nix develop --command markdownlint-cli2 "**/*.md"
+      - uses: metio/breto@c9a84cb81ba92328c0148a4bb905b2bbe3cb817d # 2026.10.30080906
+        with:
+          registries: github:metio/toolchains
+      - run: markdownlint-cli2 "**/*.md"
   typos:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-      - uses: metio/nix-devshell@d0c25fdb0d2c08f23bc62c867317a266b6f1a5c1 # 2026.9.12204255
-      - run: nix develop --command typos
+      - uses: metio/breto@c9a84cb81ba92328c0148a4bb905b2bbe3cb817d # 2026.10.30080906
+        with:
+          registries: github:metio/toolchains
+      - run: typos
   generated:
     # controller-gen's output is committed (api/v1/zz_generated.deepcopy.go, the
     # CRDs under config/crd/bases), and nothing else re-runs the generators — so
@@ -63,13 +73,15 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-      - uses: metio/nix-devshell@d0c25fdb0d2c08f23bc62c867317a266b6f1a5c1 # 2026.9.12204255
-      - run: nix develop --command generate
+      - uses: metio/breto@c9a84cb81ba92328c0148a4bb905b2bbe3cb817d # 2026.10.30080906
+        with:
+          registries: github:metio/toolchains
+      - run: generate
       - name: Fail on stale generated files
         run: |
           drift=$(git status --porcelain -- api config)
           if [ -n "$drift" ]; then
-            echo "::error::Generated files are stale. Run 'nix develop --command generate' and commit the result."
+            echo "::error::Generated files are stale. Run 'breto run generate' and commit the result."
             echo "$drift"
             git --no-pager diff -- api config
             exit 1
@@ -89,20 +101,22 @@ jobs:
   docs-lint:
     # Build the site and lint the rendered HTML (htmltest: dead internal links,
     # missing alt text, broken anchors) plus the theme CSS (biome). All tools
-    # (hugo, helm-schema, htmltest, biome, go) come from the flake devShell.
+    # (hugo, helm-schema, htmltest, biome, go) come from the project toolchain.
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           submodules: recursive
-      - uses: metio/nix-devshell@d0c25fdb0d2c08f23bc62c867317a266b6f1a5c1 # 2026.9.12204255
+      - uses: metio/breto@c9a84cb81ba92328c0148a4bb905b2bbe3cb817d # 2026.10.30080906
+        with:
+          registries: github:metio/toolchains
       - name: Generate docs data (flags + chart values)
-        run: nix develop --command hack/gen-docs-data.sh
+        run: hack/gen-docs-data.sh
       - name: Build Website
-        run: nix develop --command hugo --minify --source docs
+        run: hugo --minify --source docs
       - name: Lint rendered HTML (htmltest)
-        run: nix develop --command htmltest
+        run: htmltest
       - name: Lint theme CSS (biome)
         # Run from inside the theme dir with no path argument: biome v2 treats a
         # biome.json as a project root, so invoking from the repo root flags the
@@ -110,7 +124,7 @@ jobs:
         # theme dir its biome.json is the sole root, and omitting the path lets
         # files.includes scope the run to the authored CSS (a path argument would
         # override the config and pull in the vendored normalize.css/syntax.css).
-        run: nix develop --command bash -c 'cd docs/themes/metio && biome lint'
+        run: bash -c 'cd docs/themes/metio && biome lint'
   container-image:
     runs-on: ubuntu-latest
     timeout-minutes: 30

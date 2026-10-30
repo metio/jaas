@@ -16,7 +16,7 @@ endpoint, and compare the response to the golden.
 After editing an example, run:
 
 ```shell
-nix develop --command go test -update ./...
+go test -update ./...
 ```
 
 Inspect the diff under `testdata/golden/` and commit it alongside the example change.
