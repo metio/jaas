@@ -23,7 +23,9 @@ jobs:
     outputs:
       matrix: ${{ steps.list.outputs.matrix }}
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
       - id: list
         run: |
           matrix=$(grep -rE '^func Fuzz' --include='*_test.go' internal \
@@ -47,7 +49,9 @@ jobs:
     env:
       FUZZTIME: ${{ github.event.inputs.fuzztime || '5m' }}
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
       - uses: metio/breto@c9a84cb81ba92328c0148a4bb905b2bbe3cb817d # 2026.10.30080906
         with:
           registries: github:metio/toolchains
@@ -55,7 +59,10 @@ jobs:
       # envtest-backed fuzz target's TestMain finds a kube-apiserver with no
       # setup-envtest download; the cluster-free targets ignore the variable.
       - name: Fuzz ${{ matrix.func }} (${{ matrix.pkg }})
-        run: go test -run='^$' -fuzz="^${{ matrix.func }}$" -fuzztime="$FUZZTIME" "${{ matrix.pkg }}"
+        run: go test -run='^$' -fuzz="^${MATRIX_FUNC}$" -fuzztime="$FUZZTIME" "${MATRIX_PKG}"
+        env:
+          MATRIX_FUNC: ${{ matrix.func }}
+          MATRIX_PKG: ${{ matrix.pkg }}
       - name: Surface discovered crasher
         if: failure()
         run: |

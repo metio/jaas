@@ -40,10 +40,11 @@ jobs:
       contents: write
     steps:
       - name: Clone Git Repository
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
           submodules: recursive
+          persist-credentials: false
       - uses: metio/breto@c9a84cb81ba92328c0148a4bb905b2bbe3cb817d # 2026.10.30080906
         with:
           registries: github:metio/toolchains

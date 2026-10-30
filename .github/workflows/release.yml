@@ -29,9 +29,10 @@ jobs:
       previous: ${{ steps.gate.outputs.last }}
     steps:
       - name: Clone Git Repository
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
+          persist-credentials: false
       - id: gate
         name: Check whether a release is needed
         uses: metio/ci/needs-release@03a3682906e5fcfac66ff2ccae9a34241b453dc4 # 2026.9.29150349
@@ -77,7 +78,9 @@ jobs:
             goarch: arm64
     steps:
       - name: Clone Git Repository
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
       - uses: metio/breto@c9a84cb81ba92328c0148a4bb905b2bbe3cb817d # 2026.10.30080906
         with:
           registries: github:metio/toolchains
@@ -88,7 +91,7 @@ jobs:
         # GOARCH/CGO_ENABLED ride the step env.
         run: |
           set -euo pipefail
-          ver="${{ needs.prepare.outputs.version }}"
+          ver="${NEEDS_PREPARE_OUTPUTS_VERSION}"
           os="${{ matrix.goos }}"
           arch="${{ matrix.goarch }}"
           name="$REPO_NAME"
@@ -108,8 +111,9 @@ jobs:
           GOARM: ${{ matrix.goarm }}
           # Event data must reach the shell via env:, not ${{ }} inside run:.
           REPO_NAME: ${{ github.event.repository.name }}
+          NEEDS_PREPARE_OUTPUTS_VERSION: ${{ needs.prepare.outputs.version }}
       - name: Upload Artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: dist-${{ matrix.goos }}-${{ matrix.goarch }}
           if-no-files-found: error
@@ -128,7 +132,9 @@ jobs:
       packages: write # push to GHCR
     steps:
       - name: Clone Git Repository
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
       - name: Build, push and sign the image
         uses: metio/ci/container-release@03a3682906e5fcfac66ff2ccae9a34241b453dc4 # 2026.9.29150349
         with:
@@ -149,11 +155,12 @@ jobs:
       id-token: write # cosign keyless sign-blob (Fulcio OIDC)
     steps:
       - name: Clone Git Repository
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
+          persist-credentials: false
       - name: Download Artifacts
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           path: dist
           pattern: dist-*
@@ -200,7 +207,7 @@ jobs:
           All release artifacts are signed with cosign keyless. See **Verifying releases** — https://jaas.projects.metio.wtf/installation/verifying-releases/ — for the verification commands.
           EOF
       - name: Create Release
-        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
           tag_name: ${{ needs.prepare.outputs.version }}
           # Tag the commit this run built. Without target_commitish the action
