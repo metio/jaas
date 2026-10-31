@@ -1,7 +1,7 @@
 <!--
 SPDX-FileCopyrightText: The jaas Authors
 SPDX-License-Identifier: 0BSD
- -->
+-->
 
 # Jsonnet-as-a-Service (JaaS)
 
@@ -20,5 +20,6 @@ contributing — lives at <https://jaas.projects.metio.wtf/>.
 📦 The Helm chart is published at `oci://ghcr.io/metio/helm-charts/jaas` and
 listed on [ArtifactHub](https://artifacthub.io/packages/helm/jaas/jaas).
 
-Licensed under [0BSD](LICENSE); the repository is [REUSE](https://reuse.software/)
-compliant.
+## License
+
+[0BSD](LICENSES/0BSD.txt).
