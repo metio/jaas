@@ -45,7 +45,7 @@ jobs:
           fetch-depth: 0
           submodules: recursive
           persist-credentials: false
-      - uses: metio/ci/breto@f821815a1c92cfcba086d6bec4ede7a87deec697 # 2026.10.31191131
+      - uses: metio/ci/breto@ac4eab9855ea1c083e82ee4a143a4ecaa9f1cb4f # 2026.10.31214114
         with:
           registries: github:metio/toolchains
       - name: Generate docs data (flags + chart values)
