@@ -1,23 +1,17 @@
 # SPDX-FileCopyrightText: The jaas Authors
 # SPDX-License-Identifier: 0BSD
+
+[default]
+extend-ignore-re = []
+
 [default.extend-words]
 edn = "edn"
-# POSIX open(2) flag name, not a misspelling of "wrongly".
 wronly = "wronly"
-# Deliberate spelling used in comments and a test name.
 unparseable = "unparseable"
-# Valid prefix in hyphenated compounds (mis-deployed, mis-resolve, …).
 mis = "mis"
 
 [default.extend-identifiers]
-# Local variable: probe-read byte count.
 pn = "pn"
 
 [files]
-# go.mod/go.sum are machine-generated dependency manifests: their module pins carry
-# git SHAs whose hex fragments read as words (afe→safe, dead, cafe, …), and a real
-# module-path typo fails the build rather than reaching typos. docs/themes/metio is a
-# separate (CC0) submodule with its own CI; CI's checkout doesn't fetch submodules, so
-# exclude it here too — otherwise a local run flags the theme's content while CI never
-# sees it.
 extend-exclude = ["LICENSES/", "go.mod", "go.sum", "docs/themes/"]
