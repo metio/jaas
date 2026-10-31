@@ -52,7 +52,7 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
-      - uses: metio/breto@c9a84cb81ba92328c0148a4bb905b2bbe3cb817d # 2026.10.30080906
+      - uses: metio/breto@3d35cbfa61e9b8e98fe3d92113390a6db219b66c # 2026.10.30182439
         with:
           registries: github:metio/toolchains
       # KUBEBUILDER_ASSETS is set by @envtest, so an
