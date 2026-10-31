@@ -28,9 +28,9 @@ func alternativeForms(a, b, c, d byte) []string {
 	v := uint32(a)<<24 | uint32(b)<<16 | uint32(c)<<8 | uint32(d)
 	return []string{
 		fmt.Sprintf("%d.%d.%d.%d", a, b, c, d),
-		fmt.Sprintf("%d", v),   // single decimal int
-		fmt.Sprintf("0x%x", v), // single hex int
-		fmt.Sprintf("0%o", v),  // single octal int
+		fmt.Sprintf("%d", v),                                          // single decimal int
+		fmt.Sprintf("0x%x", v),                                        // single hex int
+		fmt.Sprintf("0%o", v),                                         // single octal int
 		fmt.Sprintf("%d.%d", a, uint32(b)<<16|uint32(c)<<8|uint32(d)), // 2-part
 		fmt.Sprintf("%d.%d.%d", a, b, uint32(c)<<8|uint32(d)),         // 3-part
 		fmt.Sprintf("0x%x.0x%x.0x%x.0x%x", a, b, c, d),                // dotted hex
