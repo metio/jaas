@@ -317,7 +317,7 @@ func (r *SnippetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		// on the For() watch — the next reconcile has to be requested
 		// explicitly rather than relying on that event.
 		logger.DebugContext(ctx, "Finalizer added; requeuing to render")
-		return ctrl.Result{Requeue: true}, nil
+		return ctrl.Result{RequeueAfter: time.Millisecond}, nil
 	}
 
 	return r.reconcileSpec(ctx, logger, &snip)
