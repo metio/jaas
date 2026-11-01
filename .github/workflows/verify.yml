@@ -14,7 +14,7 @@ jobs:
     # detect job auto-enables envtest and arch-go from this repo's files. Named
     # "Golang" so its checks read "Golang / test", "Golang / lint", …
     name: Golang
-    uses: metio/ci/.github/workflows/golang.yml@ac4eab9855ea1c083e82ee4a143a4ecaa9f1cb4f # 2026.10.31214114
+    uses: metio/ci/.github/workflows/golang.yml@d4a165ac035d1fa1a7aee5b27192d0aed9c7a0b0 # main
   reuse:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -22,7 +22,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: metio/ci/breto@ac4eab9855ea1c083e82ee4a143a4ecaa9f1cb4f # 2026.10.31214114
+      - uses: metio/ci/breto@d4a165ac035d1fa1a7aee5b27192d0aed9c7a0b0 # main
         with:
           registries: github:metio/toolchains
       - run: reuse lint
@@ -33,7 +33,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: metio/ci/breto@ac4eab9855ea1c083e82ee4a143a4ecaa9f1cb4f # 2026.10.31214114
+      - uses: metio/ci/breto@d4a165ac035d1fa1a7aee5b27192d0aed9c7a0b0 # main
         with:
           registries: github:metio/toolchains
       - run: yamllint .
@@ -44,7 +44,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: metio/ci/breto@ac4eab9855ea1c083e82ee4a143a4ecaa9f1cb4f # 2026.10.31214114
+      - uses: metio/ci/breto@d4a165ac035d1fa1a7aee5b27192d0aed9c7a0b0 # main
         with:
           registries: github:metio/toolchains
       # shellcheck comes with @lint, so actionlint lints run: blocks too.
@@ -59,7 +59,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: metio/ci/breto@ac4eab9855ea1c083e82ee4a143a4ecaa9f1cb4f # 2026.10.31214114
+      - uses: metio/ci/breto@d4a165ac035d1fa1a7aee5b27192d0aed9c7a0b0 # main
         with:
           registries: github:metio/toolchains
       - run: markdownlint-cli2 "**/*.md"
@@ -70,7 +70,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: metio/ci/breto@ac4eab9855ea1c083e82ee4a143a4ecaa9f1cb4f # 2026.10.31214114
+      - uses: metio/ci/breto@d4a165ac035d1fa1a7aee5b27192d0aed9c7a0b0 # main
         with:
           registries: github:metio/toolchains
       - run: typos
@@ -88,7 +88,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: metio/ci/breto@ac4eab9855ea1c083e82ee4a143a4ecaa9f1cb4f # 2026.10.31214114
+      - uses: metio/ci/breto@d4a165ac035d1fa1a7aee5b27192d0aed9c7a0b0 # main
         with:
           registries: github:metio/toolchains
       - run: generate
@@ -126,7 +126,7 @@ jobs:
         with:
           submodules: recursive
           persist-credentials: false
-      - uses: metio/ci/breto@ac4eab9855ea1c083e82ee4a143a4ecaa9f1cb4f # 2026.10.31214114
+      - uses: metio/ci/breto@d4a165ac035d1fa1a7aee5b27192d0aed9c7a0b0 # main
         with:
           registries: github:metio/toolchains
       - name: Generate docs data (flags + chart values)
@@ -186,7 +186,7 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: metio/ci/dco@ac4eab9855ea1c083e82ee4a143a4ecaa9f1cb4f # 2026.10.31214114
+      - uses: metio/ci/dco@d4a165ac035d1fa1a7aee5b27192d0aed9c7a0b0 # main
   policy:
     # metio org workflow conventions (conftest/Rego from metio/ci): SHA-pinned
     # uses refs, top-level permissions, timeout-minutes on every job, no
@@ -197,7 +197,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: metio/ci/policy-check@ac4eab9855ea1c083e82ee4a143a4ecaa9f1cb4f # 2026.10.31214114
+      - uses: metio/ci/policy-check@d4a165ac035d1fa1a7aee5b27192d0aed9c7a0b0 # main
   verify:
     # Single required check covering every job above: mark only this one
     # required in branch protection and new jobs are covered automatically.
