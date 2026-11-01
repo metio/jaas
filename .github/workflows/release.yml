@@ -35,13 +35,13 @@ jobs:
           persist-credentials: false
       - id: gate
         name: Check whether a release is needed
-        uses: metio/ci/needs-release@d4a165ac035d1fa1a7aee5b27192d0aed9c7a0b0 # main
+        uses: metio/ci/needs-release@d4a165ac035d1fa1a7aee5b27192d0aed9c7a0b0 # 2026.11.1111906
         with:
           paths: go.mod main.go internal api config Dockerfile
       - id: version
         name: Compute the next version
         if: steps.gate.outputs.needed == 'true'
-        uses: metio/ci/calver@d4a165ac035d1fa1a7aee5b27192d0aed9c7a0b0 # main
+        uses: metio/ci/calver@d4a165ac035d1fa1a7aee5b27192d0aed9c7a0b0 # 2026.11.1111906
   build:
     name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
     needs: prepare
@@ -81,7 +81,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: metio/ci/breto@d4a165ac035d1fa1a7aee5b27192d0aed9c7a0b0 # main
+      - uses: metio/ci/breto@d4a165ac035d1fa1a7aee5b27192d0aed9c7a0b0 # 2026.11.1111906
         with:
           registries: github:metio/toolchains
       - id: build
@@ -136,7 +136,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Build, push and sign the image
-        uses: metio/ci/container-release@d4a165ac035d1fa1a7aee5b27192d0aed9c7a0b0 # main
+        uses: metio/ci/container-release@d4a165ac035d1fa1a7aee5b27192d0aed9c7a0b0 # 2026.11.1111906
         with:
           image: ghcr.io/${{ github.repository }}
           version: ${{ needs.prepare.outputs.version }}
@@ -175,12 +175,12 @@ jobs:
           shopt -s nullglob
           sha256sum ./*.tar.gz ./*.zip > "$SUMS"
       - name: Sign Checksums (cosign keyless)
-        uses: metio/ci/cosign-sign-blob@d4a165ac035d1fa1a7aee5b27192d0aed9c7a0b0 # main
+        uses: metio/ci/cosign-sign-blob@d4a165ac035d1fa1a7aee5b27192d0aed9c7a0b0 # 2026.11.1111906
         with:
           file: dist/${{ github.event.repository.name }}_${{ needs.prepare.outputs.version }}_SHA256SUMS
       - id: notes
         name: Generate Release Notes
-        uses: metio/ci/release-notes@d4a165ac035d1fa1a7aee5b27192d0aed9c7a0b0 # main
+        uses: metio/ci/release-notes@d4a165ac035d1fa1a7aee5b27192d0aed9c7a0b0 # 2026.11.1111906
         with:
           version: ${{ needs.prepare.outputs.version }}
           previous: ${{ needs.prepare.outputs.previous }}
