@@ -39,7 +39,7 @@ RUN go tool controller-gen crd paths=./api/... output:crd:dir=/crds
 # library images it consumes are co-schedulable on any node architecture. It
 # carries no shell (the drain delay is implemented in the binary, not a preStop
 # sleep).
-FROM gcr.io/distroless/static:nonroot@sha256:e2e927ec666bae08560abb3c55d0659eceabb657f56b6782ab500a9fc7f555e3
+FROM gcr.io/distroless/static:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329
 COPY --from=build /app/jaas /usr/bin/
 # The generated CRDs ride along so downstream tooling (the Helm chart's
 # vendoring step) can extract them straight from the released image.
