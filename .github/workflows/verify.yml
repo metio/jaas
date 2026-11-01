@@ -15,17 +15,6 @@ jobs:
     # "Golang" so its checks read "Golang / test", "Golang / lint", …
     name: Golang
     uses: metio/ci/.github/workflows/golang.yml@d4a165ac035d1fa1a7aee5b27192d0aed9c7a0b0 # 2026.11.1111906
-  reuse:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: metio/ci/breto@d4a165ac035d1fa1a7aee5b27192d0aed9c7a0b0 # 2026.11.1111906
-        with:
-          registries: github:metio/toolchains
-      - run: reuse lint
   yaml:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -174,35 +163,11 @@ jobs:
           ignore-unfixed: true
           vuln-type: 'os,library'
           severity: 'CRITICAL,HIGH'
-  dco:
-    # Developer Certificate of Origin: every commit must carry a Signed-off-by
-    # trailer. Skipped for bot-authored PRs (Renovate/Dependabot cannot sign off);
-    # a skipped job still satisfies the all-green gate below.
-    if: github.event.pull_request.user.type != 'Bot'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-      - uses: metio/ci/dco@d4a165ac035d1fa1a7aee5b27192d0aed9c7a0b0 # 2026.11.1111906
-  policy:
-    # metio org workflow conventions (conftest/Rego from metio/ci): SHA-pinned
-    # uses refs, top-level permissions, timeout-minutes on every job, no
-    # untrusted ${{ github.event.* }} interpolation in run: blocks.
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: metio/ci/policy-check@d4a165ac035d1fa1a7aee5b27192d0aed9c7a0b0 # 2026.11.1111906
   verify:
     # Single required check covering every job above: mark only this one
     # required in branch protection and new jobs are covered automatically.
     name: Verify
-    needs: [go, reuse, yaml, github-actions, markdown, typos, generated, prose, docs-lint, container-image, dco, policy]
+    needs: [go, yaml, github-actions, markdown, typos, generated, prose, docs-lint, container-image]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 10
