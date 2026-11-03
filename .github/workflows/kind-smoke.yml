@@ -9,6 +9,7 @@ on:
   # code / smoke scripts?), so cost stays the same as the old paths filter.
   pull_request:
     branches: [main]
+  merge_group:
   workflow_dispatch:
 
 # Angle 1 of the two-angle e2e strategy: the DEV jaas binary (HEAD build) tested
@@ -57,14 +58,14 @@ jobs:
         env:
           # Attacker-influenced event data must reach the shell via env:, not
           # via ${{ }} expansion inside run:.
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
         run: |
           # Replaces the old `paths:` trigger: the heavy kind jobs run only when
           # something they exercise changed. go.mod/go.sum count because a
           # dependency bump (controller-runtime, the fluxcd source libraries,
           # minio-go, apimachinery) can change operator runtime behavior the e2e
           # is uniquely placed to catch. workflow_dispatch always counts.
-          if [ "${{ github.event_name }}" != "pull_request" ]; then
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "relevant=true" >> "$GITHUB_OUTPUT"; exit 0
           fi
           base="$BASE_SHA"
