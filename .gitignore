@@ -25,10 +25,7 @@ docs/.hugo_build.lock
 go.work
 go.work.sum
 jb-test
-.bash_history
 /jaas
-.cache
-.config
 cover.out
 cover.html
 **/testdata/rapid/
