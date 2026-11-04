@@ -1,20 +1,13 @@
 # SPDX-FileCopyrightText: The jaas Authors
 # SPDX-License-Identifier: 0BSD
 
-name: Automated Release
+name: Release
 on:
   push:
     branches: [main]
   workflow_dispatch:
-# Least-privilege default; the container and github jobs raise their own
-# job-level permissions (packages/contents/id-token) as needed.
 permissions:
   contents: read
-# Serialize release runs. Each run's release-notes lower bound is the latest tag
-# at the time its prepare job runs; two merges in quick succession would both
-# read that bound before either run has tagged, producing overlapping notes.
-# Queueing (no cancel) lets the earlier release finish and create its tag first,
-# so the next run's notes start from that tag and carry only its own commits.
 concurrency:
   group: ${{ github.workflow }}
   cancel-in-progress: false
@@ -28,18 +21,15 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       previous: ${{ steps.gate.outputs.last }}
     steps:
-      - name: Clone Git Repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
       - id: gate
-        name: Check whether a release is needed
         uses: metio/ci/needs-release@6e8776dc59abdfffa793903f100e89f1aacb9c2e # 2026.11.2023135
         with:
           paths: go.mod main.go internal api config Dockerfile
       - id: version
-        name: Compute the next version
         if: steps.gate.outputs.needed == 'true'
         uses: metio/ci/calver@6e8776dc59abdfffa793903f100e89f1aacb9c2e # 2026.11.2023135
   build:
@@ -50,10 +40,7 @@ jobs:
     timeout-minutes: 30
     strategy:
       matrix:
-        # The six linux architectures the container image ships (the set
-        # gcr.io/distroless/static supports) plus windows and macOS (darwin) on
-        # amd64/arm64, so the binary is available for desktop use (jaas doubles
-        # as a cluster-free local Jsonnet renderer).
+        # The linux architectures of gcr.io/distroless/static, plus the desktop platforms.
         include:
           - goos: linux
             goarch: amd64
@@ -77,43 +64,35 @@ jobs:
           - goos: darwin
             goarch: arm64
     steps:
-      - name: Clone Git Repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: metio/ci/breto@6e8776dc59abdfffa793903f100e89f1aacb9c2e # 2026.11.2023135
         with:
           registries: github:metio/toolchains
-      - id: build
-        name: Build & Archive
-        # Cross-compile and archive for this platform: tar.gz on linux/darwin,
-        # zip on windows (with a .exe binary). go comes from @go; GOOS/
-        # GOARCH/CGO_ENABLED ride the step env.
+      - name: Build and archive
         run: |
           set -euo pipefail
-          ver="${NEEDS_PREPARE_OUTPUTS_VERSION}"
-          os="${{ matrix.goos }}"
-          arch="${{ matrix.goarch }}"
-          name="$REPO_NAME"
           ext=""
-          [ "$os" = windows ] && ext=".exe"
-          go build -o "${name}_v${ver}${ext}" -trimpath \
-            -ldflags="-s -w -X main.version=${ver} -X main.commit=${{ github.sha }}" .
-          if [ "$os" = windows ]; then
-            zip "${name}_${ver}_${os}_${arch}.zip" "${name}_v${ver}${ext}" LICENSE README.md
-          else
-            tar --create --gzip --file "${name}_${ver}_${os}_${arch}.tar.gz" "${name}_v${ver}${ext}" LICENSE README.md
-          fi
+          [ "$GOOS" = windows ] && ext=".exe"
+          ldflags="-s -w -X main.version=${VERSION} -X main.commit=${GITHUB_SHA}"
+          pack() {
+            name="$1"; pkg="$2"
+            go build -o "${name}_v${VERSION}${ext}" -trimpath -ldflags="${ldflags}" "${pkg}"
+            if [ "$GOOS" = windows ]; then
+              zip "${name}_${VERSION}_${GOOS}_${GOARCH}.zip" "${name}_v${VERSION}${ext}" LICENSE README.md
+            else
+              tar --create --gzip --file "${name}_${VERSION}_${GOOS}_${GOARCH}.tar.gz" "${name}_v${VERSION}${ext}" LICENSE README.md
+            fi
+          }
+          pack jaas .
         env:
           CGO_ENABLED: 0
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           GOARM: ${{ matrix.goarm }}
-          # Event data must reach the shell via env:, not ${{ }} inside run:.
-          REPO_NAME: ${{ github.event.repository.name }}
-          NEEDS_PREPARE_OUTPUTS_VERSION: ${{ needs.prepare.outputs.version }}
-      - name: Upload Artifact
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+          VERSION: ${{ needs.prepare.outputs.version }}
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dist-${{ matrix.goos }}-${{ matrix.goarch }}
           if-no-files-found: error
@@ -131,62 +110,51 @@ jobs:
       contents: read
       packages: write # push to GHCR
     steps:
-      - name: Clone Git Repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Build, push and sign the image
-        uses: metio/ci/container-release@6e8776dc59abdfffa793903f100e89f1aacb9c2e # 2026.11.2023135
+      - uses: metio/ci/container-release@6e8776dc59abdfffa793903f100e89f1aacb9c2e # 2026.11.2023135
         with:
           image: ghcr.io/${{ github.repository }}
           version: ${{ needs.prepare.outputs.version }}
   github:
     name: GitHub Release
-    # Gate the release on a green image build too: the release notes advertise
-    # ghcr.io/metio/jaas:<version>, so that tag must exist before the release is
-    # published. A failed build/container skips the release instead of leaving a
-    # published release that points at a non-existent image.
+    # The notes name the image tag, so a failed image build skips the release.
     needs: [prepare, build, container]
     if: needs.prepare.outputs.needed == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
-      contents: write # create the GitHub Release
-      id-token: write # cosign keyless sign-blob (Fulcio OIDC)
+      contents: write
+      id-token: write # cosign keyless sign-blob
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      SUMS: ${{ github.event.repository.name }}_${{ needs.prepare.outputs.version }}_SHA256SUMS
     steps:
-      - name: Clone Git Repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: Download Artifacts
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: dist
           pattern: dist-*
           merge-multiple: true
       - name: Calculate Checksums
-        # One SHA256SUMS over every archive (tar.gz for linux/darwin, zip for
-        # windows). nullglob keeps the glob empty-safe.
-        env:
-          SUMS: ${{ github.event.repository.name }}_${{ needs.prepare.outputs.version }}_SHA256SUMS
         run: |
           cd dist
           shopt -s nullglob
           sha256sum ./*.tar.gz ./*.zip > "$SUMS"
-      - name: Sign Checksums (cosign keyless)
-        uses: metio/ci/cosign-sign-blob@6e8776dc59abdfffa793903f100e89f1aacb9c2e # 2026.11.2023135
+      - uses: metio/ci/cosign-sign-blob@6e8776dc59abdfffa793903f100e89f1aacb9c2e # 2026.11.2023135
         with:
           file: dist/${{ github.event.repository.name }}_${{ needs.prepare.outputs.version }}_SHA256SUMS
       - id: notes
-        name: Generate Release Notes
         uses: metio/ci/release-notes@6e8776dc59abdfffa793903f100e89f1aacb9c2e # 2026.11.2023135
         with:
           version: ${{ needs.prepare.outputs.version }}
           previous: ${{ needs.prepare.outputs.previous }}
       - name: Append usage and verification footer
         env:
-          VERSION: ${{ needs.prepare.outputs.version }}
           NOTES: ${{ steps.notes.outputs.file }}
         run: |
           cat >> "$NOTES" <<EOF
@@ -207,24 +175,7 @@ jobs:
           All release artifacts are signed with cosign keyless. See **Verifying releases** — https://jaas.projects.metio.wtf/installation/verifying-releases/ — for the verification commands.
           EOF
       - name: Create Release
-        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
-        with:
-          tag_name: ${{ needs.prepare.outputs.version }}
-          # Tag the commit this run built. Without target_commitish the action
-          # creates a missing tag at the default branch's tip at the moment the
-          # release is created, which is minutes after the version is computed —
-          # so a commit merging in that window takes the tag, leaving it on code
-          # this release never built. `git checkout <tag>` would then disagree
-          # with the published image, and a chart pinning appVersion to the tag
-          # would point at source that never shipped.
-          target_commitish: ${{ github.sha }}
-          name: ${{ needs.prepare.outputs.version }}
-          token: ${{ secrets.GITHUB_TOKEN }}
-          draft: false
-          prerelease: false
-          body_path: ${{ steps.notes.outputs.file }}
-          files: |
-            dist/*.tar.gz
-            dist/*.zip
-            dist/${{ github.event.repository.name }}_${{ needs.prepare.outputs.version }}_SHA256SUMS
-            dist/${{ github.event.repository.name }}_${{ needs.prepare.outputs.version }}_SHA256SUMS.bundle
+        run: gh release create "$VERSION" --target "$GITHUB_SHA" --title "$VERSION" --notes-file "$NOTES" dist/*.tar.gz dist/*.zip "dist/$SUMS" "dist/$SUMS.bundle"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NOTES: ${{ steps.notes.outputs.file }}
