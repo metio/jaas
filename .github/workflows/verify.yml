@@ -117,6 +117,10 @@ jobs:
           push: false
           load: true
           tags: ghcr.io/metio/jaas:${{ github.sha }}
+      - uses: metio/ci/breto@6e8776dc59abdfffa793903f100e89f1aacb9c2e # 2026.11.2023135
+        with:
+          registries: github:metio/toolchains
+          packages: "@containers"
       - name: Scan image (Trivy)
         # Hard gate on any fixable CRITICAL/HIGH in the distroless image:
         # the base is slim and patched, so findings are rare and worth
@@ -124,10 +128,7 @@ jobs:
         env:
           IMAGE: ghcr.io/metio/jaas:${{ github.sha }}
         run: >
-          docker run --rm
-          --volume /var/run/docker.sock:/var/run/docker.sock
-          docker.io/aquasec/trivy:0.76.1@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c
-          image
+          trivy image
           --exit-code 1
           --ignore-unfixed
           --pkg-types os,library
