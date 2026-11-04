@@ -118,17 +118,22 @@ jobs:
           load: true
           tags: ghcr.io/metio/jaas:${{ github.sha }}
       - name: Scan image (Trivy)
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        with:
-          image-ref: ghcr.io/metio/jaas:${{ github.sha }}
-          format: table
-          # Hard gate on any fixable CRITICAL/HIGH in the distroless image:
-          # the base is slim and patched, so findings are rare and worth
-          # investigating before merge.
-          exit-code: '1'
-          ignore-unfixed: true
-          vuln-type: 'os,library'
-          severity: 'CRITICAL,HIGH'
+        # Hard gate on any fixable CRITICAL/HIGH in the distroless image:
+        # the base is slim and patched, so findings are rare and worth
+        # investigating before merge.
+        env:
+          IMAGE: ghcr.io/metio/jaas:${{ github.sha }}
+        run: >
+          docker run --rm
+          --volume /var/run/docker.sock:/var/run/docker.sock
+          docker.io/aquasec/trivy:0.76.1@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c
+          image
+          --exit-code 1
+          --ignore-unfixed
+          --pkg-types os,library
+          --severity CRITICAL,HIGH
+          --format table
+          "$IMAGE"
   verify:
     # Single required check covering every job above: mark only this one
     # required in branch protection and new jobs are covered automatically.
