@@ -9,7 +9,7 @@
 # lockstep with dev/Containerfile so prod and dev builds agree — cgr.dev
 # throttles anonymous pulls, making its large Go builder layer very slow to
 # fetch in CI.
-FROM --platform=$BUILDPLATFORM docker.io/library/golang:1.27.3@sha256:2920bb124f1a2e12a1d39f0cab756ae0068441ee1da7655dec7f5e374944095b AS build
+FROM --platform=$BUILDPLATFORM docker.io/library/golang:1.27.4@sha256:5e8afd493a7124a8586e134d9b532731161d4b9becf9dee5a5956b107426f93d AS build
 # Recent golang base images default GOTOOLCHAIN=local, which blocks auto-download
 # of a higher toolchain directive in go.mod. `auto` lets go.mod pin a newer
 # toolchain than this base image without a Dockerfile change.
@@ -39,7 +39,7 @@ RUN go tool controller-gen crd paths=./api/... output:crd:dir=/crds
 # library images it consumes are co-schedulable on any node architecture. It
 # carries no shell (the drain delay is implemented in the binary, not a preStop
 # sleep).
-FROM gcr.io/distroless/static:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329
+FROM gcr.io/distroless/static:nonroot@sha256:aafe993665bf6200db38a02c11a9351e782a84b6a45e7f33b6695638c88e3931
 COPY --from=build /app/jaas /usr/bin/
 # The generated CRDs ride along so downstream tooling (the Helm chart's
 # vendoring step) can extract them straight from the released image.
