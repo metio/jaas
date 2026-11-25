@@ -1,6 +1,6 @@
 ---
 title: Helm chart values
-description: Complete reference for every value the jaas and joi Helm charts expose, generated from each chart's values.yaml.
+description: Complete reference for every value the jaas and JOI Helm charts expose, generated from each chart's values.yaml.
 tags: [installation, helm, chart, values, reference]
 ---
 
@@ -18,12 +18,12 @@ value drives the corresponding `--flag`.
 
 {{< helm-values data="helm-values" >}}
 
-## joi library chart
+## JOI library chart
 
-The [joi](https://github.com/metio/helm-charts/tree/main/charts/joi) chart
+The [JOI](https://github.com/metio/helm-charts/tree/main/charts/joi) chart
 publishes [Jsonnet OCI Images](https://github.com/metio/jsonnet-oci-images) as
 `JsonnetLibrary` + `OCIRepository` pairs, so snippets can import vendored
-libraries (grafonnet, k8s-libsonnet, …) without bundling them. Deploy it
+libraries (`grafonnet`, `k8s-libsonnet`, …) without bundling them. Deploy it
 alongside jaas when snippets reference shared libraries.
 
 {{< helm-values data="joi-values" >}}
