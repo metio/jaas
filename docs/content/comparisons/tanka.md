@@ -54,7 +54,7 @@ JaaS's importer implements the **same resolution as `jsonnet -J vendor`**, the
 scheme Tanka uses. A bare `import 'foo/main.libsonnet'` finds the library by
 alias; an absolute `import 'github.com/.../gen/...'` resolves against the
 vendored tree; sibling and `../` relative imports resolve from the importing
-file. A `jb`-vendored tree (k8s-libsonnet, grafonnet, and the like) renders the
+file. A `jb`-vendored tree (`k8s-libsonnet`, `grafonnet`, and the like) renders the
 same bytes through JaaS as it does under `tk show`. Migration is mostly about
 *where the files live*, not *rewriting Jsonnet*. See
 [Jsonnet libraries](/rendering/jsonnet-libraries/) for how libraries reach a
@@ -85,8 +85,8 @@ resource.
 
 The conversion in three moves:
 
-1. **Move the libraries.** Shared, versioned libraries (k8s-libsonnet,
-   grafonnet) become a `JsonnetLibrary` backed by an `OCIRepository`, or a
+1. **Move the libraries.** Shared, versioned libraries (`k8s-libsonnet`,
+   `grafonnet`) become a `JsonnetLibrary` backed by an `OCIRepository`, or a
    static OCI-mounted library on the operator. A project-local `lib/` becomes a
    `JsonnetLibrary` with inline `files`. The import alias is preserved either
    way.
